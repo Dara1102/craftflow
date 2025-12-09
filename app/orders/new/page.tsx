@@ -24,24 +24,18 @@ interface TierSize {
   shape: string
 }
 
-interface AirtableChoice {
-  id: string
+interface FieldOption {
+  id: number
   name: string
-  color?: string
 }
 
-interface AirtableOptions {
-  product: AirtableChoice[]
-  type: AirtableChoice[]
-  cakeSurface: AirtableChoice[]
-  design: AirtableChoice[]
-  size: AirtableChoice[]
-  servingSize: AirtableChoice[]
-  occasion: AirtableChoice[]
-  theme: AirtableChoice[]
-  colors: AirtableChoice[]
-  decorations: AirtableChoice[]
-  brands: AirtableChoice[]
+interface FieldOptions {
+  occasion: FieldOption[]
+  theme: FieldOption[]
+  color: FieldOption[]
+  cakeSurface: FieldOption[]
+  flavor: FieldOption[]
+  filling: FieldOption[]
 }
 
 interface DecorationTechnique {
@@ -87,6 +81,7 @@ export default function NewOrder() {
   const [theme, setTheme] = useState('')
   const [occasion, setOccasion] = useState('')
   const [colors, setColors] = useState('')
+  const [showColorDropdown, setShowColorDropdown] = useState(false)
 
   // Delivery details
   const [isDelivery, setIsDelivery] = useState(false)
@@ -114,20 +109,24 @@ export default function NewOrder() {
   const [customTopperFee, setCustomTopperFee] = useState('')
 
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const colorDropdownRef = useRef<HTMLDivElement>(null)
 
   const { data: tierSizes } = useSWR<TierSize[]>('/api/tier-sizes', fetcher)
   const { data: customers, mutate: mutateCustomers } = useSWR(
     customerSearch.length >= 2 ? `/api/customers?search=${encodeURIComponent(customerSearch)}` : null,
     fetcher
   )
-  const { data: airtableOptions } = useSWR<AirtableOptions>('/api/airtable/options', fetcher)
+  const { data: fieldOptions } = useSWR<FieldOptions>('/api/field-options', fetcher)
   const { data: decorations } = useSWR<DecorationTechnique[]>('/api/decorations', fetcher)
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowCustomerDropdown(false)
+      }
+      if (colorDropdownRef.current && !colorDropdownRef.current.contains(event.target as Node)) {
+        setShowColorDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -321,6 +320,89 @@ export default function NewOrder() {
     const tierSize = tierSizes?.find((ts) => ts.id === parseInt(tier.tierSizeId.toString()))
     return sum + (tierSize?.servings || 0)
   }, 0)
+
+  // Generate cake description summary
+  const getCakeDescription = () => {
+    const validTiers = tiers.filter(t => t.tierSizeId > 0)
+    if (validTiers.length === 0) return ''
+
+    const parts: string[] = []
+
+    // Tier count
+    if (validTiers.length > 1) {
+      parts.push(`${validTiers.length}-tier`)
+    }
+
+    // First tier flavor (assuming main flavor)
+    const mainFlavor = validTiers[0]?.flavor
+    if (mainFlavor) {
+      parts.push(mainFlavor.toLowerCase())
+    }
+
+    parts.push('cake')
+
+    // Finish type
+    const mainFinish = validTiers[0]?.finishType
+    if (mainFinish) {
+      parts.push(`with ${mainFinish.toLowerCase()} finish`)
+    }
+
+    // Decorations summary
+    if (selectedDecorations.length > 0) {
+      const decNames = selectedDecorations
+        .map(sd => decorations?.find(d => d.id === sd.decorationTechniqueId)?.name)
+        .filter(Boolean)
+        .slice(0, 2)
+      if (decNames.length > 0) {
+        parts.push(`+ ${decNames.join(', ')}`)
+        if (selectedDecorations.length > 2) {
+          parts.push(`+${selectedDecorations.length - 2} more`)
+        }
+      }
+    }
+
+    return parts.join(' ')
+  }
+
+  // Calculate price estimate
+  const calculateEstimate = () => {
+    let materialsCost = 0
+    let laborMinutes = 0
+
+    // Decoration costs
+    selectedDecorations.forEach(sd => {
+      const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
+      if (dec) {
+        materialsCost += parseFloat(dec.defaultCostPerUnit) * sd.quantity
+      }
+    })
+
+    // Custom topper fee
+    if (customTopperFee) {
+      materialsCost += parseFloat(customTopperFee)
+    }
+
+    // Labor hours (from estimate)
+    const hours = parseFloat(estimatedHours) || 0
+    laborMinutes = hours * 60
+
+    // Hourly rate (use $50/hr as default, can be made configurable)
+    const hourlyRate = 50
+    const laborCost = hours * hourlyRate
+
+    // Materials markup (2x for retail)
+    const materialsWithMarkup = materialsCost * 2
+
+    return {
+      materialsCost,
+      laborCost,
+      laborMinutes,
+      total: materialsWithMarkup + laborCost
+    }
+  }
+
+  const estimate = calculateEstimate()
+  const cakeDescription = getCakeDescription()
 
   return (
     <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -517,12 +599,12 @@ export default function NewOrder() {
             </div>
           </div>
 
-          {/* Event Details */}
+          {/* Order Details */}
           <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
             <div className="md:grid md:grid-cols-3 md:gap-6">
               <div className="md:col-span-1">
-                <h3 className="text-lg font-medium leading-6 text-gray-900">Event Details</h3>
-                <p className="mt-1 text-sm text-gray-600">Information about the event and design.</p>
+                <h3 className="text-lg font-medium leading-6 text-gray-900">Order Details</h3>
+                <p className="mt-1 text-sm text-gray-600">Date, occasion, theme, and colors.</p>
               </div>
               <div className="mt-5 md:mt-0 md:col-span-2">
                 <div className="grid grid-cols-6 gap-6">
@@ -553,7 +635,7 @@ export default function NewOrder() {
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                     >
                       <option value="">Select occasion...</option>
-                      {airtableOptions?.occasion?.map(opt => (
+                      {fieldOptions?.occasion?.map(opt => (
                         <option key={opt.id} value={opt.name}>{opt.name}</option>
                       ))}
                     </select>
@@ -571,45 +653,84 @@ export default function NewOrder() {
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                     >
                       <option value="">Select theme...</option>
-                      {airtableOptions?.theme?.map(opt => (
+                      {fieldOptions?.theme?.map(opt => (
                         <option key={opt.id} value={opt.name}>{opt.name}</option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="col-span-6 sm:col-span-3">
+                  <div className="col-span-6 sm:col-span-3" ref={colorDropdownRef}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Colors
                     </label>
-                    <div className="flex flex-wrap gap-1">
-                      {airtableOptions?.colors?.map(color => {
-                        const selectedColors = colors.split(',').map(c => c.trim()).filter(Boolean)
-                        const isSelected = selectedColors.includes(color.name)
-                        return (
-                          <button
-                            key={color.id}
-                            type="button"
-                            onClick={() => {
-                              if (isSelected) {
-                                setColors(selectedColors.filter(c => c !== color.name).join(', '))
-                              } else {
-                                setColors([...selectedColors, color.name].join(', '))
-                              }
-                            }}
-                            className={`px-2 py-1 text-xs rounded-full border transition ${
-                              isSelected
-                                ? 'bg-pink-100 border-pink-500 text-pink-700'
-                                : 'bg-white border-gray-300 text-gray-600 hover:border-pink-300'
-                            }`}
-                          >
-                            {color.name}
-                          </button>
-                        )
-                      })}
+                    <div className="relative">
+                      {/* Selected colors display */}
+                      <div
+                        onClick={() => setShowColorDropdown(!showColorDropdown)}
+                        className="min-h-[38px] px-3 py-2 border border-gray-300 rounded-md bg-white cursor-pointer focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        {colors ? (
+                          <div className="flex flex-wrap gap-1">
+                            {colors.split(',').map(c => c.trim()).filter(Boolean).map((colorName, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-pink-100 text-pink-800"
+                              >
+                                {colorName}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    const selectedColors = colors.split(',').map(c => c.trim()).filter(Boolean)
+                                    setColors(selectedColors.filter(c => c !== colorName).join(', '))
+                                  }}
+                                  className="ml-1 text-pink-600 hover:text-pink-800"
+                                >
+                                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-sm">Click to select colors...</span>
+                        )}
+                      </div>
+
+                      {/* Color dropdown */}
+                      {showColorDropdown && (
+                        <div className="absolute z-20 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 max-h-60 overflow-auto">
+                          {fieldOptions?.color?.map(colorOpt => {
+                            const selectedColors = colors.split(',').map(c => c.trim()).filter(Boolean)
+                            const isSelected = selectedColors.includes(colorOpt.name)
+                            return (
+                              <button
+                                key={colorOpt.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setColors(selectedColors.filter(c => c !== colorOpt.name).join(', '))
+                                  } else {
+                                    setColors([...selectedColors, colorOpt.name].join(', '))
+                                  }
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-pink-50 flex items-center justify-between ${
+                                  isSelected ? 'bg-pink-50 text-pink-700' : 'text-gray-700'
+                                }`}
+                              >
+                                <span>{colorOpt.name}</span>
+                                {isSelected && (
+                                  <svg className="h-4 w-4 text-pink-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {colors && (
-                      <p className="mt-1 text-xs text-gray-500">Selected: {colors}</p>
-                    )}
                   </div>
 
                   <div className="col-span-6 sm:col-span-3">
@@ -780,25 +901,31 @@ export default function NewOrder() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700">Flavor</label>
-                        <input
-                          type="text"
+                        <select
                           value={tier.flavor}
                           onChange={(e) => updateTier(index, 'flavor', e.target.value)}
-                          className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                          placeholder="Vanilla, Chocolate..."
+                          className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                           required
-                        />
+                        >
+                          <option value="">Select flavor...</option>
+                          {fieldOptions?.flavor?.map(opt => (
+                            <option key={opt.id} value={opt.name}>{opt.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700">Filling</label>
-                        <input
-                          type="text"
+                        <select
                           value={tier.filling}
                           onChange={(e) => updateTier(index, 'filling', e.target.value)}
-                          className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                          placeholder="Strawberry, Cream..."
+                          className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                           required
-                        />
+                        >
+                          <option value="">Select filling...</option>
+                          {fieldOptions?.filling?.map(opt => (
+                            <option key={opt.id} value={opt.name}>{opt.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700">Finish Type</label>
@@ -809,7 +936,7 @@ export default function NewOrder() {
                           required
                         >
                           <option value="">Select finish...</option>
-                          {airtableOptions?.cakeSurface?.map(opt => (
+                          {fieldOptions?.cakeSurface?.map(opt => (
                             <option key={opt.id} value={opt.name}>{opt.name}</option>
                           ))}
                         </select>
@@ -1051,6 +1178,69 @@ export default function NewOrder() {
                       className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                       placeholder="Design details, special requests, etc."
                     />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Order Summary & Estimate */}
+          <div className="bg-gradient-to-r from-pink-50 to-purple-50 shadow px-4 py-5 sm:rounded-lg sm:p-6 border-2 border-pink-200">
+            <div className="md:grid md:grid-cols-3 md:gap-6">
+              <div className="md:col-span-1">
+                <h3 className="text-lg font-medium leading-6 text-gray-900">Order Summary</h3>
+                <p className="mt-1 text-sm text-gray-600">Review your order and estimate.</p>
+              </div>
+              <div className="mt-5 md:mt-0 md:col-span-2">
+                {/* Cake Description */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cake Description</label>
+                  <p className="text-lg font-medium text-gray-900 capitalize">
+                    {cakeDescription || <span className="text-gray-400 italic">Add tiers to see description...</span>}
+                  </p>
+                </div>
+
+                {/* Quick Stats */}
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="bg-white rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-pink-600">{totalServings}</p>
+                    <p className="text-xs text-gray-500">Servings</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-pink-600">{tiers.filter(t => t.tierSizeId > 0).length}</p>
+                    <p className="text-xs text-gray-500">Tier{tiers.filter(t => t.tierSizeId > 0).length !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-pink-600">{estimatedHours}h</p>
+                    <p className="text-xs text-gray-500">Est. Labor</p>
+                  </div>
+                </div>
+
+                {/* Price Estimate */}
+                <div className="bg-white rounded-lg p-4 border border-pink-100">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Price Estimate</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Decoration Materials</span>
+                      <span className="text-gray-900">${estimate.materialsCost.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Materials (2x markup)</span>
+                      <span className="text-gray-900">${(estimate.materialsCost * 2).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Labor ({estimatedHours}h @ $50/hr)</span>
+                      <span className="text-gray-900">${estimate.laborCost.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t border-gray-200 pt-2 mt-2">
+                      <div className="flex justify-between text-lg font-bold">
+                        <span className="text-gray-900">Estimated Total</span>
+                        <span className="text-pink-600">${estimate.total.toFixed(2)}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        * Does not include tier base costs. View full costing after order creation.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

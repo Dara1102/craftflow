@@ -224,3 +224,17 @@ model Setting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Field options for dropdowns (occasions, themes, colors, etc.)
+model FieldOption {
+  id        Int      @id @default(autoincrement())
+  category  String   // 'occasion', 'theme', 'color', 'cakeSurface', 'flavor', 'filling'
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([category, name])
+  @@index([category])
+}
