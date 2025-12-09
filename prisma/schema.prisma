@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Ingredient {
+  id                Int                 @id @default(autoincrement())
+  name              String              @unique
+  unit              String
+  costPerUnit       Decimal             @db.Decimal(10, 2)
+  recipeIngredients RecipeIngredient[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+}
+
+enum RecipeType {
+  BATTER
+  FILLING
+  FROSTING
+}
+
+model Recipe {
+  id                Int                 @id @default(autoincrement())
+  name              String              @unique
+  type              RecipeType
+  yieldDescription  String
+  recipeIngredients RecipeIngredient[]
+  batterTiers       TierSize[]          @relation("BatterRecipe")
+  frostingTiers     TierSize[]          @relation("FrostingRecipe")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+}
+
+model RecipeIngredient {
+  id           Int        @id @default(autoincrement())
+  recipeId     Int
+  ingredientId Int
+  quantity     Decimal    @db.Decimal(10, 3)
+  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([recipeId, ingredientId])
+}
+
+model TierSize {
+  id                  Int        @id @default(autoincrement())
+  name                String     @unique
+  shape               String     @default("Round")
+  diameterCm          Decimal    @db.Decimal(10, 2)
+  lengthCm            Decimal?   @db.Decimal(10, 2)
+  heightCm            Decimal    @db.Decimal(10, 2)
+  servings            Int
+  batterRecipeId      Int
+  batterMultiplier    Decimal    @db.Decimal(10, 3)
+  frostingRecipeId    Int?
+  frostingMultiplier  Decimal?   @db.Decimal(10, 3)
+  batterRecipe        Recipe     @relation("BatterRecipe", fields: [batterRecipeId], references: [id])
+  frostingRecipe      Recipe?    @relation("FrostingRecipe", fields: [frostingRecipeId], references: [id])
+  cakeTiers           CakeTier[]
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+}
+
+enum SkillLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum MaterialGrade {
+  STANDARD
+  PREMIUM
+  LUXURY
+}
+
+enum DecorationUnit {
+  CAKE
+  TIER
+  SET
+}
+
+model DecorationTechnique {
+  id                   Int            @id @default(autoincrement())
+  sku                  String         @unique
+  name                 String
+  category             String
+  subcategory          String
+  skillLevel           SkillLevel
+  description          String
+  unit                 DecorationUnit
+  baseCakeSize         String         @default("6\" round")  // Base cake size/shape these costs are calculated for
+  defaultCostPerUnit   Decimal        @db.Decimal(10, 2)
+  laborMinutes         Int
+  wasteFactorPercent   Int
+  materialGrade        MaterialGrade
+  toolsRequired        String
+  imageReference       String?
+  isActive             Boolean        @default(true)
+  orderDecorations     OrderDecoration[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+}
+
+model OrderDecoration {
+  id                    Int                 @id @default(autoincrement())
+  cakeOrderId           Int
+  decorationTechniqueId Int
+  quantity              Int                 @default(1)
+  notes                 String?
+  cakeOrder             CakeOrder           @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+  decorationTechnique   DecorationTechnique @relation(fields: [decorationTechniqueId], references: [id])
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@unique([cakeOrderId, decorationTechniqueId])
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CakeType {
+  ROUND
+  SHEET
+  TIERED
+  SCULPTED
+  CUPCAKES
+  OTHER
+}
+
+model Customer {
+  id          Int         @id @default(autoincrement())
+  name        String
+  company     String?
+  email       String?
+  phone       String?
+  address     String?
+  birthday    DateTime?
+  notes       String?
+  orders      CakeOrder[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([name])
+  @@index([email])
+  @@index([phone])
+  @@index([company])
+}
+
+model CakeOrder {
+  id               Int               @id @default(autoincrement())
+  customerId       Int?
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  customerName     String?           // Legacy field for backwards compatibility
+  eventDate        DateTime
+
+  // Cake details
+  cakeType         CakeType?
+  size             String?           // Auto-calculated from tiers, e.g., "6 inch", "8 inch", "2-tier"
+  servingsTarget   Int?
+
+  // Event details
+  theme            String?
+  occasion         String?
+  colors           String?           // Comma-separated or JSON array of colors
+
+  // Delivery details
+  isDelivery       Boolean           @default(false)
+  deliveryContact  String?
+  deliveryPhone    String?
+  deliveryTime     DateTime?
+  deliveryAddress  String?
+
+  // Labor
+  estimatedHours   Decimal           @db.Decimal(10, 2)  // Auto-calculated but editable
+
+  // Topper
+  topperType       String?           // 'age', 'happy_birthday', 'its_a_boy', 'its_a_girl', 'initials', 'congratulations', 'custom', 'none'
+  topperText       String?           // Custom text for topper (e.g., initials, custom message)
+  customTopperFee  Decimal?          @db.Decimal(10, 2)  // Fee for custom toppers
+
+  notes            String?
+  status           OrderStatus       @default(DRAFT)
+  cakeTiers        CakeTier[]
+  orderDecorations OrderDecoration[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([customerId])
+  @@index([eventDate])
+  @@index([status])
+}
+
+model CakeTier {
+  id          Int       @id @default(autoincrement())
+  cakeOrderId Int
+  tierIndex   Int
+  tierSizeId  Int
+  flavor      String
+  filling     String
+  finishType  String
+  cakeOrder   CakeOrder @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+  tierSize    TierSize  @relation(fields: [tierSizeId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([cakeOrderId, tierIndex])
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

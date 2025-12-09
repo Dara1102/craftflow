@@ -1,0 +1,344 @@
+import { prisma } from '@/lib/db'
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { revalidatePath } from 'next/cache'
+
+const skillLevels = ['LOW', 'MEDIUM', 'HIGH'] as const
+const materialGrades = ['STANDARD', 'PREMIUM', 'LUXURY'] as const
+const units = ['CAKE', 'TIER', 'SET'] as const
+
+export default function NewDecorationPage() {
+  async function createDecoration(formData: FormData) {
+    'use server'
+
+    const data = {
+      sku: formData.get('sku') as string,
+      name: formData.get('name') as string,
+      category: formData.get('category') as string,
+      subcategory: formData.get('subcategory') as string,
+      skillLevel: formData.get('skillLevel') as 'LOW' | 'MEDIUM' | 'HIGH',
+      description: formData.get('description') as string,
+      unit: formData.get('unit') as 'CAKE' | 'TIER' | 'SET',
+      baseCakeSize: formData.get('baseCakeSize') as string,
+      defaultCostPerUnit: parseFloat(formData.get('defaultCostPerUnit') as string),
+      laborMinutes: parseInt(formData.get('laborMinutes') as string),
+      wasteFactorPercent: parseInt(formData.get('wasteFactorPercent') as string),
+      materialGrade: formData.get('materialGrade') as 'STANDARD' | 'PREMIUM' | 'LUXURY',
+      toolsRequired: formData.get('toolsRequired') as string,
+      imageReference: (formData.get('imageReference') as string) || null,
+      isActive: formData.get('isActive') === 'true',
+    }
+
+    await prisma.decorationTechnique.create({
+      data,
+    })
+
+    revalidatePath('/admin/decorations')
+    redirect('/admin/decorations')
+  }
+
+  return (
+    <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
+      <div className="mb-6">
+        <Link
+          href="/admin/decorations"
+          className="text-sm text-gray-500 hover:text-gray-700 flex items-center"
+        >
+          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Decorations
+        </Link>
+      </div>
+
+      <div className="bg-white shadow rounded-lg">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h1 className="text-2xl font-bold text-gray-900">Add New Decoration Technique</h1>
+          <p className="mt-1 text-sm text-gray-500">Create a new decoration technique for costing</p>
+        </div>
+
+        <form action={createDecoration} className="p-6 space-y-6">
+          {/* Basic Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label htmlFor="sku" className="block text-sm font-medium text-gray-700">
+                SKU
+              </label>
+              <input
+                type="text"
+                name="sku"
+                id="sku"
+                placeholder="DEC-EXAMPLE-001"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Unique identifier for this technique</p>
+            </div>
+
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+                Name
+              </label>
+              <input
+                type="text"
+                name="name"
+                id="name"
+                placeholder="Chocolate Drip"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="category" className="block text-sm font-medium text-gray-700">
+                Category
+              </label>
+              <input
+                type="text"
+                name="category"
+                id="category"
+                placeholder="Exterior Finish"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="subcategory" className="block text-sm font-medium text-gray-700">
+                Subcategory
+              </label>
+              <input
+                type="text"
+                name="subcategory"
+                id="subcategory"
+                placeholder="Drip"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+              Description
+            </label>
+            <textarea
+              name="description"
+              id="description"
+              rows={3}
+              placeholder="A classic chocolate ganache drip applied to cake edges..."
+              required
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+            />
+          </div>
+
+          {/* Skill, Grade, Unit */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label htmlFor="skillLevel" className="block text-sm font-medium text-gray-700">
+                Skill Level
+              </label>
+              <select
+                name="skillLevel"
+                id="skillLevel"
+                defaultValue="MEDIUM"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              >
+                {skillLevels.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Decorator experience needed</p>
+            </div>
+
+            <div>
+              <label htmlFor="materialGrade" className="block text-sm font-medium text-gray-700">
+                Material Grade
+              </label>
+              <select
+                name="materialGrade"
+                id="materialGrade"
+                defaultValue="STANDARD"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              >
+                {materialGrades.map((grade) => (
+                  <option key={grade} value={grade}>
+                    {grade}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Quality tier of materials</p>
+            </div>
+
+            <div>
+              <label htmlFor="unit" className="block text-sm font-medium text-gray-700">
+                Unit
+              </label>
+              <select
+                name="unit"
+                id="unit"
+                defaultValue="CAKE"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              >
+                {units.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit.charAt(0) + unit.slice(1).toLowerCase()}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">How this technique is priced</p>
+            </div>
+          </div>
+
+          {/* Cost & Labor */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div>
+              <label htmlFor="baseCakeSize" className="block text-sm font-medium text-gray-700">
+                Base Cake Size
+              </label>
+              <select
+                name="baseCakeSize"
+                id="baseCakeSize"
+                defaultValue='6" round'
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              >
+                <optgroup label="Round">
+                  {['4" round', '5" round', '6" round', '7" round', '8" round', '9" round', '10" round', '12" round', '14" round', '16" round'].map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Square (uses ~25% more material)">
+                  {['6" square', '8" square', '10" square', '12" square', '14" square'].map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Sheet/Rectangle">
+                  {['1/4 sheet (9×13")', '1/2 sheet (11×15")', 'Full sheet (18×24")', '1/4 slab (12×18")'].map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </optgroup>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Cost/labor based on this size</p>
+            </div>
+
+            <div>
+              <label htmlFor="defaultCostPerUnit" className="block text-sm font-medium text-gray-700">
+                Material Cost ($)
+              </label>
+              <input
+                type="number"
+                name="defaultCostPerUnit"
+                id="defaultCostPerUnit"
+                step="0.01"
+                min="0"
+                placeholder="10.00"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Materials only, not labor</p>
+            </div>
+
+            <div>
+              <label htmlFor="laborMinutes" className="block text-sm font-medium text-gray-700">
+                Labor (minutes)
+              </label>
+              <input
+                type="number"
+                name="laborMinutes"
+                id="laborMinutes"
+                min="0"
+                placeholder="30"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Time to complete technique</p>
+            </div>
+
+            <div>
+              <label htmlFor="wasteFactorPercent" className="block text-sm font-medium text-gray-700">
+                Waste Factor (%)
+              </label>
+              <input
+                type="number"
+                name="wasteFactorPercent"
+                id="wasteFactorPercent"
+                min="0"
+                max="100"
+                placeholder="10"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Extra material needed</p>
+            </div>
+          </div>
+
+          {/* Tools & Image */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label htmlFor="toolsRequired" className="block text-sm font-medium text-gray-700">
+                Tools Required
+              </label>
+              <input
+                type="text"
+                name="toolsRequired"
+                id="toolsRequired"
+                placeholder="squeeze bottle, offset spatula"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Comma-separated list</p>
+            </div>
+
+            <div>
+              <label htmlFor="imageReference" className="block text-sm font-medium text-gray-700">
+                Image Reference
+              </label>
+              <input
+                type="text"
+                name="imageReference"
+                id="imageReference"
+                placeholder="images/decorating/example.jpg"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Path to reference image (optional)</p>
+            </div>
+          </div>
+
+          {/* Active Status */}
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              name="isActive"
+              id="isActive"
+              value="true"
+              defaultChecked
+              className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300 rounded"
+            />
+            <label htmlFor="isActive" className="ml-2 block text-sm text-gray-900">
+              Active (available for use in orders)
+            </label>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end pt-4 border-t border-gray-200 space-x-3">
+            <Link
+              href="/admin/decorations"
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              className="px-4 py-2 text-sm font-medium text-white bg-pink-600 border border-transparent rounded-md hover:bg-pink-700"
+            >
+              Create Technique
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
