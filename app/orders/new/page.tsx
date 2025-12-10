@@ -53,6 +53,38 @@ interface SelectedDecoration {
   notes?: string
 }
 
+interface DeliveryZone {
+  id: number
+  name: string
+  description: string | null
+  minDistance: number | null
+  maxDistance: number | null
+  baseFee: number
+  perMileFee: number | null
+}
+
+interface DeliveryStartPoint {
+  id: number
+  name: string
+  address: string
+  latitude: number | null
+  longitude: number | null
+  isDefault: boolean
+}
+
+interface PlaceResult {
+  placeId: string
+  description: string
+  mainText: string
+  secondaryText: string
+}
+
+interface Settings {
+  LaborRatePerHour: string
+  MarkupPercent: string
+  [key: string]: string
+}
+
 export default function NewOrder() {
   // Customer state
   const [customerId, setCustomerId] = useState<number | null>(null)
@@ -85,10 +117,18 @@ export default function NewOrder() {
 
   // Delivery details
   const [isDelivery, setIsDelivery] = useState(false)
+  const [deliveryZoneId, setDeliveryZoneId] = useState<number | null>(null)
+  const [deliveryDistance, setDeliveryDistance] = useState('')
+  const [deliveryStartPointId, setDeliveryStartPointId] = useState<number | null>(null)
   const [deliveryContact, setDeliveryContact] = useState('')
   const [deliveryPhone, setDeliveryPhone] = useState('')
   const [deliveryTime, setDeliveryTime] = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [venueSearch, setVenueSearch] = useState('')
+  const [venueResults, setVenueResults] = useState<PlaceResult[]>([])
+  const [showVenueDropdown, setShowVenueDropdown] = useState(false)
+  const [selectedVenueCoords, setSelectedVenueCoords] = useState<{lat: number, lng: number} | null>(null)
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false)
 
   // Labor (auto-calculated but editable)
   const [estimatedHours, setEstimatedHours] = useState('0')
@@ -110,6 +150,7 @@ export default function NewOrder() {
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorDropdownRef = useRef<HTMLDivElement>(null)
+  const venueDropdownRef = useRef<HTMLDivElement>(null)
 
   const { data: tierSizes } = useSWR<TierSize[]>('/api/tier-sizes', fetcher)
   const { data: customers, mutate: mutateCustomers } = useSWR(
@@ -118,6 +159,9 @@ export default function NewOrder() {
   )
   const { data: fieldOptions } = useSWR<FieldOptions>('/api/field-options', fetcher)
   const { data: decorations } = useSWR<DecorationTechnique[]>('/api/decorations', fetcher)
+  const { data: deliveryZones } = useSWR<DeliveryZone[]>('/api/delivery-zones', fetcher)
+  const { data: deliveryStartPoints } = useSWR<DeliveryStartPoint[]>('/api/delivery-start-points', fetcher)
+  const { data: settings } = useSWR<Settings>('/api/settings', fetcher)
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -128,10 +172,88 @@ export default function NewOrder() {
       if (colorDropdownRef.current && !colorDropdownRef.current.contains(event.target as Node)) {
         setShowColorDropdown(false)
       }
+      if (venueDropdownRef.current && !venueDropdownRef.current.contains(event.target as Node)) {
+        setShowVenueDropdown(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Set default start point when loaded
+  useEffect(() => {
+    if (deliveryStartPoints && deliveryStartPoints.length > 0 && !deliveryStartPointId) {
+      const defaultPoint = deliveryStartPoints.find(sp => sp.isDefault) || deliveryStartPoints[0]
+      setDeliveryStartPointId(defaultPoint.id)
+    }
+  }, [deliveryStartPoints, deliveryStartPointId])
+
+  // Venue search
+  useEffect(() => {
+    if (venueSearch.length < 3) {
+      setVenueResults([])
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/places/search?query=${encodeURIComponent(venueSearch)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setVenueResults(data)
+          setShowVenueDropdown(true)
+        }
+      } catch (error) {
+        console.error('Failed to search venues:', error)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [venueSearch])
+
+  // Calculate distance when venue is selected
+  const calculateDeliveryDistance = async (destLat: number, destLng: number) => {
+    const startPoint = deliveryStartPoints?.find(sp => sp.id === deliveryStartPointId)
+    if (!startPoint?.latitude || !startPoint?.longitude) {
+      console.warn('No start point coordinates available')
+      return
+    }
+
+    setIsCalculatingDistance(true)
+    try {
+      const res = await fetch(
+        `/api/places/distance?originLat=${startPoint.latitude}&originLng=${startPoint.longitude}&destLat=${destLat}&destLng=${destLng}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setDeliveryDistance(data.distanceMiles.toString())
+      }
+    } catch (error) {
+      console.error('Failed to calculate distance:', error)
+    } finally {
+      setIsCalculatingDistance(false)
+    }
+  }
+
+  const handleVenueSelect = async (place: PlaceResult) => {
+    setVenueSearch(place.mainText)
+    setShowVenueDropdown(false)
+
+    try {
+      const res = await fetch(`/api/places/details?placeId=${place.placeId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setDeliveryAddress(data.address)
+        if (data.latitude && data.longitude) {
+          setSelectedVenueCoords({ lat: data.latitude, lng: data.longitude })
+          await calculateDeliveryDistance(data.latitude, data.longitude)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to get place details:', error)
+      setDeliveryAddress(place.description)
+    }
+  }
 
   // Auto-calculate size and estimated hours from tiers
   useEffect(() => {
@@ -298,6 +420,8 @@ export default function NewOrder() {
       occasion: occasion || undefined,
       colors: colors || undefined,
       isDelivery,
+      deliveryZoneId: isDelivery ? deliveryZoneId : null,
+      deliveryDistance: isDelivery && deliveryDistance ? parseFloat(deliveryDistance) : null,
       deliveryContact: isDelivery ? deliveryContact : undefined,
       deliveryPhone: isDelivery ? deliveryPhone : undefined,
       deliveryTime: isDelivery && deliveryTime ? deliveryTime : undefined,
@@ -369,6 +493,10 @@ export default function NewOrder() {
     let materialsCost = 0
     let laborMinutes = 0
 
+    // Get settings values (same defaults as lib/costing.ts)
+    const hourlyRate = settings ? parseFloat(settings.LaborRatePerHour) : 20
+    const markupPercent = settings ? parseFloat(settings.MarkupPercent) : 0.7
+
     // Decoration costs
     selectedDecorations.forEach(sd => {
       const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
@@ -386,18 +514,21 @@ export default function NewOrder() {
     const hours = parseFloat(estimatedHours) || 0
     laborMinutes = hours * 60
 
-    // Hourly rate (use $50/hr as default, can be made configurable)
-    const hourlyRate = 50
+    // Labor cost using settings rate
     const laborCost = hours * hourlyRate
 
-    // Materials markup (2x for retail)
-    const materialsWithMarkup = materialsCost * 2
+    // Calculate suggested price using same formula as costing report:
+    // (materialsCost + laborCost) * (1 + markupPercent)
+    const totalCost = materialsCost + laborCost
+    const suggestedPrice = totalCost * (1 + markupPercent)
 
     return {
       materialsCost,
       laborCost,
       laborMinutes,
-      total: materialsWithMarkup + laborCost
+      hourlyRate,
+      markupPercent,
+      total: suggestedPrice
     }
   }
 
@@ -744,7 +875,7 @@ export default function NewOrder() {
                       onChange={(e) => setStatus(e.target.value as OrderStatus)}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                     >
-                      <option value={OrderStatus.DRAFT}>Draft</option>
+                      <option value={OrderStatus.DRAFT}>Quote</option>
                       <option value={OrderStatus.CONFIRMED}>Confirmed</option>
                       <option value={OrderStatus.IN_PROGRESS}>In Progress</option>
                       <option value={OrderStatus.COMPLETED}>Completed</option>
@@ -781,7 +912,145 @@ export default function NewOrder() {
 
                   {isDelivery && (
                     <div className="grid grid-cols-6 gap-4 pt-4 border-t border-gray-200">
+                      {/* Delivery Zone */}
                       <div className="col-span-6 sm:col-span-3">
+                        <label htmlFor="deliveryZoneId" className="block text-sm font-medium text-gray-700">
+                          Delivery Zone
+                        </label>
+                        <select
+                          id="deliveryZoneId"
+                          value={deliveryZoneId || ''}
+                          onChange={(e) => setDeliveryZoneId(e.target.value ? parseInt(e.target.value) : null)}
+                          className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                        >
+                          <option value="">Select zone...</option>
+                          {deliveryZones?.map((zone) => (
+                            <option key={zone.id} value={zone.id}>
+                              {zone.name} - ${zone.baseFee.toFixed(2)}
+                              {zone.perMileFee ? ` + $${zone.perMileFee.toFixed(2)}/mi` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {deliveryZoneId && deliveryZones && (
+                          <p className="mt-1 text-xs text-gray-500">
+                            {deliveryZones.find(z => z.id === deliveryZoneId)?.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Start Point */}
+                      <div className="col-span-6 sm:col-span-3">
+                        <label htmlFor="deliveryStartPointId" className="block text-sm font-medium text-gray-700">
+                          Starting From
+                        </label>
+                        <select
+                          id="deliveryStartPointId"
+                          value={deliveryStartPointId || ''}
+                          onChange={(e) => {
+                            setDeliveryStartPointId(e.target.value ? parseInt(e.target.value) : null)
+                            // Recalculate distance if we have venue coords
+                            if (selectedVenueCoords && e.target.value) {
+                              const newStartPoint = deliveryStartPoints?.find(sp => sp.id === parseInt(e.target.value))
+                              if (newStartPoint?.latitude && newStartPoint?.longitude) {
+                                calculateDeliveryDistance(selectedVenueCoords.lat, selectedVenueCoords.lng)
+                              }
+                            }
+                          }}
+                          className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                        >
+                          <option value="">Select start point...</option>
+                          {deliveryStartPoints?.map((sp) => (
+                            <option key={sp.id} value={sp.id}>
+                              {sp.name} {sp.isDefault ? '(Default)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {deliveryStartPointId && deliveryStartPoints && (
+                          <p className="mt-1 text-xs text-gray-500">
+                            {deliveryStartPoints.find(sp => sp.id === deliveryStartPointId)?.address}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Venue Search */}
+                      <div className="col-span-6" ref={venueDropdownRef}>
+                        <label htmlFor="venueSearch" className="block text-sm font-medium text-gray-700">
+                          Search Venue/Location
+                        </label>
+                        <div className="relative mt-1">
+                          <input
+                            type="text"
+                            id="venueSearch"
+                            value={venueSearch}
+                            onChange={(e) => setVenueSearch(e.target.value)}
+                            placeholder="Search for venue, restaurant, address..."
+                            className="focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                          />
+                          {showVenueDropdown && venueResults.length > 0 && (
+                            <ul className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+                              {venueResults.map((place) => (
+                                <li
+                                  key={place.placeId}
+                                  onClick={() => handleVenueSelect(place)}
+                                  className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-pink-50"
+                                >
+                                  <div className="font-medium text-gray-900">{place.mainText}</div>
+                                  <div className="text-gray-500 text-xs">{place.secondaryText}</div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">
+                          Type a venue name to auto-fill address and calculate distance
+                        </p>
+                      </div>
+
+                      {/* Delivery Address */}
+                      <div className="col-span-6">
+                        <label htmlFor="deliveryAddress" className="block text-sm font-medium text-gray-700">
+                          Delivery Address
+                        </label>
+                        <textarea
+                          name="deliveryAddress"
+                          id="deliveryAddress"
+                          rows={2}
+                          value={deliveryAddress}
+                          onChange={(e) => setDeliveryAddress(e.target.value)}
+                          className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                          placeholder="Full delivery address"
+                        />
+                      </div>
+
+                      {/* Distance */}
+                      <div className="col-span-6 sm:col-span-2">
+                        <label htmlFor="deliveryDistance" className="block text-sm font-medium text-gray-700">
+                          Distance (miles)
+                        </label>
+                        <div className="relative mt-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            id="deliveryDistance"
+                            value={deliveryDistance}
+                            onChange={(e) => setDeliveryDistance(e.target.value)}
+                            className="focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md pr-12"
+                            placeholder="0.0"
+                          />
+                          {isCalculatingDistance && (
+                            <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                              <svg className="animate-spin h-4 w-4 text-pink-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Contact Name */}
+                      <div className="col-span-6 sm:col-span-2">
                         <label htmlFor="deliveryContact" className="block text-sm font-medium text-gray-700">
                           Contact Name
                         </label>
@@ -795,7 +1064,8 @@ export default function NewOrder() {
                         />
                       </div>
 
-                      <div className="col-span-6 sm:col-span-3">
+                      {/* Contact Phone */}
+                      <div className="col-span-6 sm:col-span-2">
                         <label htmlFor="deliveryPhone" className="block text-sm font-medium text-gray-700">
                           Contact Phone
                         </label>
@@ -809,6 +1079,7 @@ export default function NewOrder() {
                         />
                       </div>
 
+                      {/* Delivery Time */}
                       <div className="col-span-6 sm:col-span-3">
                         <label htmlFor="deliveryTime" className="block text-sm font-medium text-gray-700">
                           Delivery Time
@@ -823,19 +1094,28 @@ export default function NewOrder() {
                         />
                       </div>
 
-                      <div className="col-span-6">
-                        <label htmlFor="deliveryAddress" className="block text-sm font-medium text-gray-700">
-                          Delivery Address
-                        </label>
-                        <textarea
-                          name="deliveryAddress"
-                          id="deliveryAddress"
-                          rows={2}
-                          value={deliveryAddress}
-                          onChange={(e) => setDeliveryAddress(e.target.value)}
-                          className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                        />
-                      </div>
+                      {/* Delivery Fee Preview */}
+                      {deliveryZoneId && deliveryZones && (
+                        <div className="col-span-6 bg-gray-50 rounded-md p-3">
+                          <div className="text-sm text-gray-700">
+                            <span className="font-medium">Estimated Delivery Fee: </span>
+                            {(() => {
+                              const zone = deliveryZones.find(z => z.id === deliveryZoneId)
+                              if (!zone) return '$0.00'
+                              let fee = zone.baseFee
+                              if (zone.perMileFee && deliveryDistance) {
+                                fee += zone.perMileFee * parseFloat(deliveryDistance)
+                              }
+                              return `$${fee.toFixed(2)}`
+                            })()}
+                            {deliveryDistance && (
+                              <span className="text-gray-500 ml-2">
+                                ({deliveryDistance} miles)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1225,20 +1505,24 @@ export default function NewOrder() {
                       <span className="text-gray-900">${estimate.materialsCost.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Materials (2x markup)</span>
-                      <span className="text-gray-900">${(estimate.materialsCost * 2).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Labor ({estimatedHours}h @ $50/hr)</span>
+                      <span className="text-gray-600">Labor ({estimatedHours}h @ ${estimate.hourlyRate}/hr)</span>
                       <span className="text-gray-900">${estimate.laborCost.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span>Subtotal (before markup)</span>
+                      <span>${(estimate.materialsCost + estimate.laborCost).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span>Markup ({(estimate.markupPercent * 100).toFixed(0)}%)</span>
+                      <span>+${((estimate.materialsCost + estimate.laborCost) * estimate.markupPercent).toFixed(2)}</span>
                     </div>
                     <div className="border-t border-gray-200 pt-2 mt-2">
                       <div className="flex justify-between text-lg font-bold">
-                        <span className="text-gray-900">Estimated Total</span>
+                        <span className="text-gray-900">Suggested Price</span>
                         <span className="text-pink-600">${estimate.total.toFixed(2)}</span>
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
-                        * Does not include tier base costs. View full costing after order creation.
+                        * Does not include tier ingredient costs or delivery. View full costing after order creation.
                       </p>
                     </div>
                   </div>

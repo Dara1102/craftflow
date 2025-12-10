@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db'
 export default async function Dashboard() {
   const orders = await prisma.cakeOrder.findMany({
     include: {
+      customer: true,
       cakeTiers: {
         include: {
           tierSize: true
@@ -74,7 +75,7 @@ export default async function Dashboard() {
                 {ordersWithCosting.map((order) => (
                   <tr key={order.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {order.customerName}
+                      {order.customer?.name || order.customerName || 'Unknown'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(order.eventDate).toLocaleDateString()}
@@ -91,7 +92,7 @@ export default async function Dashboard() {
                           ? 'bg-green-100 text-green-800'
                           : 'bg-yellow-100 text-yellow-800'
                       }`}>
-                        {order.status}
+                        {order.status === 'DRAFT' ? 'Quote' : order.status}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">

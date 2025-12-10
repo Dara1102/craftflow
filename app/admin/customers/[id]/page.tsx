@@ -492,7 +492,7 @@ export default function CustomerDetailPage() {
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[order.status] || 'bg-gray-100 text-gray-800'}`}>
-                                {order.status}
+                                {order.status === 'DRAFT' ? 'Quote' : order.status}
                               </span>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">

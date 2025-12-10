@@ -21,6 +21,8 @@ export interface CreateOrderData {
 
   // Delivery details
   isDelivery?: boolean
+  deliveryZoneId?: number | null
+  deliveryDistance?: number | null
   deliveryContact?: string
   deliveryPhone?: string
   deliveryTime?: string
@@ -67,6 +69,8 @@ export async function createOrder(data: CreateOrderData) {
 
       // Delivery details
       isDelivery: data.isDelivery || false,
+      deliveryZoneId: data.deliveryZoneId || null,
+      deliveryDistance: data.deliveryDistance || null,
       deliveryContact: data.deliveryContact,
       deliveryPhone: data.deliveryPhone,
       deliveryTime: data.deliveryTime ? new Date(data.deliveryTime) : null,
@@ -126,6 +130,8 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
 
         // Delivery details
         isDelivery: data.isDelivery || false,
+        deliveryZoneId: data.deliveryZoneId || null,
+        deliveryDistance: data.deliveryDistance || null,
         deliveryContact: data.deliveryContact,
         deliveryPhone: data.deliveryPhone,
         deliveryTime: data.deliveryTime ? new Date(data.deliveryTime) : null,

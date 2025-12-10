@@ -176,6 +176,9 @@ model CakeOrder {
 
   // Delivery details
   isDelivery       Boolean           @default(false)
+  deliveryZoneId   Int?
+  deliveryZone     DeliveryZone?     @relation(fields: [deliveryZoneId], references: [id])
+  deliveryDistance Decimal?          @db.Decimal(10, 2)  // miles - for per-mile fee calculation
   deliveryContact  String?
   deliveryPhone    String?
   deliveryTime     DateTime?
@@ -237,4 +240,34 @@ model FieldOption {
 
   @@unique([category, name])
   @@index([category])
+}
+
+// Delivery zones with pricing
+model DeliveryZone {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique  // e.g., "Local (0-10 miles)", "Extended (10-25 miles)"
+  description String?
+  minDistance Decimal?    @db.Decimal(10, 2)  // miles
+  maxDistance Decimal?    @db.Decimal(10, 2)  // miles
+  baseFee     Decimal     @db.Decimal(10, 2)  // base delivery fee
+  perMileFee  Decimal?    @db.Decimal(10, 2)  // additional per mile (optional)
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  orders      CakeOrder[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+// Delivery start points (office, warehouse, etc.)
+model DeliveryStartPoint {
+  id          Int       @id @default(autoincrement())
+  name        String    // e.g., "Main Office", "Warehouse", "Home Kitchen"
+  address     String
+  latitude    Decimal?  @db.Decimal(10, 7)
+  longitude   Decimal?  @db.Decimal(10, 7)
+  isDefault   Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

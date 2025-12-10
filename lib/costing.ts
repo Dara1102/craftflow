@@ -22,13 +22,31 @@ export interface DecorationCostDetail {
   totalCost: number
 }
 
+export interface TopperCostDetail {
+  type: string
+  text: string | null
+  cost: number
+}
+
+export interface DeliveryCostDetail {
+  zoneName: string
+  baseFee: number
+  perMileFee: number | null
+  estimatedDistance: number | null
+  totalFee: number
+}
+
 export interface CostingResult {
   totalServings: number
   ingredients: IngredientCostDetail[]
   decorations: DecorationCostDetail[]
+  topper: TopperCostDetail | null
+  delivery: DeliveryCostDetail | null
   ingredientCost: number
   decorationMaterialCost: number
   decorationLaborCost: number
+  topperCost: number
+  deliveryCost: number
   baseLaborCost: number
   totalLaborCost: number
   totalCost: number
@@ -73,7 +91,8 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
         include: {
           decorationTechnique: true
         }
-      }
+      },
+      deliveryZone: true
     }
   })
 
@@ -206,6 +225,52 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   // Calculate decoration labor cost
   const decorationLaborCost = (decorationLaborMinutes / 60) * laborRatePerHour
 
+  // Calculate topper cost
+  let topperCost = 0
+  let topper: TopperCostDetail | null = null
+
+  if (order.topperType) {
+    // Standard toppers have a base cost, custom toppers use the customTopperFee
+    const standardTopperCost = 5 // Base cost for standard toppers like "Happy Birthday", etc.
+
+    if (order.topperType === 'custom' && order.customTopperFee) {
+      topperCost = new Decimal(order.customTopperFee).toNumber()
+    } else if (order.topperType !== 'none' && order.topperType !== '') {
+      topperCost = standardTopperCost
+    }
+
+    topper = {
+      type: order.topperType,
+      text: order.topperText,
+      cost: topperCost
+    }
+  }
+
+  // Calculate delivery cost
+  let deliveryCost = 0
+  let delivery: DeliveryCostDetail | null = null
+
+  if (order.isDelivery && order.deliveryZone) {
+    const zone = order.deliveryZone
+    const baseFee = new Decimal(zone.baseFee).toNumber()
+    const perMileFee = zone.perMileFee ? new Decimal(zone.perMileFee).toNumber() : null
+    const distance = order.deliveryDistance ? new Decimal(order.deliveryDistance).toNumber() : null
+
+    // Calculate delivery cost: base fee + (per mile fee * distance)
+    deliveryCost = baseFee
+    if (perMileFee && distance) {
+      deliveryCost += perMileFee * distance
+    }
+
+    delivery = {
+      zoneName: zone.name,
+      baseFee: baseFee,
+      perMileFee: perMileFee,
+      estimatedDistance: distance,
+      totalFee: deliveryCost
+    }
+  }
+
   // Calculate base labor cost (from estimated hours, minus decoration labor)
   const totalEstimatedHours = new Decimal(order.estimatedHours).toNumber()
   const decorationLaborHours = decorationLaborMinutes / 60
@@ -215,9 +280,11 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   // Total labor = base + decoration
   const totalLaborCost = baseLaborCost + decorationLaborCost
 
-  // Calculate totals
-  const totalCost = ingredientCost + decorationMaterialCost + totalLaborCost
-  const suggestedPrice = totalCost * (1 + markupPercent)
+  // Calculate totals (delivery cost is NOT marked up - it's a pass-through cost)
+  const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost
+  const suggestedPriceBeforeDelivery = totalCostBeforeDelivery * (1 + markupPercent)
+  const totalCost = totalCostBeforeDelivery + deliveryCost
+  const suggestedPrice = suggestedPriceBeforeDelivery + deliveryCost
   const costPerServing = totalServings > 0 ? totalCost / totalServings : 0
   const suggestedPricePerServing = totalServings > 0 ? suggestedPrice / totalServings : 0
 
@@ -225,9 +292,13 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     totalServings,
     ingredients,
     decorations,
+    topper,
+    delivery,
     ingredientCost: Math.round(ingredientCost * 100) / 100,
     decorationMaterialCost: Math.round(decorationMaterialCost * 100) / 100,
     decorationLaborCost: Math.round(decorationLaborCost * 100) / 100,
+    topperCost: Math.round(topperCost * 100) / 100,
+    deliveryCost: Math.round(deliveryCost * 100) / 100,
     baseLaborCost: Math.round(baseLaborCost * 100) / 100,
     totalLaborCost: Math.round(totalLaborCost * 100) / 100,
     totalCost: Math.round(totalCost * 100) / 100,

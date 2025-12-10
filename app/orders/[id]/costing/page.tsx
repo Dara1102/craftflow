@@ -46,12 +46,20 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
             <h3 className="text-2xl font-bold text-gray-900">Order Costing Report</h3>
             <p className="mt-1 text-sm text-gray-500">Detailed cost breakdown for {order.customerName}</p>
           </div>
-          <Link
-            href={`/orders/${order.id}`}
-            className="bg-pink-600 text-white px-4 py-2 rounded-md hover:bg-pink-700 transition text-sm font-medium"
-          >
-            Edit Order
-          </Link>
+          <div className="flex gap-3">
+            <Link
+              href={`/orders/${order.id}/summary`}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium"
+            >
+              Customer Summary
+            </Link>
+            <Link
+              href={`/orders/${order.id}`}
+              className="bg-pink-600 text-white px-4 py-2 rounded-md hover:bg-pink-700 transition text-sm font-medium"
+            >
+              Edit Order
+            </Link>
+          </div>
         </div>
 
         <div className="bg-white shadow overflow-hidden sm:rounded-lg mb-6">
@@ -72,7 +80,7 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
               </div>
               <div>
                 <dt className="text-sm font-medium text-gray-500">Status</dt>
-                <dd className="mt-1 text-sm text-gray-900">{order.status}</dd>
+                <dd className="mt-1 text-sm text-gray-900">{order.status === 'DRAFT' ? 'Quote' : order.status}</dd>
               </div>
               <div>
                 <dt className="text-sm font-medium text-gray-500">Total Servings</dt>
@@ -110,12 +118,38 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                   ${costing.decorationMaterialCost.toFixed(2)}
                 </dd>
               </div>
+              {costing.topperCost > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">
+                    Topper ({costing.topper?.type === 'custom' ? 'Custom' : costing.topper?.type?.replace('_', ' ')})
+                  </dt>
+                  <dd className="text-sm font-medium text-gray-900">
+                    ${costing.topperCost.toFixed(2)}
+                  </dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-sm text-gray-500">Total Labor</dt>
                 <dd className="text-sm font-medium text-gray-900">
                   ${costing.totalLaborCost.toFixed(2)}
                 </dd>
               </div>
+              {costing.deliveryCost > 0 && costing.delivery && (
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">
+                    <div>Delivery ({costing.delivery.zoneName})</div>
+                    <div className="text-xs text-gray-400">
+                      ${costing.delivery.baseFee.toFixed(2)} base
+                      {costing.delivery.perMileFee && costing.delivery.estimatedDistance && (
+                        <> + ${costing.delivery.perMileFee.toFixed(2)}/mi x {costing.delivery.estimatedDistance} mi</>
+                      )}
+                    </div>
+                  </dt>
+                  <dd className="text-sm font-medium text-gray-900">
+                    ${costing.deliveryCost.toFixed(2)}
+                  </dd>
+                </div>
+              )}
               <div className="flex justify-between pt-3 border-t border-gray-200">
                 <dt className="text-sm font-medium text-gray-900">Total Cost</dt>
                 <dd className="text-sm font-bold text-gray-900">

@@ -18,6 +18,11 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
         orderBy: {
           tierIndex: 'asc'
         }
+      },
+      orderDecorations: {
+        include: {
+          decorationTechnique: true
+        }
       }
     }
   })
@@ -36,14 +41,24 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
   const plainOrder = {
     ...order,
     estimatedHours: Number(order.estimatedHours),
+    customTopperFee: order.customTopperFee ? Number(order.customTopperFee) : null,
+    deliveryDistance: order.deliveryDistance ? Number(order.deliveryDistance) : null,
     cakeTiers: order.cakeTiers.map(tier => ({
       ...tier,
       tierSize: {
         ...tier.tierSize,
         diameterCm: Number(tier.tierSize.diameterCm),
+        lengthCm: tier.tierSize.lengthCm ? Number(tier.tierSize.lengthCm) : null,
         heightCm: Number(tier.tierSize.heightCm),
         batterMultiplier: Number(tier.tierSize.batterMultiplier),
         frostingMultiplier: tier.tierSize.frostingMultiplier ? Number(tier.tierSize.frostingMultiplier) : null,
+      }
+    })),
+    orderDecorations: order.orderDecorations.map(dec => ({
+      ...dec,
+      decorationTechnique: {
+        ...dec.decorationTechnique,
+        defaultCostPerUnit: Number(dec.decorationTechnique.defaultCostPerUnit),
       }
     }))
   }
@@ -51,6 +66,7 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
   const plainTierSizes = tierSizes.map(ts => ({
     ...ts,
     diameterCm: Number(ts.diameterCm),
+    lengthCm: ts.lengthCm ? Number(ts.lengthCm) : null,
     heightCm: Number(ts.heightCm),
     batterMultiplier: Number(ts.batterMultiplier),
     frostingMultiplier: ts.frostingMultiplier ? Number(ts.frostingMultiplier) : null,

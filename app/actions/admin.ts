@@ -208,3 +208,192 @@ export async function updateSetting(key: string, value: string) {
   })
   revalidatePath('/admin/settings')
 }
+
+// Delivery Zones
+export async function createDeliveryZone(data: {
+  name: string
+  description?: string
+  minDistance?: number | null
+  maxDistance?: number | null
+  baseFee: number
+  perMileFee?: number | null
+  sortOrder?: number
+}) {
+  await prisma.deliveryZone.create({
+    data: {
+      name: data.name,
+      description: data.description || null,
+      minDistance: data.minDistance ?? null,
+      maxDistance: data.maxDistance ?? null,
+      baseFee: data.baseFee,
+      perMileFee: data.perMileFee ?? null,
+      sortOrder: data.sortOrder || 0,
+      isActive: true,
+    }
+  })
+  revalidatePath('/admin/delivery-zones')
+}
+
+export async function updateDeliveryZone(id: number, data: {
+  name: string
+  description?: string
+  minDistance?: number | null
+  maxDistance?: number | null
+  baseFee: number
+  perMileFee?: number | null
+  sortOrder?: number
+  isActive?: boolean
+}) {
+  await prisma.deliveryZone.update({
+    where: { id },
+    data: {
+      name: data.name,
+      description: data.description || null,
+      minDistance: data.minDistance ?? null,
+      maxDistance: data.maxDistance ?? null,
+      baseFee: data.baseFee,
+      perMileFee: data.perMileFee ?? null,
+      sortOrder: data.sortOrder || 0,
+      isActive: data.isActive ?? true,
+    }
+  })
+  revalidatePath('/admin/delivery-zones')
+}
+
+export async function deleteDeliveryZone(id: number) {
+  await prisma.deliveryZone.delete({
+    where: { id }
+  })
+  revalidatePath('/admin/delivery-zones')
+}
+
+// Helper function to geocode an address
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`
+    )
+    const data = await response.json()
+
+    if (data.status === 'OK' && data.results?.[0]?.geometry?.location) {
+      return {
+        lat: data.results[0].geometry.location.lat,
+        lng: data.results[0].geometry.location.lng
+      }
+    }
+  } catch (error) {
+    console.error('Geocoding error:', error)
+  }
+  return null
+}
+
+// Delivery Start Points
+export async function createDeliveryStartPoint(data: {
+  name: string
+  address: string
+  latitude?: number | null
+  longitude?: number | null
+  isDefault?: boolean
+  sortOrder?: number
+}) {
+  // If this is set as default, unset other defaults
+  if (data.isDefault) {
+    await prisma.deliveryStartPoint.updateMany({
+      where: { isDefault: true },
+      data: { isDefault: false }
+    })
+  }
+
+  // Auto-geocode the address if no coordinates provided
+  let latitude = data.latitude
+  let longitude = data.longitude
+  if (!latitude || !longitude) {
+    const coords = await geocodeAddress(data.address)
+    if (coords) {
+      latitude = coords.lat
+      longitude = coords.lng
+    }
+  }
+
+  const startPoint = await prisma.deliveryStartPoint.create({
+    data: {
+      name: data.name,
+      address: data.address,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
+      isDefault: data.isDefault || false,
+      sortOrder: data.sortOrder || 0,
+      isActive: true,
+    }
+  })
+  revalidatePath('/admin/settings')
+  return startPoint
+}
+
+export async function updateDeliveryStartPoint(id: number, data: {
+  name: string
+  address: string
+  latitude?: number | null
+  longitude?: number | null
+  isDefault?: boolean
+  isActive?: boolean
+  sortOrder?: number
+}) {
+  // If this is set as default, unset other defaults
+  if (data.isDefault) {
+    await prisma.deliveryStartPoint.updateMany({
+      where: { isDefault: true, id: { not: id } },
+      data: { isDefault: false }
+    })
+  }
+
+  // Get current record to check if address changed
+  const current = await prisma.deliveryStartPoint.findUnique({ where: { id } })
+
+  // Auto-geocode the address if it changed or no coordinates exist
+  let latitude = data.latitude
+  let longitude = data.longitude
+  if ((!latitude || !longitude) || (current && current.address !== data.address)) {
+    const coords = await geocodeAddress(data.address)
+    if (coords) {
+      latitude = coords.lat
+      longitude = coords.lng
+    }
+  }
+
+  await prisma.deliveryStartPoint.update({
+    where: { id },
+    data: {
+      name: data.name,
+      address: data.address,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
+      isDefault: data.isDefault || false,
+      isActive: data.isActive ?? true,
+      sortOrder: data.sortOrder || 0,
+    }
+  })
+  revalidatePath('/admin/settings')
+}
+
+export async function deleteDeliveryStartPoint(id: number) {
+  await prisma.deliveryStartPoint.delete({
+    where: { id }
+  })
+  revalidatePath('/admin/settings')
+}
+
+export async function setDefaultDeliveryStartPoint(id: number) {
+  await prisma.deliveryStartPoint.updateMany({
+    where: { isDefault: true },
+    data: { isDefault: false }
+  })
+  await prisma.deliveryStartPoint.update({
+    where: { id },
+    data: { isDefault: true }
+  })
+  revalidatePath('/admin/settings')
+}
