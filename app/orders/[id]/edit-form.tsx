@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { updateOrder, deleteOrder } from '@/app/actions/orders'
-import { OrderStatus, CakeType } from '@prisma/client'
+import { OrderStatus, CakeType, DiscountType } from '@prisma/client'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
@@ -74,6 +74,27 @@ interface DeliveryZone {
   perMileFee: number | null
 }
 
+interface Settings {
+  LaborRatePerHour: string
+  MarkupPercent: string
+  [key: string]: string
+}
+
+interface TierCost {
+  tierSizeId: number
+  name: string
+  servings: number
+  batterCost: number
+  frostingCost: number
+  totalIngredientCost: number
+}
+
+interface LaborRole {
+  id: number
+  name: string
+  hourlyRate: number
+}
+
 interface Order {
   id: number
   customerId: number | null
@@ -94,9 +115,14 @@ interface Order {
   deliveryTime: Date | null
   deliveryAddress: string | null
   estimatedHours: number
+  bakerHours: number | null
+  assistantHours: number | null
   topperType: string | null
   topperText: string | null
   customTopperFee: number | null
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountReason: string | null
   notes: string | null
   status: OrderStatus
   cakeTiers: CakeTier[]
@@ -163,6 +189,8 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
 
   // Labor
   const [estimatedHours, setEstimatedHours] = useState(order.estimatedHours.toString())
+  const [bakerHours, setBakerHours] = useState(order.bakerHours?.toString() || '')
+  const [assistantHours, setAssistantHours] = useState(order.assistantHours?.toString() || '')
   const [hoursManuallySet, setHoursManuallySet] = useState(true) // Start true for edit mode
 
   // Tiers
@@ -192,6 +220,13 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     order.customTopperFee ? order.customTopperFee.toString() : ''
   )
 
+  // Discount
+  const [discountType, setDiscountType] = useState<DiscountType | ''>(order.discountType || '')
+  const [discountValue, setDiscountValue] = useState(
+    order.discountValue ? order.discountValue.toString() : ''
+  )
+  const [discountReason, setDiscountReason] = useState(order.discountReason || '')
+
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -203,6 +238,9 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const { data: fieldOptions } = useSWR<FieldOptions>('/api/field-options', fetcher)
   const { data: decorations } = useSWR<DecorationTechnique[]>('/api/decorations', fetcher)
   const { data: deliveryZones } = useSWR<DeliveryZone[]>('/api/delivery-zones', fetcher)
+  const { data: settings } = useSWR<Settings>('/api/settings', fetcher)
+  const { data: tierCosts } = useSWR<TierCost[]>('/api/tier-costs', fetcher)
+  const { data: laborRoles } = useSWR<LaborRole[]>('/api/labor-roles', fetcher)
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -365,9 +403,14 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         deliveryTime: isDelivery && deliveryTime ? deliveryTime : undefined,
         deliveryAddress: isDelivery ? deliveryAddress : undefined,
         estimatedHours: parseFloat(estimatedHours),
+        bakerHours: bakerHours ? parseFloat(bakerHours) : undefined,
+        assistantHours: assistantHours ? parseFloat(assistantHours) : undefined,
         topperType: topperType || undefined,
         topperText: topperText || undefined,
         customTopperFee: customTopperFee ? parseFloat(customTopperFee) : undefined,
+        discountType: discountType || undefined,
+        discountValue: discountValue ? parseFloat(discountValue) : undefined,
+        discountReason: discountReason || undefined,
         notes,
         status,
         tiers: validTiers.map(t => ({
@@ -436,27 +479,48 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     return parts.join(' ')
   }
 
-  // Calculate price estimate
+  // Calculate price estimate (matches lib/costing.ts formula)
   const calculateEstimate = () => {
-    let materialsCost = 0
+    // Get settings values (same defaults as lib/costing.ts)
+    const hourlyRate = settings ? parseFloat(settings.LaborRatePerHour) : 20
+    const markupPercent = settings ? parseFloat(settings.MarkupPercent) : 0.7
 
-    selectedDecorations.forEach(sd => {
-      const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
-      if (dec) {
-        materialsCost += dec.defaultCostPerUnit * sd.quantity
+    // Calculate tier ingredient costs
+    let ingredientCost = 0
+    const tierCount = tiers.filter(t => t.tierSizeId > 0).length
+    tiers.forEach(tier => {
+      if (tier.tierSizeId > 0) {
+        const tierCost = tierCosts?.find(tc => tc.tierSizeId === tier.tierSizeId)
+        if (tierCost) {
+          ingredientCost += tierCost.totalIngredientCost
+        }
       }
     })
 
-    if (customTopperFee) {
-      materialsCost += parseFloat(customTopperFee)
+    // Calculate decoration costs
+    let decorationMaterialCost = 0
+    selectedDecorations.forEach(sd => {
+      const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
+      if (dec) {
+        // Multiply by tier count for TIER-based decorations (simplified - full logic in costing.ts)
+        decorationMaterialCost += dec.defaultCostPerUnit * sd.quantity
+      }
+    })
+
+    // Calculate topper cost (same logic as lib/costing.ts)
+    let topperCost = 0
+    const standardTopperCost = 5 // Base cost for standard toppers
+    if (topperType === 'custom' && customTopperFee) {
+      topperCost = parseFloat(customTopperFee)
+    } else if (topperType && topperType !== 'none' && topperType !== '') {
+      topperCost = standardTopperCost
     }
 
+    // Calculate labor cost
     const hours = parseFloat(estimatedHours) || 0
-    const hourlyRate = 50
     const laborCost = hours * hourlyRate
-    const materialsWithMarkup = materialsCost * 2
 
-    // Calculate delivery cost
+    // Calculate delivery cost (not marked up - pass-through cost)
     let deliveryFee = 0
     if (isDelivery && deliveryZoneId) {
       const zone = deliveryZones?.find(z => z.id === deliveryZoneId)
@@ -468,12 +532,38 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
       }
     }
 
+    // Calculate suggested price using same formula as costing report:
+    // (ingredientCost + decorationMaterialCost + topperCost + laborCost) * (1 + markupPercent) + deliveryFee
+    const totalCostBeforeMarkup = ingredientCost + decorationMaterialCost + topperCost + laborCost
+    const suggestedPrice = totalCostBeforeMarkup * (1 + markupPercent)
+
+    // Calculate discount
+    let discountAmount = 0
+    if (discountType && discountValue) {
+      const discountVal = parseFloat(discountValue)
+      if (discountType === 'PERCENT') {
+        discountAmount = suggestedPrice * (discountVal / 100)
+      } else {
+        discountAmount = discountVal
+      }
+    }
+
+    // Final price = suggested price - discount + delivery (delivery not discounted)
+    const finalPrice = suggestedPrice - discountAmount + deliveryFee
+
     return {
-      materialsCost,
+      ingredientCost,
+      decorationMaterialCost,
+      topperCost,
       laborCost,
       laborMinutes: hours * 60,
+      hourlyRate,
+      markupPercent,
+      suggestedPrice,
+      discountAmount,
       deliveryFee,
-      total: materialsWithMarkup + laborCost + deliveryFee
+      totalCostBeforeMarkup,
+      total: finalPrice
     }
   }
 
@@ -1145,19 +1235,134 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         </div>
       </div>
 
+      {/* Discount Section */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div className="md:grid md:grid-cols-3 md:gap-6">
+          <div className="md:col-span-1">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Discount</h3>
+            <p className="mt-1 text-sm text-gray-600">Apply a discount for this customer.</p>
+          </div>
+          <div className="mt-5 md:mt-0 md:col-span-2">
+            <div className="grid grid-cols-6 gap-6">
+              <div className="col-span-6 sm:col-span-2">
+                <label htmlFor="discountType" className="block text-sm font-medium text-gray-700">
+                  Discount Type
+                </label>
+                <select
+                  id="discountType"
+                  name="discountType"
+                  value={discountType}
+                  onChange={(e) => setDiscountType(e.target.value as DiscountType | '')}
+                  className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                >
+                  <option value="">No Discount</option>
+                  <option value="PERCENT">Percentage (%)</option>
+                  <option value="FIXED">Fixed Amount ($)</option>
+                </select>
+              </div>
+
+              {discountType && (
+                <div className="col-span-6 sm:col-span-2">
+                  <label htmlFor="discountValue" className="block text-sm font-medium text-gray-700">
+                    {discountType === 'PERCENT' ? 'Discount (%)' : 'Discount ($)'}
+                  </label>
+                  <input
+                    type="number"
+                    id="discountValue"
+                    name="discountValue"
+                    step={discountType === 'PERCENT' ? '1' : '0.01'}
+                    min="0"
+                    max={discountType === 'PERCENT' ? '100' : undefined}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    placeholder={discountType === 'PERCENT' ? 'e.g., 10' : 'e.g., 50.00'}
+                    className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                  />
+                </div>
+              )}
+
+              {discountType && (
+                <div className="col-span-6 sm:col-span-2">
+                  <label htmlFor="discountReason" className="block text-sm font-medium text-gray-700">
+                    Reason (optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="discountReason"
+                    name="discountReason"
+                    value={discountReason}
+                    onChange={(e) => setDiscountReason(e.target.value)}
+                    placeholder="e.g., Repeat customer"
+                    className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Labor & Notes */}
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div className="md:grid md:grid-cols-3 md:gap-6">
           <div className="md:col-span-1">
             <h3 className="text-lg font-medium leading-6 text-gray-900">Labor & Notes</h3>
-            <p className="mt-1 text-sm text-gray-600">Estimated time and additional notes.</p>
+            <p className="mt-1 text-sm text-gray-600">Estimated time by role and additional notes.</p>
+            <div className="mt-3 p-3 bg-blue-50 rounded-md">
+              <p className="text-xs text-blue-700">
+                <strong>Tip:</strong> Break down labor by role for accurate costing. Decoration labor is calculated automatically from techniques.
+              </p>
+            </div>
           </div>
           <div className="mt-5 md:mt-0 md:col-span-2">
             <div className="grid grid-cols-6 gap-6">
-              <div className="col-span-6 sm:col-span-3">
+              {/* Role-based hours */}
+              <div className="col-span-6 sm:col-span-2">
+                <label htmlFor="bakerHours" className="block text-sm font-medium text-gray-700">
+                  Baker Hours
+                  <span className="text-xs text-gray-500 ml-1">
+                    (${laborRoles?.find(r => r.name === 'Baker')?.hourlyRate || 21}/hr)
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  name="bakerHours"
+                  id="bakerHours"
+                  step="0.5"
+                  min="0"
+                  value={bakerHours}
+                  onChange={(e) => setBakerHours(e.target.value)}
+                  placeholder="0"
+                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                />
+                <p className="mt-1 text-xs text-gray-500">Baking, assembly, frosting</p>
+              </div>
+
+              <div className="col-span-6 sm:col-span-2">
+                <label htmlFor="assistantHours" className="block text-sm font-medium text-gray-700">
+                  Assistant Hours
+                  <span className="text-xs text-gray-500 ml-1">
+                    (${laborRoles?.find(r => r.name === 'Bakery Assistant')?.hourlyRate || 18}/hr)
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  name="assistantHours"
+                  id="assistantHours"
+                  step="0.5"
+                  min="0"
+                  value={assistantHours}
+                  onChange={(e) => setAssistantHours(e.target.value)}
+                  placeholder="0"
+                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                />
+                <p className="mt-1 text-xs text-gray-500">Packaging, stacking, simple tasks</p>
+              </div>
+
+              <div className="col-span-6 sm:col-span-2">
                 <label htmlFor="estimatedHours" className="block text-sm font-medium text-gray-700">
-                  Estimated Hours
-                  <span className="text-xs text-gray-500 ml-1">(auto-calculated)</span>
+                  Total Est. Hours
+                  <span className="text-xs text-gray-500 ml-1">(legacy)</span>
                 </label>
                 <input
                   type="number"
@@ -1182,6 +1387,12 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                     Reset to auto-calculate
                   </button>
                 )}
+              </div>
+
+              <div className="col-span-6">
+                <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                  <strong>Note:</strong> Decorator labor is calculated from decoration techniques. If Baker/Assistant hours are set, they are used instead of the legacy Total Est. Hours field.
+                </p>
               </div>
 
               <div className="col-span-6">
@@ -1235,39 +1446,80 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
               </div>
             </div>
 
-            {/* Price Estimate */}
+            {/* Costing Breakdown */}
             <div className="bg-white rounded-lg p-4 border border-pink-100">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Price Estimate</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-3">Costing Breakdown</h4>
               <div className="space-y-2 text-sm">
+                {/* Costs Section */}
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Costs</div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Tier Ingredients (batter/frosting)</span>
+                  <span className="text-gray-900">${estimate.ingredientCost.toFixed(2)}</span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Decoration Materials</span>
-                  <span className="text-gray-900">${estimate.materialsCost.toFixed(2)}</span>
+                  <span className="text-gray-900">${estimate.decorationMaterialCost.toFixed(2)}</span>
                 </div>
+                {estimate.topperCost > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Topper</span>
+                    <span className="text-gray-900">${estimate.topperCost.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Materials (2x markup)</span>
-                  <span className="text-gray-900">${(estimate.materialsCost * 2).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Labor ({estimatedHours}h @ $50/hr)</span>
+                  <span className="text-gray-600">Labor ({estimatedHours}h @ ${estimate.hourlyRate}/hr)</span>
                   <span className="text-gray-900">${estimate.laborCost.toFixed(2)}</span>
                 </div>
+
+                {/* Subtotal */}
+                <div className="border-t border-gray-100 pt-2 mt-2">
+                  <div className="flex justify-between font-medium">
+                    <span className="text-gray-700">Subtotal (cost)</span>
+                    <span className="text-gray-900">${estimate.totalCostBeforeMarkup.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Markup */}
+                <div className="flex justify-between text-gray-500">
+                  <span>Markup ({(estimate.markupPercent * 100).toFixed(0)}%)</span>
+                  <span>+${(estimate.totalCostBeforeMarkup * estimate.markupPercent).toFixed(2)}</span>
+                </div>
+
+                {/* Suggested Price (before discount) */}
+                <div className="flex justify-between font-medium">
+                  <span className="text-gray-700">Suggested Price</span>
+                  <span className="text-gray-900">${estimate.suggestedPrice.toFixed(2)}</span>
+                </div>
+
+                {/* Discount */}
+                {estimate.discountAmount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>
+                      Discount
+                      {discountType === 'PERCENT' && ` (${discountValue}%)`}
+                      {discountReason && <span className="text-xs text-gray-500 ml-1">- {discountReason}</span>}
+                    </span>
+                    <span>-${estimate.discountAmount.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {/* Delivery (pass-through, not marked up or discounted) */}
                 {estimate.deliveryFee > 0 && (
                   <div className="flex justify-between">
                     <span className="text-gray-600">
                       Delivery
                       {deliveryDistance && ` (${deliveryDistance} mi)`}
                     </span>
-                    <span className="text-gray-900">${estimate.deliveryFee.toFixed(2)}</span>
+                    <span className="text-gray-900">+${estimate.deliveryFee.toFixed(2)}</span>
                   </div>
                 )}
+
+                {/* Final Price */}
                 <div className="border-t border-gray-200 pt-2 mt-2">
                   <div className="flex justify-between text-lg font-bold">
-                    <span className="text-gray-900">Estimated Total</span>
+                    <span className="text-gray-900">Final Price</span>
                     <span className="text-pink-600">${estimate.total.toFixed(2)}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    * Does not include tier base costs. View full costing for complete breakdown.
-                  </p>
                 </div>
               </div>
             </div>

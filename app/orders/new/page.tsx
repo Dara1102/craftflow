@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createOrder } from '@/app/actions/orders'
-import { OrderStatus, CakeType } from '@prisma/client'
+import { OrderStatus, CakeType, DiscountType } from '@prisma/client'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
@@ -147,6 +147,11 @@ export default function NewOrder() {
   const [topperType, setTopperType] = useState('')
   const [topperText, setTopperText] = useState('')
   const [customTopperFee, setCustomTopperFee] = useState('')
+
+  // Discount
+  const [discountType, setDiscountType] = useState<DiscountType | ''>('')
+  const [discountValue, setDiscountValue] = useState('')
+  const [discountReason, setDiscountReason] = useState('')
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorDropdownRef = useRef<HTMLDivElement>(null)
@@ -430,6 +435,9 @@ export default function NewOrder() {
       topperType: topperType || undefined,
       topperText: topperText || undefined,
       customTopperFee: customTopperFee ? parseFloat(customTopperFee) : undefined,
+      discountType: discountType || undefined,
+      discountValue: discountValue ? parseFloat(discountValue) : undefined,
+      discountReason: discountReason || undefined,
       notes,
       status,
       tiers: validTiers.map(t => ({
@@ -1397,6 +1405,73 @@ export default function NewOrder() {
                         value={customTopperFee}
                         onChange={(e) => setCustomTopperFee(e.target.value)}
                         placeholder="0.00"
+                        className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Discount Section */}
+          <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+            <div className="md:grid md:grid-cols-3 md:gap-6">
+              <div className="md:col-span-1">
+                <h3 className="text-lg font-medium leading-6 text-gray-900">Discount</h3>
+                <p className="mt-1 text-sm text-gray-600">Apply a discount for this customer.</p>
+              </div>
+              <div className="mt-5 md:mt-0 md:col-span-2">
+                <div className="grid grid-cols-6 gap-6">
+                  <div className="col-span-6 sm:col-span-2">
+                    <label htmlFor="discountType" className="block text-sm font-medium text-gray-700">
+                      Discount Type
+                    </label>
+                    <select
+                      id="discountType"
+                      name="discountType"
+                      value={discountType}
+                      onChange={(e) => setDiscountType(e.target.value as DiscountType | '')}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    >
+                      <option value="">No Discount</option>
+                      <option value="PERCENT">Percentage (%)</option>
+                      <option value="FIXED">Fixed Amount ($)</option>
+                    </select>
+                  </div>
+
+                  {discountType && (
+                    <div className="col-span-6 sm:col-span-2">
+                      <label htmlFor="discountValue" className="block text-sm font-medium text-gray-700">
+                        {discountType === 'PERCENT' ? 'Discount (%)' : 'Discount ($)'}
+                      </label>
+                      <input
+                        type="number"
+                        id="discountValue"
+                        name="discountValue"
+                        step={discountType === 'PERCENT' ? '1' : '0.01'}
+                        min="0"
+                        max={discountType === 'PERCENT' ? '100' : undefined}
+                        value={discountValue}
+                        onChange={(e) => setDiscountValue(e.target.value)}
+                        placeholder={discountType === 'PERCENT' ? 'e.g., 10' : 'e.g., 50.00'}
+                        className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                      />
+                    </div>
+                  )}
+
+                  {discountType && (
+                    <div className="col-span-6 sm:col-span-2">
+                      <label htmlFor="discountReason" className="block text-sm font-medium text-gray-700">
+                        Reason (optional)
+                      </label>
+                      <input
+                        type="text"
+                        id="discountReason"
+                        name="discountReason"
+                        value={discountReason}
+                        onChange={(e) => setDiscountReason(e.target.value)}
+                        placeholder="e.g., Repeat customer"
                         className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                       />
                     </div>

@@ -397,3 +397,58 @@ export async function setDefaultDeliveryStartPoint(id: number) {
   })
   revalidatePath('/admin/settings')
 }
+
+// Labor Roles
+export async function createLaborRole(data: {
+  name: string
+  description?: string
+  hourlyRate: number
+  sortOrder?: number
+}) {
+  await prisma.laborRole.create({
+    data: {
+      name: data.name,
+      description: data.description || null,
+      hourlyRate: data.hourlyRate,
+      sortOrder: data.sortOrder || 0,
+      isActive: true,
+    }
+  })
+  revalidatePath('/admin/labor-roles')
+}
+
+export async function updateLaborRole(id: number, data: {
+  name: string
+  description?: string
+  hourlyRate: number
+  sortOrder?: number
+  isActive?: boolean
+}) {
+  await prisma.laborRole.update({
+    where: { id },
+    data: {
+      name: data.name,
+      description: data.description || null,
+      hourlyRate: data.hourlyRate,
+      sortOrder: data.sortOrder || 0,
+      isActive: data.isActive ?? true,
+    }
+  })
+  revalidatePath('/admin/labor-roles')
+}
+
+export async function deleteLaborRole(id: number) {
+  // Check if role is used by any decoration techniques
+  const usedCount = await prisma.decorationTechnique.count({
+    where: { laborRoleId: id }
+  })
+
+  if (usedCount > 0) {
+    throw new Error(`Cannot delete this role - it is assigned to ${usedCount} decoration technique(s)`)
+  }
+
+  await prisma.laborRole.delete({
+    where: { id }
+  })
+  revalidatePath('/admin/labor-roles')
+}

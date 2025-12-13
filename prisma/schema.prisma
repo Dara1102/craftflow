@@ -73,6 +73,19 @@ enum SkillLevel {
   HIGH
 }
 
+// Labor roles with different hourly rates
+model LaborRole {
+  id                   Int                   @id @default(autoincrement())
+  name                 String                @unique  // e.g., "Decorator", "Baker", "Bakery Assistant"
+  description          String?               // e.g., "Skilled decoration work including fondant, piping, sugar flowers"
+  hourlyRate           Decimal               @db.Decimal(10, 2)
+  sortOrder            Int                   @default(0)
+  isActive             Boolean               @default(true)
+  decorationTechniques DecorationTechnique[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+}
+
 enum MaterialGrade {
   STANDARD
   PREMIUM
@@ -97,6 +110,8 @@ model DecorationTechnique {
   baseCakeSize         String         @default("6\" round")  // Base cake size/shape these costs are calculated for
   defaultCostPerUnit   Decimal        @db.Decimal(10, 2)
   laborMinutes         Int
+  laborRoleId          Int?           // Which role performs this technique (null = use default Baker rate)
+  laborRole            LaborRole?     @relation(fields: [laborRoleId], references: [id])
   wasteFactorPercent   Int
   materialGrade        MaterialGrade
   toolsRequired        String
@@ -127,6 +142,11 @@ enum OrderStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
 }
 
 enum CakeType {
@@ -184,13 +204,20 @@ model CakeOrder {
   deliveryTime     DateTime?
   deliveryAddress  String?
 
-  // Labor
-  estimatedHours   Decimal           @db.Decimal(10, 2)  // Auto-calculated but editable
+  // Labor - base prep hours by role (decoration labor is calculated from techniques)
+  estimatedHours   Decimal           @db.Decimal(10, 2)  // Legacy: total hours (kept for backwards compatibility)
+  bakerHours       Decimal?          @db.Decimal(10, 2)  // Hours for baking, assembly
+  assistantHours   Decimal?          @db.Decimal(10, 2)  // Hours for simple tasks, packaging
 
   // Topper
   topperType       String?           // 'age', 'happy_birthday', 'its_a_boy', 'its_a_girl', 'initials', 'congratulations', 'custom', 'none'
   topperText       String?           // Custom text for topper (e.g., initials, custom message)
   customTopperFee  Decimal?          @db.Decimal(10, 2)  // Fee for custom toppers
+
+  // Discount
+  discountType     DiscountType?     // PERCENT or FIXED
+  discountValue    Decimal?          @db.Decimal(10, 2)  // Percentage (e.g., 10 for 10%) or fixed dollar amount
+  discountReason   String?           // e.g., "Repeat customer", "Corporate rate", "Referral"
 
   notes            String?
   status           OrderStatus       @default(DRAFT)

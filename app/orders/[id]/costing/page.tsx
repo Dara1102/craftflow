@@ -87,9 +87,14 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                 <dd className="mt-1 text-sm text-gray-900">{costing.totalServings}</dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-gray-500">Suggested Price</dt>
+                <dt className="text-sm font-medium text-gray-500">Final Price</dt>
                 <dd className="mt-1 text-2xl font-bold text-pink-600">
-                  ${costing.suggestedPrice.toFixed(2)}
+                  ${costing.finalPrice.toFixed(2)}
+                  {costing.discount && (
+                    <span className="text-sm font-normal text-green-600 ml-2">
+                      ({costing.discount.value}{costing.discount.type === 'PERCENT' ? '%' : '$'} off)
+                    </span>
+                  )}
                 </dd>
               </div>
               <div>
@@ -134,10 +139,41 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                   ${costing.totalLaborCost.toFixed(2)}
                 </dd>
               </div>
+              <div className="flex justify-between pt-3 border-t border-gray-200">
+                <dt className="text-sm font-medium text-gray-900">Total Cost</dt>
+                <dd className="text-sm font-bold text-gray-900">
+                  ${costing.totalCost.toFixed(2)}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-sm text-gray-500">Markup ({(costing.markupPercent * 100).toFixed(0)}%)</dt>
+                <dd className="text-sm font-medium text-gray-900">
+                  ${(costing.suggestedPrice - costing.totalCost + costing.deliveryCost).toFixed(2)}
+                </dd>
+              </div>
+              <div className="flex justify-between pt-3 border-t border-gray-200">
+                <dt className="text-sm font-medium text-gray-900">Suggested Price</dt>
+                <dd className="text-sm font-bold text-gray-900">
+                  ${costing.suggestedPrice.toFixed(2)}
+                </dd>
+              </div>
+              {costing.discount && (
+                <div className="flex justify-between">
+                  <dt className="text-sm text-green-600">
+                    <div>Discount {costing.discount.type === 'PERCENT' ? `(${costing.discount.value}%)` : ''}</div>
+                    {costing.discount.reason && (
+                      <div className="text-xs text-gray-400">{costing.discount.reason}</div>
+                    )}
+                  </dt>
+                  <dd className="text-sm font-medium text-green-600">
+                    -${costing.discountAmount.toFixed(2)}
+                  </dd>
+                </div>
+              )}
               {costing.deliveryCost > 0 && costing.delivery && (
                 <div className="flex justify-between">
                   <dt className="text-sm text-gray-500">
-                    <div>Delivery ({costing.delivery.zoneName})</div>
+                    <div>+ Delivery ({costing.delivery.zoneName})</div>
                     <div className="text-xs text-gray-400">
                       ${costing.delivery.baseFee.toFixed(2)} base
                       {costing.delivery.perMileFee && costing.delivery.estimatedDistance && (
@@ -151,41 +187,49 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                 </div>
               )}
               <div className="flex justify-between pt-3 border-t border-gray-200">
-                <dt className="text-sm font-medium text-gray-900">Total Cost</dt>
-                <dd className="text-sm font-bold text-gray-900">
-                  ${costing.totalCost.toFixed(2)}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-sm text-gray-500">Markup ({(costing.markupPercent * 100).toFixed(0)}%)</dt>
-                <dd className="text-sm font-medium text-gray-900">
-                  ${(costing.suggestedPrice - costing.totalCost).toFixed(2)}
-                </dd>
-              </div>
-              <div className="flex justify-between pt-3 border-t border-gray-200">
-                <dt className="text-sm font-medium text-gray-900">Suggested Price</dt>
+                <dt className="text-sm font-medium text-gray-900">Final Price</dt>
                 <dd className="text-lg font-bold text-pink-600">
-                  ${costing.suggestedPrice.toFixed(2)}
+                  ${costing.finalPrice.toFixed(2)}
                 </dd>
               </div>
             </dl>
           </div>
 
           <div className="bg-white shadow sm:rounded-lg p-6">
-            <h4 className="text-lg font-medium text-gray-900 mb-4">Labor Breakdown</h4>
+            <h4 className="text-lg font-medium text-gray-900 mb-4">Labor Breakdown by Role</h4>
             <dl className="space-y-3">
-              <div className="flex justify-between">
-                <dt className="text-sm text-gray-500">Base Labor</dt>
-                <dd className="text-sm font-medium text-gray-900">
-                  ${costing.baseLaborCost.toFixed(2)}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-sm text-gray-500">Decoration Labor</dt>
-                <dd className="text-sm font-medium text-gray-900">
-                  ${costing.decorationLaborCost.toFixed(2)}
-                </dd>
-              </div>
+              {costing.laborBreakdown.length > 0 ? (
+                <>
+                  {costing.laborBreakdown.map((labor) => (
+                    <div key={labor.role} className="flex justify-between">
+                      <dt className="text-sm text-gray-500">
+                        <div>{labor.role}</div>
+                        <div className="text-xs text-gray-400">
+                          {labor.hours.toFixed(1)} hrs @ ${labor.rate.toFixed(2)}/hr
+                        </div>
+                      </dt>
+                      <dd className="text-sm font-medium text-gray-900">
+                        ${labor.cost.toFixed(2)}
+                      </dd>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <dt className="text-sm text-gray-500">Base Labor</dt>
+                    <dd className="text-sm font-medium text-gray-900">
+                      ${costing.baseLaborCost.toFixed(2)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-sm text-gray-500">Decoration Labor</dt>
+                    <dd className="text-sm font-medium text-gray-900">
+                      ${costing.decorationLaborCost.toFixed(2)}
+                    </dd>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between pt-3 border-t border-gray-200">
                 <dt className="text-sm font-medium text-gray-900">Total Labor Cost</dt>
                 <dd className="text-sm font-bold text-gray-900">
@@ -193,7 +237,7 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                 </dd>
               </div>
               <div className="mt-4 text-xs text-gray-500">
-                Decoration labor is calculated from technique time estimates
+                Labor rates are based on role assignments. Decoration techniques use their assigned role rate.
               </div>
             </dl>
           </div>
@@ -303,7 +347,7 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                       Material
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Labor (min)
+                      Labor
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Labor Cost
@@ -330,7 +374,8 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                         ${dec.materialCost.toFixed(2)}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {dec.laborMinutes}
+                        <div>{dec.laborMinutes} min</div>
+                        <div className="text-xs text-gray-400">{dec.laborRole} @ ${dec.laborRate}/hr</div>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                         ${dec.laborCost.toFixed(2)}

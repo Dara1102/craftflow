@@ -41,7 +41,10 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
   const plainOrder = {
     ...order,
     estimatedHours: Number(order.estimatedHours),
+    bakerHours: order.bakerHours ? Number(order.bakerHours) : null,
+    assistantHours: order.assistantHours ? Number(order.assistantHours) : null,
     customTopperFee: order.customTopperFee ? Number(order.customTopperFee) : null,
+    discountValue: order.discountValue ? Number(order.discountValue) : null,
     deliveryDistance: order.deliveryDistance ? Number(order.deliveryDistance) : null,
     cakeTiers: order.cakeTiers.map(tier => ({
       ...tier,

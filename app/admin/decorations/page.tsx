@@ -23,6 +23,9 @@ export default async function DecorationsAdmin() {
       { subcategory: 'asc' },
       { name: 'asc' },
     ],
+    include: {
+      laborRole: true,
+    },
   })
 
   // Group by category
@@ -106,8 +109,8 @@ export default async function DecorationsAdmin() {
                     <span className="flex items-center">
                       Labor
                       <InfoPopup
-                        title="Labor Time"
-                        description="Time in minutes to complete this technique. This is SEPARATE from material cost. Labor cost = (minutes ÷ 60) × your hourly rate. The base cake size shown indicates what size this time estimate is for."
+                        title="Labor Time & Role"
+                        description="Time in minutes to complete this technique and who performs it. Labor cost = (minutes ÷ 60) × role hourly rate. Role determines the pay rate used."
                       />
                     </span>
                   </th>
@@ -156,7 +159,13 @@ export default async function DecorationsAdmin() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="text-sm text-gray-500">{dec.laborMinutes} min</div>
-                      <div className="text-xs text-gray-400">for {dec.baseCakeSize}</div>
+                      <div className="text-xs text-gray-400">
+                        {dec.laborRole ? (
+                          <span className="text-blue-600">{dec.laborRole.name}</span>
+                        ) : (
+                          <span className="text-gray-400">Decorator</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                       {dec.unit.toLowerCase()}

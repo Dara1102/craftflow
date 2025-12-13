@@ -18,8 +18,17 @@ export interface DecorationCostDetail {
   unit: string
   materialCost: number
   laborMinutes: number
+  laborRole: string
+  laborRate: number
   laborCost: number
   totalCost: number
+}
+
+export interface LaborBreakdown {
+  role: string
+  hours: number
+  rate: number
+  cost: number
 }
 
 export interface TopperCostDetail {
@@ -36,12 +45,21 @@ export interface DeliveryCostDetail {
   totalFee: number
 }
 
+export interface DiscountDetail {
+  type: 'PERCENT' | 'FIXED'
+  value: number
+  reason: string | null
+  amount: number
+}
+
 export interface CostingResult {
   totalServings: number
   ingredients: IngredientCostDetail[]
   decorations: DecorationCostDetail[]
   topper: TopperCostDetail | null
   delivery: DeliveryCostDetail | null
+  discount: DiscountDetail | null
+  laborBreakdown: LaborBreakdown[]
   ingredientCost: number
   decorationMaterialCost: number
   decorationLaborCost: number
@@ -52,6 +70,8 @@ export interface CostingResult {
   totalCost: number
   markupPercent: number
   suggestedPrice: number
+  discountAmount: number
+  finalPrice: number
   costPerServing: number
   suggestedPricePerServing: number
 }
@@ -89,7 +109,11 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
       },
       orderDecorations: {
         include: {
-          decorationTechnique: true
+          decorationTechnique: {
+            include: {
+              laborRole: true
+            }
+          }
         }
       },
       deliveryZone: true
@@ -101,15 +125,25 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   }
 
   // Get settings
-  const laborRateSetting = await prisma.setting.findUnique({
-    where: { key: 'LaborRatePerHour' }
-  })
   const markupSetting = await prisma.setting.findUnique({
     where: { key: 'MarkupPercent' }
   })
-
-  const laborRatePerHour = laborRateSetting ? parseFloat(laborRateSetting.value) : 20
   const markupPercent = markupSetting ? parseFloat(markupSetting.value) : 0.7
+
+  // Get labor roles for rate lookups
+  const laborRoles = await prisma.laborRole.findMany({
+    where: { isActive: true }
+  })
+  const laborRoleMap = new Map(laborRoles.map(r => [r.id, r]))
+
+  // Get default rates by role name (fallbacks)
+  const decoratorRole = laborRoles.find(r => r.name === 'Decorator')
+  const bakerRole = laborRoles.find(r => r.name === 'Baker')
+  const assistantRole = laborRoles.find(r => r.name === 'Bakery Assistant')
+
+  const decoratorRate = decoratorRole ? new Decimal(decoratorRole.hourlyRate).toNumber() : 30
+  const bakerRate = bakerRole ? new Decimal(bakerRole.hourlyRate).toNumber() : 21
+  const assistantRate = assistantRole ? new Decimal(assistantRole.hourlyRate).toNumber() : 18
 
   // Calculate total servings
   const totalServings = order.cakeTiers.reduce((sum, tier) => sum + tier.tierSize.servings, 0)
@@ -186,7 +220,10 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   // Calculate decoration costs from order decorations
   const decorations: DecorationCostDetail[] = []
   let decorationMaterialCost = 0
-  let decorationLaborMinutes = 0
+  let decorationLaborCost = 0
+
+  // Track labor minutes by role for breakdown
+  const laborMinutesByRole = new Map<string, { minutes: number; rate: number }>()
 
   for (const orderDec of order.orderDecorations) {
     const technique = orderDec.decorationTechnique
@@ -203,7 +240,24 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
       .toNumber()
 
     const laborMins = technique.laborMinutes * quantityMultiplier
-    const laborCost = (laborMins / 60) * laborRatePerHour
+
+    // Get the labor rate for this technique's role
+    let laborRole = 'Decorator' // Default to decorator for decorations
+    let laborRate = decoratorRate
+    if (technique.laborRole) {
+      laborRole = technique.laborRole.name
+      laborRate = new Decimal(technique.laborRole.hourlyRate).toNumber()
+    }
+
+    const laborCost = (laborMins / 60) * laborRate
+
+    // Track for breakdown
+    const existing = laborMinutesByRole.get(laborRole)
+    if (existing) {
+      existing.minutes += laborMins
+    } else {
+      laborMinutesByRole.set(laborRole, { minutes: laborMins, rate: laborRate })
+    }
 
     decorations.push({
       techniqueId: technique.id,
@@ -214,16 +268,15 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
       unit: technique.unit.toLowerCase(),
       materialCost: Math.round(materialCost * 100) / 100,
       laborMinutes: laborMins,
+      laborRole,
+      laborRate,
       laborCost: Math.round(laborCost * 100) / 100,
       totalCost: Math.round((materialCost + laborCost) * 100) / 100
     })
 
     decorationMaterialCost += materialCost
-    decorationLaborMinutes += laborMins
+    decorationLaborCost += laborCost
   }
-
-  // Calculate decoration labor cost
-  const decorationLaborCost = (decorationLaborMinutes / 60) * laborRatePerHour
 
   // Calculate topper cost
   let topperCost = 0
@@ -271,22 +324,100 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     }
   }
 
-  // Calculate base labor cost (from estimated hours, minus decoration labor)
-  const totalEstimatedHours = new Decimal(order.estimatedHours).toNumber()
-  const decorationLaborHours = decorationLaborMinutes / 60
-  const baseLaborHours = Math.max(0, totalEstimatedHours - decorationLaborHours)
-  const baseLaborCost = baseLaborHours * laborRatePerHour
+  // Calculate base labor cost using role-specific rates
+  // If bakerHours/assistantHours are set, use those; otherwise fall back to estimatedHours at baker rate
+  const bakerHours = order.bakerHours ? new Decimal(order.bakerHours).toNumber() : 0
+  const assistantHours = order.assistantHours ? new Decimal(order.assistantHours).toNumber() : 0
+
+  let baseLaborCost = 0
+
+  if (bakerHours > 0 || assistantHours > 0) {
+    // Use the new role-specific hours
+    baseLaborCost = (bakerHours * bakerRate) + (assistantHours * assistantRate)
+
+    // Add to labor breakdown
+    if (bakerHours > 0) {
+      const existing = laborMinutesByRole.get('Baker')
+      if (existing) {
+        existing.minutes += bakerHours * 60
+      } else {
+        laborMinutesByRole.set('Baker', { minutes: bakerHours * 60, rate: bakerRate })
+      }
+    }
+    if (assistantHours > 0) {
+      const existing = laborMinutesByRole.get('Bakery Assistant')
+      if (existing) {
+        existing.minutes += assistantHours * 60
+      } else {
+        laborMinutesByRole.set('Bakery Assistant', { minutes: assistantHours * 60, rate: assistantRate })
+      }
+    }
+  } else {
+    // Fall back to legacy estimatedHours at baker rate
+    const totalEstimatedHours = new Decimal(order.estimatedHours).toNumber()
+    // Subtract decoration labor hours from total to get base hours
+    const decorationLaborHours = decorationLaborCost / decoratorRate // Approximate
+    const baseLaborHours = Math.max(0, totalEstimatedHours - decorationLaborHours)
+    baseLaborCost = baseLaborHours * bakerRate
+
+    if (baseLaborHours > 0) {
+      const existing = laborMinutesByRole.get('Baker')
+      if (existing) {
+        existing.minutes += baseLaborHours * 60
+      } else {
+        laborMinutesByRole.set('Baker', { minutes: baseLaborHours * 60, rate: bakerRate })
+      }
+    }
+  }
 
   // Total labor = base + decoration
   const totalLaborCost = baseLaborCost + decorationLaborCost
+
+  // Build labor breakdown array
+  const laborBreakdown: LaborBreakdown[] = []
+  for (const [role, data] of laborMinutesByRole) {
+    const hours = data.minutes / 60
+    laborBreakdown.push({
+      role,
+      hours: Math.round(hours * 100) / 100,
+      rate: data.rate,
+      cost: Math.round(hours * data.rate * 100) / 100
+    })
+  }
+  // Sort by cost descending
+  laborBreakdown.sort((a, b) => b.cost - a.cost)
 
   // Calculate totals (delivery cost is NOT marked up - it's a pass-through cost)
   const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost
   const suggestedPriceBeforeDelivery = totalCostBeforeDelivery * (1 + markupPercent)
   const totalCost = totalCostBeforeDelivery + deliveryCost
-  const suggestedPrice = suggestedPriceBeforeDelivery + deliveryCost
+  const suggestedPrice = suggestedPriceBeforeDelivery
+
+  // Calculate discount
+  let discountAmount = 0
+  let discount: DiscountDetail | null = null
+
+  if (order.discountType && order.discountValue) {
+    const discountVal = new Decimal(order.discountValue).toNumber()
+    if (order.discountType === 'PERCENT') {
+      discountAmount = suggestedPrice * (discountVal / 100)
+    } else {
+      discountAmount = discountVal
+    }
+
+    discount = {
+      type: order.discountType,
+      value: discountVal,
+      reason: order.discountReason,
+      amount: Math.round(discountAmount * 100) / 100
+    }
+  }
+
+  // Final price = suggested price - discount + delivery (delivery not discounted)
+  const finalPrice = suggestedPrice - discountAmount + deliveryCost
+
   const costPerServing = totalServings > 0 ? totalCost / totalServings : 0
-  const suggestedPricePerServing = totalServings > 0 ? suggestedPrice / totalServings : 0
+  const finalPricePerServing = totalServings > 0 ? finalPrice / totalServings : 0
 
   return {
     totalServings,
@@ -294,6 +425,8 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     decorations,
     topper,
     delivery,
+    discount,
+    laborBreakdown,
     ingredientCost: Math.round(ingredientCost * 100) / 100,
     decorationMaterialCost: Math.round(decorationMaterialCost * 100) / 100,
     decorationLaborCost: Math.round(decorationLaborCost * 100) / 100,
@@ -304,7 +437,9 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     totalCost: Math.round(totalCost * 100) / 100,
     markupPercent,
     suggestedPrice: Math.round(suggestedPrice * 100) / 100,
+    discountAmount: Math.round(discountAmount * 100) / 100,
+    finalPrice: Math.round(finalPrice * 100) / 100,
     costPerServing: Math.round(costPerServing * 100) / 100,
-    suggestedPricePerServing: Math.round(suggestedPricePerServing * 100) / 100,
+    suggestedPricePerServing: Math.round(finalPricePerServing * 100) / 100,
   }
 }

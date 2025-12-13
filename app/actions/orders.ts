@@ -1,6 +1,6 @@
 'use server'
 
-import { OrderStatus, CakeType } from '@prisma/client'
+import { OrderStatus, CakeType, DiscountType } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/db'
@@ -30,11 +30,18 @@ export interface CreateOrderData {
 
   // Labor
   estimatedHours: number
+  bakerHours?: number
+  assistantHours?: number
 
   // Topper
   topperType?: string
   topperText?: string
   customTopperFee?: number
+
+  // Discount
+  discountType?: DiscountType
+  discountValue?: number
+  discountReason?: string
 
   notes?: string
   status: OrderStatus
@@ -78,6 +85,8 @@ export async function createOrder(data: CreateOrderData) {
 
       // Labor & notes
       estimatedHours: data.estimatedHours,
+      bakerHours: data.bakerHours || null,
+      assistantHours: data.assistantHours || null,
       notes: data.notes,
       status: data.status,
 
@@ -85,6 +94,11 @@ export async function createOrder(data: CreateOrderData) {
       topperType: data.topperType || null,
       topperText: data.topperText || null,
       customTopperFee: data.customTopperFee || null,
+
+      // Discount
+      discountType: data.discountType || null,
+      discountValue: data.discountValue || null,
+      discountReason: data.discountReason || null,
 
       cakeTiers: {
         create: data.tiers.map((tier, index) => ({
@@ -115,7 +129,9 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
     await tx.cakeOrder.update({
       where: { id: orderId },
       data: {
-        customerId: data.customerId,
+        customer: {
+          connect: { id: data.customerId }
+        },
         eventDate: new Date(data.eventDate),
 
         // Cake details
@@ -130,7 +146,7 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
 
         // Delivery details
         isDelivery: data.isDelivery || false,
-        deliveryZoneId: data.deliveryZoneId || null,
+        deliveryZone: data.deliveryZoneId ? { connect: { id: data.deliveryZoneId } } : { disconnect: true },
         deliveryDistance: data.deliveryDistance || null,
         deliveryContact: data.deliveryContact,
         deliveryPhone: data.deliveryPhone,
@@ -139,6 +155,8 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
 
         // Labor & notes
         estimatedHours: data.estimatedHours,
+        bakerHours: data.bakerHours || null,
+        assistantHours: data.assistantHours || null,
         notes: data.notes,
         status: data.status,
 
@@ -146,6 +164,11 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
         topperType: data.topperType || null,
         topperText: data.topperText || null,
         customTopperFee: data.customTopperFee || null,
+
+        // Discount
+        discountType: data.discountType || null,
+        discountValue: data.discountValue || null,
+        discountReason: data.discountReason || null,
       }
     })
 

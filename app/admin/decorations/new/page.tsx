@@ -7,10 +7,16 @@ const skillLevels = ['LOW', 'MEDIUM', 'HIGH'] as const
 const materialGrades = ['STANDARD', 'PREMIUM', 'LUXURY'] as const
 const units = ['CAKE', 'TIER', 'SET'] as const
 
-export default function NewDecorationPage() {
+export default async function NewDecorationPage() {
+  const laborRoles = await prisma.laborRole.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  })
+
   async function createDecoration(formData: FormData) {
     'use server'
 
+    const laborRoleIdStr = formData.get('laborRoleId') as string
     const data = {
       sku: formData.get('sku') as string,
       name: formData.get('name') as string,
@@ -22,6 +28,7 @@ export default function NewDecorationPage() {
       baseCakeSize: formData.get('baseCakeSize') as string,
       defaultCostPerUnit: parseFloat(formData.get('defaultCostPerUnit') as string),
       laborMinutes: parseInt(formData.get('laborMinutes') as string),
+      laborRoleId: laborRoleIdStr ? parseInt(laborRoleIdStr) : null,
       wasteFactorPercent: parseInt(formData.get('wasteFactorPercent') as string),
       materialGrade: formData.get('materialGrade') as 'STANDARD' | 'PREMIUM' | 'LUXURY',
       toolsRequired: formData.get('toolsRequired') as string,
@@ -194,7 +201,7 @@ export default function NewDecorationPage() {
           </div>
 
           {/* Cost & Labor */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label htmlFor="baseCakeSize" className="block text-sm font-medium text-gray-700">
                 Base Cake Size
@@ -242,22 +249,6 @@ export default function NewDecorationPage() {
             </div>
 
             <div>
-              <label htmlFor="laborMinutes" className="block text-sm font-medium text-gray-700">
-                Labor (minutes)
-              </label>
-              <input
-                type="number"
-                name="laborMinutes"
-                id="laborMinutes"
-                min="0"
-                placeholder="30"
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
-              />
-              <p className="mt-1 text-xs text-gray-500">Time to complete technique</p>
-            </div>
-
-            <div>
               <label htmlFor="wasteFactorPercent" className="block text-sm font-medium text-gray-700">
                 Waste Factor (%)
               </label>
@@ -272,6 +263,45 @@ export default function NewDecorationPage() {
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
               />
               <p className="mt-1 text-xs text-gray-500">Extra material needed</p>
+            </div>
+          </div>
+
+          {/* Labor Role & Time */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label htmlFor="laborRoleId" className="block text-sm font-medium text-gray-700">
+                Labor Role
+              </label>
+              <select
+                name="laborRoleId"
+                id="laborRoleId"
+                defaultValue=""
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              >
+                <option value="">Default (Decorator)</option>
+                {laborRoles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name} (${Number(role.hourlyRate).toFixed(2)}/hr)
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Who performs this technique - affects labor cost</p>
+            </div>
+
+            <div>
+              <label htmlFor="laborMinutes" className="block text-sm font-medium text-gray-700">
+                Labor (minutes)
+              </label>
+              <input
+                type="number"
+                name="laborMinutes"
+                id="laborMinutes"
+                min="0"
+                placeholder="30"
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">Time to complete technique</p>
             </div>
           </div>
 

@@ -74,26 +74,36 @@ export default function RootLayout({
 
               {/* Mobile menu button */}
               <div className="sm:hidden flex items-center">
-                <details className="relative">
-                  <summary className="list-none cursor-pointer p-2">
-                    <svg className="h-6 w-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </summary>
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
-                    <div className="py-1">
-                      <Link href="/" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Orders</Link>
-                      <Link href="/orders/new" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">+ New Order</Link>
-                      <div className="border-t border-gray-100 my-1"></div>
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase">Admin</div>
-                      <Link href="/admin/ingredients" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Ingredients</Link>
-                      <Link href="/admin/recipes" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Recipes</Link>
-                      <Link href="/admin/tiers" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Tier Sizes</Link>
-                      <Link href="/admin/decorations" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Decorations</Link>
-                      <Link href="/admin/settings" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Settings</Link>
+                <div className="flex items-center justify-center">
+                  <a 
+                    href="https://cursor.com/dashboard" 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="btn btn--ghost btn--sm"
+                  >
+                    Sign in
+                  </a>
+                  <details className="relative ml-4">
+                    <summary className="list-none cursor-pointer p-2">
+                      <svg className="h-6 w-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                    </summary>
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                      <div className="py-1">
+                        <Link href="/" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Orders</Link>
+                        <Link href="/orders/new" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">+ New Order</Link>
+                        <div className="border-t border-gray-100 my-1"></div>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase">Admin</div>
+                        <Link href="/admin/ingredients" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Ingredients</Link>
+                        <Link href="/admin/recipes" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Recipes</Link>
+                        <Link href="/admin/tiers" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Tier Sizes</Link>
+                        <Link href="/admin/decorations" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Decorations</Link>
+                        <Link href="/admin/settings" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Settings</Link>
+                      </div>
                     </div>
-                  </div>
-                </details>
+                  </details>
+                </div>
               </div>
             </div>
           </div>
