@@ -3,10 +3,10 @@ import { prisma } from '@/lib/db'
 import RecipeForm from '../recipe-form'
 
 export default async function NewRecipe() {
-  const [ingredients, tierSizes, recipes] = await Promise.all([
+  const [ingredients, tierSizes, laborRoles] = await Promise.all([
     prisma.ingredient.findMany({ orderBy: { name: 'asc' } }),
     prisma.tierSize.findMany({ orderBy: { diameterCm: 'asc' } }),
-    prisma.recipe.findMany({ orderBy: { name: 'asc' } })
+    prisma.laborRole.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } })
   ])
 
   const plainIngredients = ingredients.map(ing => ({
@@ -17,16 +17,15 @@ export default async function NewRecipe() {
   const plainTierSizes = tierSizes.map(ts => ({
     id: ts.id,
     name: ts.name,
-    servings: ts.servings
+    servings: ts.servings,
+    volumeMl: ts.volumeMl
   }))
 
-  const batterRecipes = recipes
-    .filter(r => r.type === 'BATTER')
-    .map(r => ({ id: r.id, name: r.name }))
-
-  const frostingRecipes = recipes
-    .filter(r => r.type === 'FROSTING')
-    .map(r => ({ id: r.id, name: r.name }))
+  const plainLaborRoles = laborRoles.map(role => ({
+    id: role.id,
+    name: role.name,
+    hourlyRate: Number(role.hourlyRate)
+  }))
 
   return (
     <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -45,8 +44,7 @@ export default async function NewRecipe() {
           recipe={null}
           ingredients={plainIngredients}
           tierSizes={plainTierSizes}
-          batterRecipes={batterRecipes}
-          frostingRecipes={frostingRecipes}
+          laborRoles={plainLaborRoles}
         />
       </div>
     </div>

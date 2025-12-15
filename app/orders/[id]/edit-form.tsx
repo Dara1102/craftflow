@@ -18,9 +18,9 @@ interface TierSize {
 interface CakeTier {
   id: number
   tierSizeId: number
-  flavor: string
-  filling: string
-  finishType: string
+  flavor: string | null
+  filling: string | null
+  finishType: string | null
   tierSize: TierSize
 }
 
@@ -87,6 +87,18 @@ interface TierCost {
   batterCost: number
   frostingCost: number
   totalIngredientCost: number
+  // Labor data
+  batterLaborMinutes: number
+  batterLaborRole: string | null
+  batterLaborRate: number | null
+  frostingLaborMinutes: number
+  frostingLaborRole: string | null
+  frostingLaborRate: number | null
+  assemblyMinutes: number
+  assemblyRole: string | null
+  assemblyRate: number | null
+  totalLaborMinutes: number
+  totalLaborCost: number
 }
 
 interface LaborRole {
@@ -104,9 +116,11 @@ interface Order {
   cakeType: CakeType | null
   size: string | null
   servingsTarget: number | null
+  desiredServings: number | null
   theme: string | null
   occasion: string | null
   colors: string | null
+  accentColors: string | null
   isDelivery: boolean
   deliveryZoneId: number | null
   deliveryDistance: number | null
@@ -169,12 +183,15 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   // Cake details
   const [cakeType, setCakeType] = useState<CakeType | ''>(order.cakeType || '')
   const [size, setSize] = useState(order.size || '')
+  const [desiredServings, setDesiredServings] = useState(order.desiredServings?.toString() || '')
 
   // Event details
   const [theme, setTheme] = useState(order.theme || '')
   const [occasion, setOccasion] = useState(order.occasion || '')
   const [colors, setColors] = useState(order.colors || '')
   const [showColorDropdown, setShowColorDropdown] = useState(false)
+  const [accentColors, setAccentColors] = useState(order.accentColors || '')
+  const [showAccentColorDropdown, setShowAccentColorDropdown] = useState(false)
 
   // Delivery details
   const [isDelivery, setIsDelivery] = useState(order.isDelivery)
@@ -233,6 +250,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorDropdownRef = useRef<HTMLDivElement>(null)
+  const accentColorDropdownRef = useRef<HTMLDivElement>(null)
 
   // Fetch field options, decorations list, and delivery zones
   const { data: fieldOptions } = useSWR<FieldOptions>('/api/field-options', fetcher)
@@ -250,6 +268,9 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
       }
       if (colorDropdownRef.current && !colorDropdownRef.current.contains(event.target as Node)) {
         setShowColorDropdown(false)
+      }
+      if (accentColorDropdownRef.current && !accentColorDropdownRef.current.contains(event.target as Node)) {
+        setShowAccentColorDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -317,9 +338,9 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         const tierSize = tierSizes.find(ts => ts.id === tier.tierSizeId)
         if (tierSize) {
           hours += tierSize.servings / 10
-          if (tier.finishType.toLowerCase().includes('fondant')) {
+          if (tier.finishType?.toLowerCase().includes('fondant')) {
             hours += 2
-          } else if (tier.finishType.toLowerCase().includes('buttercream')) {
+          } else if (tier.finishType?.toLowerCase().includes('buttercream')) {
             hours += 1
           }
         }
@@ -392,9 +413,11 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         eventDate,
         cakeType: cakeType || undefined,
         size,
+        desiredServings: desiredServings ? parseInt(desiredServings) : undefined,
         theme: theme || undefined,
         occasion: occasion || undefined,
         colors: colors || undefined,
+        accentColors: accentColors || undefined,
         isDelivery,
         deliveryZoneId: isDelivery ? deliveryZoneId : null,
         deliveryDistance: isDelivery && deliveryDistance ? parseFloat(deliveryDistance) : null,
@@ -414,8 +437,10 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         notes,
         status,
         tiers: validTiers.map(t => ({
-          ...t,
-          tierSizeId: parseInt(t.tierSizeId.toString())
+          tierSizeId: parseInt(t.tierSizeId.toString()),
+          flavor: t.flavor || '',
+          filling: t.filling || '',
+          finishType: t.finishType || '',
         })),
         decorations: selectedDecorations
       })
@@ -488,9 +513,10 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     // Calculate tier ingredient costs
     let ingredientCost = 0
     const tierCount = tiers.filter(t => t.tierSizeId > 0).length
+    const tierCostsArray = Array.isArray(tierCosts) ? tierCosts : []
     tiers.forEach(tier => {
       if (tier.tierSizeId > 0) {
-        const tierCost = tierCosts?.find(tc => tc.tierSizeId === tier.tierSizeId)
+        const tierCost = tierCostsArray.find(tc => tc.tierSizeId === tier.tierSizeId)
         if (tierCost) {
           ingredientCost += tierCost.totalIngredientCost
         }
@@ -676,6 +702,23 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
               </div>
 
               <div className="col-span-6 sm:col-span-3">
+                <label htmlFor="desiredServings" className="block text-sm font-medium text-gray-700">
+                  Desired Servings
+                </label>
+                <input
+                  type="number"
+                  name="desiredServings"
+                  id="desiredServings"
+                  min="1"
+                  value={desiredServings}
+                  onChange={(e) => setDesiredServings(e.target.value)}
+                  placeholder="e.g., 50"
+                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                />
+                <p className="mt-1 text-xs text-gray-500">Target number of servings for this order</p>
+              </div>
+
+              <div className="col-span-6 sm:col-span-3">
                 <label htmlFor="occasion" className="block text-sm font-medium text-gray-700">
                   Occasion
                 </label>
@@ -772,6 +815,78 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                             <span>{colorOpt.name}</span>
                             {isSelected && (
                               <svg className="h-4 w-4 text-pink-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="col-span-6 sm:col-span-3" ref={accentColorDropdownRef}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Accent Colors
+                </label>
+                <div className="relative">
+                  <div
+                    onClick={() => setShowAccentColorDropdown(!showAccentColorDropdown)}
+                    className="min-h-[38px] px-3 py-2 border border-gray-300 rounded-md bg-white cursor-pointer focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500"
+                  >
+                    {accentColors ? (
+                      <div className="flex flex-wrap gap-1">
+                        {accentColors.split(',').map(c => c.trim()).filter(Boolean).map((colorName, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                          >
+                            {colorName}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const selectedAccentColors = accentColors.split(',').map(c => c.trim()).filter(Boolean)
+                                setAccentColors(selectedAccentColors.filter(c => c !== colorName).join(', '))
+                              }}
+                              className="ml-1 text-purple-600 hover:text-purple-800"
+                            >
+                              <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400 text-sm">Click to select accent colors...</span>
+                    )}
+                  </div>
+
+                  {showAccentColorDropdown && (
+                    <div className="absolute z-20 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 max-h-60 overflow-auto">
+                      {fieldOptions?.color?.map(colorOpt => {
+                        const selectedAccentColors = accentColors.split(',').map(c => c.trim()).filter(Boolean)
+                        const isSelected = selectedAccentColors.includes(colorOpt.name)
+                        return (
+                          <button
+                            key={colorOpt.id}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setAccentColors(selectedAccentColors.filter(c => c !== colorOpt.name).join(', '))
+                              } else {
+                                setAccentColors([...selectedAccentColors, colorOpt.name].join(', '))
+                              }
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-purple-50 flex items-center justify-between ${
+                              isSelected ? 'bg-purple-50 text-purple-700' : 'text-gray-700'
+                            }`}
+                          >
+                            <span>{colorOpt.name}</span>
+                            {isSelected && (
+                              <svg className="h-4 w-4 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                               </svg>
                             )}
@@ -1011,7 +1126,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   <div>
                     <label className="block text-xs font-medium text-gray-700">Flavor</label>
                     <select
-                      value={tier.flavor}
+                      value={tier.flavor || ''}
                       onChange={(e) => updateTier(index, 'flavor', e.target.value)}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                       required
@@ -1025,7 +1140,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   <div>
                     <label className="block text-xs font-medium text-gray-700">Filling</label>
                     <select
-                      value={tier.filling}
+                      value={tier.filling || ''}
                       onChange={(e) => updateTier(index, 'filling', e.target.value)}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                       required
@@ -1039,7 +1154,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   <div>
                     <label className="block text-xs font-medium text-gray-700">Finish Type</label>
                     <select
-                      value={tier.finishType}
+                      value={tier.finishType || ''}
                       onChange={(e) => updateTier(index, 'finishType', e.target.value)}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                       required
@@ -1307,19 +1422,74 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         <div className="md:grid md:grid-cols-3 md:gap-6">
           <div className="md:col-span-1">
             <h3 className="text-lg font-medium leading-6 text-gray-900">Labor & Notes</h3>
-            <p className="mt-1 text-sm text-gray-600">Estimated time by role and additional notes.</p>
-            <div className="mt-3 p-3 bg-blue-50 rounded-md">
-              <p className="text-xs text-blue-700">
-                <strong>Tip:</strong> Break down labor by role for accurate costing. Decoration labor is calculated automatically from techniques.
-              </p>
-            </div>
+            <p className="mt-1 text-sm text-gray-600">Auto-calculated labor from recipes, assembly, and decorations.</p>
           </div>
           <div className="mt-5 md:mt-0 md:col-span-2">
             <div className="grid grid-cols-6 gap-6">
-              {/* Role-based hours */}
+              {/* Auto-calculated labor preview */}
+              <div className="col-span-6 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
+                <h4 className="text-sm font-semibold text-blue-900 mb-3">Auto-Calculated Labor (from sources)</h4>
+                {(() => {
+                  // Calculate tier-based labor
+                  let totalBatterMinutes = 0
+                  let totalFrostingMinutes = 0
+                  let totalAssemblyMinutes = 0
+                  let totalTierLaborCost = 0
+
+                  const validTiers = tiers.filter(t => t.tierSizeId > 0)
+                  const tierCostsArr = Array.isArray(tierCosts) ? tierCosts : []
+                  validTiers.forEach(tier => {
+                    const tierCost = tierCostsArr.find(tc => tc.tierSizeId === tier.tierSizeId)
+                    if (tierCost) {
+                      totalBatterMinutes += tierCost.batterLaborMinutes
+                      totalFrostingMinutes += tierCost.frostingLaborMinutes
+                      totalAssemblyMinutes += tierCost.assemblyMinutes
+                      totalTierLaborCost += tierCost.totalLaborCost
+                    }
+                  })
+
+                  const totalAutoMinutes = totalBatterMinutes + totalFrostingMinutes + totalAssemblyMinutes
+                  const totalAutoHours = totalAutoMinutes / 60
+
+                  return (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-600">Batter/Baking</p>
+                          <p className="font-medium text-blue-800">{Math.round(totalBatterMinutes)} min</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Frosting</p>
+                          <p className="font-medium text-blue-800">{Math.round(totalFrostingMinutes)} min</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Assembly</p>
+                          <p className="font-medium text-blue-800">{Math.round(totalAssemblyMinutes)} min</p>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-blue-200 flex justify-between items-center">
+                        <div>
+                          <span className="text-gray-600">Total Auto Labor: </span>
+                          <span className="font-bold text-blue-900">{totalAutoHours.toFixed(1)} hrs</span>
+                          <span className="text-gray-500 ml-2">(${totalTierLaborCost.toFixed(2)})</span>
+                        </div>
+                        <p className="text-xs text-gray-500">+ decoration labor calculated separately</p>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Manual adjustment hours */}
+              <div className="col-span-6">
+                <p className="text-xs text-gray-500 mb-2">
+                  <strong>Additional manual labor</strong> (for tasks not covered by recipes/assembly/decorations):
+                </p>
+              </div>
+
               <div className="col-span-6 sm:col-span-2">
                 <label htmlFor="bakerHours" className="block text-sm font-medium text-gray-700">
-                  Baker Hours
+                  Extra Baker Hours
                   <span className="text-xs text-gray-500 ml-1">
                     (${laborRoles?.find(r => r.name === 'Baker')?.hourlyRate || 21}/hr)
                   </span>
@@ -1335,12 +1505,12 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   placeholder="0"
                   className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                 />
-                <p className="mt-1 text-xs text-gray-500">Baking, assembly, frosting</p>
+                <p className="mt-1 text-xs text-gray-500">Extra time beyond auto-calculated</p>
               </div>
 
               <div className="col-span-6 sm:col-span-2">
                 <label htmlFor="assistantHours" className="block text-sm font-medium text-gray-700">
-                  Assistant Hours
+                  Extra Assistant Hours
                   <span className="text-xs text-gray-500 ml-1">
                     (${laborRoles?.find(r => r.name === 'Bakery Assistant')?.hourlyRate || 18}/hr)
                   </span>
@@ -1356,7 +1526,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   placeholder="0"
                   className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                 />
-                <p className="mt-1 text-xs text-gray-500">Packaging, stacking, simple tasks</p>
+                <p className="mt-1 text-xs text-gray-500">Packaging, delivery prep, etc.</p>
               </div>
 
               <div className="col-span-6 sm:col-span-2">
@@ -1376,7 +1546,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                     setEstimatedHours(e.target.value)
                     setHoursManuallySet(true)
                   }}
-                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md bg-gray-50"
                 />
                 {hoursManuallySet && (
                   <button
@@ -1387,12 +1557,6 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                     Reset to auto-calculate
                   </button>
                 )}
-              </div>
-
-              <div className="col-span-6">
-                <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                  <strong>Note:</strong> Decorator labor is calculated from decoration techniques. If Baker/Assistant hours are set, they are used instead of the legacy Total Est. Hours field.
-                </p>
               </div>
 
               <div className="col-span-6">

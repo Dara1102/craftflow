@@ -1,86 +1,60 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { Decimal } from '@prisma/client/runtime/library'
 
-export interface TierCost {
+export interface TierInfo {
   tierSizeId: number
   name: string
+  shape: string
   servings: number
-  batterCost: number
-  frostingCost: number
-  totalIngredientCost: number
+  volumeMl: number | null
+  // Assembly labor data (this is tied to tier size)
+  assemblyMinutes: number
+  assemblyRole: string | null
+  assemblyRate: number | null
+  assemblyLaborCost: number
 }
 
-// GET /api/tier-costs - Get ingredient costs for all tier sizes
+// GET /api/tier-costs - Get tier size info (without recipe costs - those are calculated per order now)
 export async function GET() {
   try {
     const tierSizes = await prisma.tierSize.findMany({
       include: {
-        batterRecipe: {
-          include: {
-            recipeIngredients: {
-              include: {
-                ingredient: true
-              }
-            }
-          }
-        },
-        frostingRecipe: {
-          include: {
-            recipeIngredients: {
-              include: {
-                ingredient: true
-              }
-            }
-          }
-        }
+        assemblyRole: true
       },
       orderBy: {
         diameterCm: 'asc'
       }
     })
 
-    const tierCosts: TierCost[] = tierSizes.map(ts => {
-      let batterCost = 0
-      let frostingCost = 0
+    const defaultRate = 21 // Default Baker rate
 
-      // Calculate batter cost
-      if (ts.batterRecipe) {
-        for (const ri of ts.batterRecipe.recipeIngredients) {
-          const quantity = new Decimal(ri.quantity)
-            .mul(new Decimal(ts.batterMultiplier))
-            .toNumber()
-          const cost = quantity * Number(ri.ingredient.costPerUnit)
-          batterCost += cost
-        }
-      }
+    const tierInfo: TierInfo[] = tierSizes.map(ts => {
+      const assemblyMinutes = ts.assemblyMinutes || 0
+      const assemblyRole = ts.assemblyRole?.name || null
+      const assemblyRate = ts.assemblyRole
+        ? Number(ts.assemblyRole.hourlyRate)
+        : null
 
-      // Calculate frosting cost
-      if (ts.frostingRecipe && ts.frostingMultiplier) {
-        for (const ri of ts.frostingRecipe.recipeIngredients) {
-          const quantity = new Decimal(ri.quantity)
-            .mul(new Decimal(ts.frostingMultiplier))
-            .toNumber()
-          const cost = quantity * Number(ri.ingredient.costPerUnit)
-          frostingCost += cost
-        }
-      }
+      const assemblyLaborCost = (assemblyMinutes / 60) * (assemblyRate || defaultRate)
 
       return {
         tierSizeId: ts.id,
         name: ts.name,
+        shape: ts.shape,
         servings: ts.servings,
-        batterCost: Math.round(batterCost * 100) / 100,
-        frostingCost: Math.round(frostingCost * 100) / 100,
-        totalIngredientCost: Math.round((batterCost + frostingCost) * 100) / 100
+        volumeMl: ts.volumeMl,
+        assemblyMinutes,
+        assemblyRole,
+        assemblyRate,
+        assemblyLaborCost: Math.round(assemblyLaborCost * 100) / 100
       }
     })
 
-    return NextResponse.json(tierCosts)
+    return NextResponse.json(tierInfo)
   } catch (error) {
-    console.error('Failed to fetch tier costs:', error)
+    console.error('Failed to fetch tier info:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch tier costs' },
+      { error: 'Failed to fetch tier info' },
       { status: 500 }
     )
   }

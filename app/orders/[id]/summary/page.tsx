@@ -59,7 +59,7 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
     }
 
     const mainTier = order.cakeTiers[0]
-    if (mainTier) {
+    if (mainTier?.flavor) {
       parts.push(mainTier.flavor.toLowerCase())
     }
 

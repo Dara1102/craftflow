@@ -7,7 +7,7 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
   const { id } = await params
   const recipeId = parseInt(id)
 
-  const [recipe, ingredients, tierSizes, recipes] = await Promise.all([
+  const [recipe, ingredients, tierSizes, laborRoles] = await Promise.all([
     prisma.recipe.findUnique({
       where: { id: recipeId },
       include: {
@@ -20,16 +20,26 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
     }),
     prisma.ingredient.findMany({ orderBy: { name: 'asc' } }),
     prisma.tierSize.findMany({ orderBy: { diameterCm: 'asc' } }),
-    prisma.recipe.findMany({ orderBy: { name: 'asc' } })
+    prisma.laborRole.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } })
   ])
 
   if (!recipe) {
     notFound()
   }
 
-  // Convert Decimal to number
+  // Convert Decimal to number and include new fields
   const plainRecipe = {
-    ...recipe,
+    id: recipe.id,
+    name: recipe.name,
+    type: recipe.type,
+    yieldDescription: recipe.yieldDescription,
+    yieldVolumeMl: recipe.yieldVolumeMl,
+    instructions: recipe.instructions,
+    prepMinutes: recipe.prepMinutes,
+    bakeMinutes: recipe.bakeMinutes,
+    coolMinutes: recipe.coolMinutes,
+    laborMinutes: recipe.laborMinutes,
+    laborRoleId: recipe.laborRoleId,
     recipeIngredients: recipe.recipeIngredients.map(ri => ({
       ...ri,
       quantity: Number(ri.quantity),
@@ -40,6 +50,12 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
     }))
   }
 
+  const plainLaborRoles = laborRoles.map(role => ({
+    id: role.id,
+    name: role.name,
+    hourlyRate: Number(role.hourlyRate)
+  }))
+
   const plainIngredients = ingredients.map(ing => ({
     ...ing,
     costPerUnit: Number(ing.costPerUnit)
@@ -48,16 +64,9 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
   const plainTierSizes = tierSizes.map(ts => ({
     id: ts.id,
     name: ts.name,
-    servings: ts.servings
+    servings: ts.servings,
+    volumeMl: ts.volumeMl
   }))
-
-  const batterRecipes = recipes
-    .filter(r => r.type === 'BATTER')
-    .map(r => ({ id: r.id, name: r.name }))
-
-  const frostingRecipes = recipes
-    .filter(r => r.type === 'FROSTING')
-    .map(r => ({ id: r.id, name: r.name }))
 
   return (
     <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -76,8 +85,7 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
           recipe={plainRecipe}
           ingredients={plainIngredients}
           tierSizes={plainTierSizes}
-          batterRecipes={batterRecipes}
-          frostingRecipes={frostingRecipes}
+          laborRoles={plainLaborRoles}
         />
       </div>
     </div>

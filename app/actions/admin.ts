@@ -37,12 +37,28 @@ export async function createRecipe(data: {
   name: string
   type: string
   yieldDescription: string
+  yieldVolumeMl?: number
+  instructions?: string
+  prepMinutes?: number
+  bakeMinutes?: number
+  coolMinutes?: number
+  laborMinutes?: number
+  laborRoleId?: number
   ingredients: { ingredientId: number; quantity: number }[]
 }) {
   const { ingredients, ...recipeData } = data
   await prisma.recipe.create({
     data: {
-      ...recipeData,
+      name: recipeData.name,
+      type: recipeData.type as 'BATTER' | 'FILLING' | 'FROSTING',
+      yieldDescription: recipeData.yieldDescription,
+      yieldVolumeMl: recipeData.yieldVolumeMl || null,
+      instructions: recipeData.instructions || null,
+      prepMinutes: recipeData.prepMinutes || null,
+      bakeMinutes: recipeData.bakeMinutes || null,
+      coolMinutes: recipeData.coolMinutes || null,
+      laborMinutes: recipeData.laborMinutes || null,
+      laborRoleId: recipeData.laborRoleId || null,
       recipeIngredients: {
         create: ingredients
       }
@@ -55,6 +71,13 @@ export async function updateRecipe(id: number, data: {
   name: string
   type: string
   yieldDescription: string
+  yieldVolumeMl?: number
+  instructions?: string
+  prepMinutes?: number
+  bakeMinutes?: number
+  coolMinutes?: number
+  laborMinutes?: number
+  laborRoleId?: number
   ingredients: { ingredientId: number; quantity: number }[]
 }) {
   const { ingredients, ...recipeData } = data
@@ -62,7 +85,18 @@ export async function updateRecipe(id: number, data: {
   await prisma.$transaction(async (tx) => {
     await tx.recipe.update({
       where: { id },
-      data: recipeData
+      data: {
+        name: recipeData.name,
+        type: recipeData.type as 'BATTER' | 'FILLING' | 'FROSTING',
+        yieldDescription: recipeData.yieldDescription,
+        yieldVolumeMl: recipeData.yieldVolumeMl || null,
+        instructions: recipeData.instructions || null,
+        prepMinutes: recipeData.prepMinutes || null,
+        bakeMinutes: recipeData.bakeMinutes || null,
+        coolMinutes: recipeData.coolMinutes || null,
+        laborMinutes: recipeData.laborMinutes || null,
+        laborRoleId: recipeData.laborRoleId || null,
+      }
     })
 
     await tx.recipeIngredient.deleteMany({
@@ -93,26 +127,25 @@ export async function createTierSize(data: {
   shape: string
   diameterCm: number
   lengthCm?: number | null
+  widthCm?: number | null
   heightCm: number
+  volumeMl?: number | null
   servings: number
-  batterRecipeId: number
-  batterMultiplier: number
-  frostingRecipeId?: number
-  frostingMultiplier?: number
+  assemblyMinutes?: number
+  assemblyRoleId?: number
 }) {
   try {
-    // Clean up data - convert undefined to null for optional fields
     const cleanData = {
       name: data.name,
       shape: data.shape,
       diameterCm: data.diameterCm,
       lengthCm: data.lengthCm ?? null,
+      widthCm: data.widthCm ?? null,
       heightCm: data.heightCm,
+      volumeMl: data.volumeMl ?? null,
       servings: data.servings,
-      batterRecipeId: data.batterRecipeId,
-      batterMultiplier: data.batterMultiplier,
-      frostingRecipeId: data.frostingRecipeId ?? null,
-      frostingMultiplier: data.frostingMultiplier ?? null,
+      assemblyMinutes: data.assemblyMinutes ?? null,
+      assemblyRoleId: data.assemblyRoleId ?? null,
     }
     await prisma.tierSize.create({ data: cleanData })
     revalidatePath('/admin/tiers')
@@ -127,26 +160,25 @@ export async function updateTierSize(id: number, data: {
   shape: string
   diameterCm: number
   lengthCm?: number | null
+  widthCm?: number | null
   heightCm: number
+  volumeMl?: number | null
   servings: number
-  batterRecipeId: number
-  batterMultiplier: number
-  frostingRecipeId?: number
-  frostingMultiplier?: number
+  assemblyMinutes?: number
+  assemblyRoleId?: number
 }) {
   try {
-    // Clean up data - convert undefined to null for optional fields
     const cleanData = {
       name: data.name,
       shape: data.shape,
       diameterCm: data.diameterCm,
       lengthCm: data.lengthCm ?? null,
+      widthCm: data.widthCm ?? null,
       heightCm: data.heightCm,
+      volumeMl: data.volumeMl ?? null,
       servings: data.servings,
-      batterRecipeId: data.batterRecipeId,
-      batterMultiplier: data.batterMultiplier,
-      frostingRecipeId: data.frostingRecipeId ?? null,
-      frostingMultiplier: data.frostingMultiplier ?? null,
+      assemblyMinutes: data.assemblyMinutes ?? null,
+      assemblyRoleId: data.assemblyRoleId ?? null,
     }
     await prisma.tierSize.update({
       where: { id },
@@ -164,39 +196,6 @@ export async function deleteTierSize(id: number) {
     where: { id }
   })
   revalidatePath('/admin/tiers')
-}
-
-// Decoration Materials
-export async function createDecorationMaterial(data: {
-  name: string
-  unit: string
-  costPerUnit: number
-  usageRuleType: string
-  usageRuleValue: number
-}) {
-  await prisma.decorationMaterial.create({ data })
-  revalidatePath('/admin/decorations')
-}
-
-export async function updateDecorationMaterial(id: number, data: {
-  name: string
-  unit: string
-  costPerUnit: number
-  usageRuleType: string
-  usageRuleValue: number
-}) {
-  await prisma.decorationMaterial.update({
-    where: { id },
-    data
-  })
-  revalidatePath('/admin/decorations')
-}
-
-export async function deleteDecorationMaterial(id: number) {
-  await prisma.decorationMaterial.delete({
-    where: { id }
-  })
-  revalidatePath('/admin/decorations')
 }
 
 // Settings

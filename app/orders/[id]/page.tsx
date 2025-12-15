@@ -52,9 +52,8 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
         ...tier.tierSize,
         diameterCm: Number(tier.tierSize.diameterCm),
         lengthCm: tier.tierSize.lengthCm ? Number(tier.tierSize.lengthCm) : null,
+        widthCm: tier.tierSize.widthCm ? Number(tier.tierSize.widthCm) : null,
         heightCm: Number(tier.tierSize.heightCm),
-        batterMultiplier: Number(tier.tierSize.batterMultiplier),
-        frostingMultiplier: tier.tierSize.frostingMultiplier ? Number(tier.tierSize.frostingMultiplier) : null,
       }
     })),
     orderDecorations: order.orderDecorations.map(dec => ({
@@ -70,9 +69,8 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
     ...ts,
     diameterCm: Number(ts.diameterCm),
     lengthCm: ts.lengthCm ? Number(ts.lengthCm) : null,
+    widthCm: ts.widthCm ? Number(ts.widthCm) : null,
     heightCm: Number(ts.heightCm),
-    batterMultiplier: Number(ts.batterMultiplier),
-    frostingMultiplier: ts.frostingMultiplier ? Number(ts.frostingMultiplier) : null,
   }))
 
   return (

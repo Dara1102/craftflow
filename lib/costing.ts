@@ -52,6 +52,23 @@ export interface DiscountDetail {
   amount: number
 }
 
+export interface RecipeMatch {
+  recipe: {
+    id: number
+    name: string
+    type: string
+    yieldVolumeMl: number | null
+    laborMinutes: number | null
+    laborRole: { name: string; hourlyRate: Decimal } | null
+    recipeIngredients: {
+      ingredientId: number
+      quantity: Decimal
+      ingredient: { id: number; name: string; unit: string; costPerUnit: Decimal }
+    }[]
+  }
+  multiplier: number
+}
+
 export interface CostingResult {
   totalServings: number
   ingredients: IngredientCostDetail[]
@@ -74,6 +91,95 @@ export interface CostingResult {
   finalPrice: number
   costPerServing: number
   suggestedPricePerServing: number
+  // Debug info for recipe matching
+  recipeMatches?: {
+    tierId: number
+    tierName: string
+    tierVolumeMl: number | null
+    batter: RecipeMatch | null
+    filling: RecipeMatch | null
+    frosting: RecipeMatch | null
+  }[]
+}
+
+/**
+ * Find the best matching recipe based on flavor/filling name and type
+ * Falls back to first recipe of that type if no name match
+ */
+async function findMatchingRecipe(
+  flavorName: string | null,
+  recipeType: 'BATTER' | 'FILLING' | 'FROSTING',
+  allRecipes: {
+    id: number
+    name: string
+    type: string
+    yieldVolumeMl: number | null
+    laborMinutes: number | null
+    laborRole: { name: string; hourlyRate: Decimal } | null
+    recipeIngredients: {
+      ingredientId: number
+      quantity: Decimal
+      ingredient: { id: number; name: string; unit: string; costPerUnit: Decimal }
+    }[]
+  }[]
+): Promise<typeof allRecipes[0] | null> {
+  const recipesOfType = allRecipes.filter(r => r.type === recipeType)
+
+  if (recipesOfType.length === 0) return null
+
+  if (flavorName) {
+    const lowerFlavor = flavorName.toLowerCase()
+
+    // Try exact match first
+    const exactMatch = recipesOfType.find(r =>
+      r.name.toLowerCase().includes(lowerFlavor) ||
+      lowerFlavor.includes(r.name.toLowerCase().replace(' batter', '').replace(' filling', '').replace(' frosting', '').replace(' buttercream', ''))
+    )
+    if (exactMatch) return exactMatch
+
+    // Try partial match (e.g., "Chocolate" matches "Chocolate Sponge Batter")
+    const partialMatch = recipesOfType.find(r => {
+      const recipeFlavor = r.name.toLowerCase().split(' ')[0] // First word
+      return lowerFlavor.includes(recipeFlavor) || recipeFlavor.includes(lowerFlavor.split(' ')[0])
+    })
+    if (partialMatch) return partialMatch
+  }
+
+  // Fall back to first recipe of this type
+  return recipesOfType[0]
+}
+
+/**
+ * Calculate the multiplier needed to scale a recipe for a given tier size
+ * Uses volume-based calculation when both volumes are available
+ * Falls back to servings-based calculation otherwise
+ */
+function calculateMultiplier(
+  recipeYieldVolumeMl: number | null,
+  tierVolumeMl: number | null,
+  recipeType: 'BATTER' | 'FILLING' | 'FROSTING'
+): number {
+  // For batter: we need the full tier volume
+  // For frosting: we need ~36% of tier volume (surface coverage)
+  // For filling: we need ~12% of tier volume (thin layer between layers)
+
+  const volumeFactors: Record<string, number> = {
+    'BATTER': 1.0,      // Full volume
+    'FROSTING': 0.36,   // Surface coverage
+    'FILLING': 0.12,    // Thin layer
+  }
+
+  const factor = volumeFactors[recipeType] || 1.0
+
+  if (recipeYieldVolumeMl && tierVolumeMl) {
+    const neededVolume = tierVolumeMl * factor
+    const multiplier = neededVolume / recipeYieldVolumeMl
+    return Math.round(multiplier * 100) / 100 // Round to 2 decimal places
+  }
+
+  // Fallback: use a default multiplier of 1.0
+  // This happens when volume data is missing
+  return 1.0
 }
 
 export async function calculateOrderCosting(orderId: number): Promise<CostingResult> {
@@ -85,24 +191,38 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
         include: {
           tierSize: {
             include: {
-              batterRecipe: {
+              assemblyRole: true
+            }
+          },
+          // Include explicitly set recipes (if any)
+          batterRecipe: {
+            include: {
+              recipeIngredients: {
                 include: {
-                  recipeIngredients: {
-                    include: {
-                      ingredient: true
-                    }
-                  }
+                  ingredient: true
                 }
               },
-              frostingRecipe: {
+              laborRole: true
+            }
+          },
+          fillingRecipe: {
+            include: {
+              recipeIngredients: {
                 include: {
-                  recipeIngredients: {
-                    include: {
-                      ingredient: true
-                    }
-                  }
+                  ingredient: true
                 }
-              }
+              },
+              laborRole: true
+            }
+          },
+          frostingRecipe: {
+            include: {
+              recipeIngredients: {
+                include: {
+                  ingredient: true
+                }
+              },
+              laborRole: true
             }
           }
         }
@@ -124,6 +244,18 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     throw new Error(`Order ${orderId} not found`)
   }
 
+  // Get all recipes for auto-matching when explicit recipe not set
+  const allRecipes = await prisma.recipe.findMany({
+    include: {
+      recipeIngredients: {
+        include: {
+          ingredient: true
+        }
+      },
+      laborRole: true
+    }
+  })
+
   // Get settings
   const markupSetting = await prisma.setting.findUnique({
     where: { key: 'MarkupPercent' }
@@ -134,7 +266,6 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   const laborRoles = await prisma.laborRole.findMany({
     where: { isActive: true }
   })
-  const laborRoleMap = new Map(laborRoles.map(r => [r.id, r]))
 
   // Get default rates by role name (fallbacks)
   const decoratorRole = laborRoles.find(r => r.name === 'Decorator')
@@ -151,18 +282,85 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
 
   // Aggregate ingredients
   const ingredientMap = new Map<number, {
-    ingredient: any,
+    ingredient: { id: number; name: string; unit: string; costPerUnit: Decimal },
     totalQuantity: number
   }>()
 
+  // Track labor minutes by role for breakdown
+  const laborMinutesByRole = new Map<string, { minutes: number; rate: number }>()
+
+  // Calculate recipe labor and assembly labor
+  let recipeLaborCost = 0
+  let assemblyLaborCost = 0
+
+  // Debug: track recipe matches
+  const recipeMatches: CostingResult['recipeMatches'] = []
+
   for (const tier of order.cakeTiers) {
     const { tierSize } = tier
+    const tierVolume = tierSize.volumeMl
 
-    // Process batter recipe
-    if (tierSize.batterRecipe) {
-      for (const ri of tierSize.batterRecipe.recipeIngredients) {
+    // Resolve batter recipe: use explicit or auto-match based on flavor
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let batterRecipe: any = tier.batterRecipe || null
+    let batterMultiplier = tier.batterMultiplier ? Number(tier.batterMultiplier) : null
+
+    if (!batterRecipe && tier.flavor) {
+      batterRecipe = await findMatchingRecipe(tier.flavor, 'BATTER', allRecipes)
+    }
+    if (batterRecipe && !batterMultiplier) {
+      batterMultiplier = calculateMultiplier(batterRecipe.yieldVolumeMl, tierVolume, 'BATTER')
+    }
+
+    // Resolve filling recipe: use explicit or auto-match based on filling
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let fillingRecipe: any = tier.fillingRecipe || null
+    let fillingMultiplier = tier.fillingMultiplier ? Number(tier.fillingMultiplier) : null
+
+    if (!fillingRecipe && tier.filling) {
+      fillingRecipe = await findMatchingRecipe(tier.filling, 'FILLING', allRecipes)
+    }
+    if (fillingRecipe && !fillingMultiplier) {
+      fillingMultiplier = calculateMultiplier(fillingRecipe.yieldVolumeMl, tierVolume, 'FILLING')
+    }
+
+    // Resolve frosting recipe: use explicit or auto-match based on finishType
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let frostingRecipe: any = tier.frostingRecipe || null
+    let frostingMultiplier = tier.frostingMultiplier ? Number(tier.frostingMultiplier) : null
+
+    if (!frostingRecipe && tier.finishType) {
+      // Try to match frosting based on finish type (e.g., "Buttercream" -> Vanilla Buttercream)
+      frostingRecipe = await findMatchingRecipe(tier.finishType, 'FROSTING', allRecipes)
+    }
+    if (frostingRecipe && !frostingMultiplier) {
+      frostingMultiplier = calculateMultiplier(frostingRecipe.yieldVolumeMl, tierVolume, 'FROSTING')
+    }
+
+    // Store debug info
+    recipeMatches.push({
+      tierId: tier.id,
+      tierName: tierSize.name,
+      tierVolumeMl: tierVolume,
+      batter: batterRecipe ? {
+        recipe: batterRecipe,
+        multiplier: batterMultiplier || 1
+      } : null,
+      filling: fillingRecipe ? {
+        recipe: fillingRecipe,
+        multiplier: fillingMultiplier || 1
+      } : null,
+      frosting: frostingRecipe ? {
+        recipe: frostingRecipe,
+        multiplier: frostingMultiplier || 1
+      } : null,
+    })
+
+    // Process batter recipe ingredients
+    if (batterRecipe && batterMultiplier) {
+      for (const ri of batterRecipe.recipeIngredients) {
         const quantity = new Decimal(ri.quantity)
-          .mul(new Decimal(tierSize.batterMultiplier))
+          .mul(new Decimal(batterMultiplier))
           .toNumber()
 
         const existing = ingredientMap.get(ri.ingredientId)
@@ -175,13 +373,30 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
           })
         }
       }
+
+      // Batter labor
+      if (batterRecipe.laborMinutes) {
+        const scaledMinutes = batterRecipe.laborMinutes * batterMultiplier
+        const role = batterRecipe.laborRole
+        const roleName = role?.name || 'Baker'
+        const roleRate = role ? Number(role.hourlyRate) : bakerRate
+
+        recipeLaborCost += (scaledMinutes / 60) * roleRate
+
+        const existing = laborMinutesByRole.get(roleName)
+        if (existing) {
+          existing.minutes += scaledMinutes
+        } else {
+          laborMinutesByRole.set(roleName, { minutes: scaledMinutes, rate: roleRate })
+        }
+      }
     }
 
-    // Process frosting recipe
-    if (tierSize.frostingRecipe && tierSize.frostingMultiplier) {
-      for (const ri of tierSize.frostingRecipe.recipeIngredients) {
+    // Process filling recipe ingredients
+    if (fillingRecipe && fillingMultiplier) {
+      for (const ri of fillingRecipe.recipeIngredients) {
         const quantity = new Decimal(ri.quantity)
-          .mul(new Decimal(tierSize.frostingMultiplier))
+          .mul(new Decimal(fillingMultiplier))
           .toNumber()
 
         const existing = ingredientMap.get(ri.ingredientId)
@@ -193,6 +408,75 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
             totalQuantity: quantity
           })
         }
+      }
+
+      // Filling labor
+      if (fillingRecipe.laborMinutes) {
+        const scaledMinutes = fillingRecipe.laborMinutes * fillingMultiplier
+        const role = fillingRecipe.laborRole
+        const roleName = role?.name || 'Baker'
+        const roleRate = role ? Number(role.hourlyRate) : bakerRate
+
+        recipeLaborCost += (scaledMinutes / 60) * roleRate
+
+        const existing = laborMinutesByRole.get(roleName)
+        if (existing) {
+          existing.minutes += scaledMinutes
+        } else {
+          laborMinutesByRole.set(roleName, { minutes: scaledMinutes, rate: roleRate })
+        }
+      }
+    }
+
+    // Process frosting recipe ingredients
+    if (frostingRecipe && frostingMultiplier) {
+      for (const ri of frostingRecipe.recipeIngredients) {
+        const quantity = new Decimal(ri.quantity)
+          .mul(new Decimal(frostingMultiplier))
+          .toNumber()
+
+        const existing = ingredientMap.get(ri.ingredientId)
+        if (existing) {
+          existing.totalQuantity += quantity
+        } else {
+          ingredientMap.set(ri.ingredientId, {
+            ingredient: ri.ingredient,
+            totalQuantity: quantity
+          })
+        }
+      }
+
+      // Frosting labor
+      if (frostingRecipe.laborMinutes) {
+        const scaledMinutes = frostingRecipe.laborMinutes * frostingMultiplier
+        const role = frostingRecipe.laborRole
+        const roleName = role?.name || 'Baker'
+        const roleRate = role ? Number(role.hourlyRate) : bakerRate
+
+        recipeLaborCost += (scaledMinutes / 60) * roleRate
+
+        const existing = laborMinutesByRole.get(roleName)
+        if (existing) {
+          existing.minutes += scaledMinutes
+        } else {
+          laborMinutesByRole.set(roleName, { minutes: scaledMinutes, rate: roleRate })
+        }
+      }
+    }
+
+    // Tier assembly labor (fill, stack, crumb coat per tier)
+    if (tierSize.assemblyMinutes) {
+      const role = tierSize.assemblyRole
+      const roleName = role?.name || 'Baker'
+      const roleRate = role ? Number(role.hourlyRate) : bakerRate
+
+      assemblyLaborCost += (tierSize.assemblyMinutes / 60) * roleRate
+
+      const existing = laborMinutesByRole.get(roleName)
+      if (existing) {
+        existing.minutes += tierSize.assemblyMinutes
+      } else {
+        laborMinutesByRole.set(roleName, { minutes: tierSize.assemblyMinutes, rate: roleRate })
       }
     }
   }
@@ -221,9 +505,6 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   const decorations: DecorationCostDetail[] = []
   let decorationMaterialCost = 0
   let decorationLaborCost = 0
-
-  // Track labor minutes by role for breakdown
-  const laborMinutesByRole = new Map<string, { minutes: number; rate: number }>()
 
   for (const orderDec of order.orderDecorations) {
     const technique = orderDec.decorationTechnique
@@ -324,16 +605,16 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     }
   }
 
-  // Calculate base labor cost using role-specific rates
-  // If bakerHours/assistantHours are set, use those; otherwise fall back to estimatedHours at baker rate
+  // Calculate additional manual labor (beyond auto-calculated recipe/assembly/decoration)
+  // Manual hours are for misc tasks not covered by recipes, assembly, or decoration techniques
   const bakerHours = order.bakerHours ? new Decimal(order.bakerHours).toNumber() : 0
   const assistantHours = order.assistantHours ? new Decimal(order.assistantHours).toNumber() : 0
 
-  let baseLaborCost = 0
+  let manualLaborCost = 0
 
   if (bakerHours > 0 || assistantHours > 0) {
-    // Use the new role-specific hours
-    baseLaborCost = (bakerHours * bakerRate) + (assistantHours * assistantRate)
+    // Use the manual role-specific hours for additional work
+    manualLaborCost = (bakerHours * bakerRate) + (assistantHours * assistantRate)
 
     // Add to labor breakdown
     if (bakerHours > 0) {
@@ -352,25 +633,12 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
         laborMinutesByRole.set('Bakery Assistant', { minutes: assistantHours * 60, rate: assistantRate })
       }
     }
-  } else {
-    // Fall back to legacy estimatedHours at baker rate
-    const totalEstimatedHours = new Decimal(order.estimatedHours).toNumber()
-    // Subtract decoration labor hours from total to get base hours
-    const decorationLaborHours = decorationLaborCost / decoratorRate // Approximate
-    const baseLaborHours = Math.max(0, totalEstimatedHours - decorationLaborHours)
-    baseLaborCost = baseLaborHours * bakerRate
-
-    if (baseLaborHours > 0) {
-      const existing = laborMinutesByRole.get('Baker')
-      if (existing) {
-        existing.minutes += baseLaborHours * 60
-      } else {
-        laborMinutesByRole.set('Baker', { minutes: baseLaborHours * 60, rate: bakerRate })
-      }
-    }
   }
 
-  // Total labor = base + decoration
+  // baseLaborCost = recipe labor + assembly labor + manual adjustments (excludes decoration)
+  const baseLaborCost = recipeLaborCost + assemblyLaborCost + manualLaborCost
+
+  // Total labor = base (recipe + assembly + manual) + decoration
   const totalLaborCost = baseLaborCost + decorationLaborCost
 
   // Build labor breakdown array
@@ -441,5 +709,6 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     finalPrice: Math.round(finalPrice * 100) / 100,
     costPerServing: Math.round(costPerServing * 100) / 100,
     suggestedPricePerServing: Math.round(finalPricePerServing * 100) / 100,
+    recipeMatches, // Include debug info
   }
 }

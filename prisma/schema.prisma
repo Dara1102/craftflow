@@ -11,7 +11,7 @@ model Ingredient {
   id                Int                 @id @default(autoincrement())
   name              String              @unique
   unit              String
-  costPerUnit       Decimal             @db.Decimal(10, 2)
+  costPerUnit       Decimal             @db.Decimal(10, 6)
   recipeIngredients RecipeIngredient[]
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
@@ -28,9 +28,21 @@ model Recipe {
   name              String              @unique
   type              RecipeType
   yieldDescription  String
+  yieldVolumeMl     Int?                // Volume this recipe yields in ml (for multiplier calculation)
+
+  // Step-by-step instructions with time tracking
+  instructions      String?             // JSON array of steps: [{step: 1, description: "...", minutes: 5, type: "prep"}, ...]
+  prepMinutes       Int?                // Total active prep time (mixing, measuring)
+  bakeMinutes       Int?                // Bake/cook time
+  coolMinutes       Int?                // Cooling/resting time
+
+  laborMinutes      Int?                // Total labor time (auto-calculated from instructions or manual)
+  laborRoleId       Int?                // Who prepares this (typically Baker)
+  laborRole         LaborRole?          @relation(fields: [laborRoleId], references: [id])
   recipeIngredients RecipeIngredient[]
-  batterTiers       TierSize[]          @relation("BatterRecipe")
-  frostingTiers     TierSize[]          @relation("FrostingRecipe")
+  cakeTiers         CakeTier[]          @relation("BatterRecipe")
+  fillingTiers      CakeTier[]          @relation("FillingRecipe")
+  frostingTiers     CakeTier[]          @relation("FrostingRecipe")
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 }
@@ -52,16 +64,23 @@ model TierSize {
   id                  Int        @id @default(autoincrement())
   name                String     @unique
   shape               String     @default("Round")
-  diameterCm          Decimal    @db.Decimal(10, 2)
-  lengthCm            Decimal?   @db.Decimal(10, 2)
-  heightCm            Decimal    @db.Decimal(10, 2)
+
+  // Dimensions - stored in cm, displayed in both cm and inches
+  diameterCm          Decimal    @db.Decimal(10, 2)  // For round/heart shapes
+  lengthCm            Decimal?   @db.Decimal(10, 2)  // For rectangular/sheet shapes
+  widthCm             Decimal?   @db.Decimal(10, 2)  // For rectangular/sheet shapes
+  heightCm            Decimal    @db.Decimal(10, 2)  // Layer height
+
+  // Calculated volume for automatic multiplier calculation
+  volumeMl            Int?       // Calculated volume in ml
+
   servings            Int
-  batterRecipeId      Int
-  batterMultiplier    Decimal    @db.Decimal(10, 3)
-  frostingRecipeId    Int?
-  frostingMultiplier  Decimal?   @db.Decimal(10, 3)
-  batterRecipe        Recipe     @relation("BatterRecipe", fields: [batterRecipeId], references: [id])
-  frostingRecipe      Recipe?    @relation("FrostingRecipe", fields: [frostingRecipeId], references: [id])
+
+  // Assembly labor (filling, stacking, crumb coating)
+  assemblyMinutes     Int?       // Time to fill, stack, crumb coat this tier size
+  assemblyRoleId      Int?       // Who assembles this (typically Baker)
+  assemblyRole        LaborRole? @relation(fields: [assemblyRoleId], references: [id])
+
   cakeTiers           CakeTier[]
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
@@ -81,6 +100,8 @@ model LaborRole {
   hourlyRate           Decimal               @db.Decimal(10, 2)
   sortOrder            Int                   @default(0)
   isActive             Boolean               @default(true)
+  recipes              Recipe[]
+  tierSizes            TierSize[]
   decorationTechniques DecorationTechnique[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
@@ -187,12 +208,14 @@ model CakeOrder {
   // Cake details
   cakeType         CakeType?
   size             String?           // Auto-calculated from tiers, e.g., "6 inch", "8 inch", "2-tier"
-  servingsTarget   Int?
+  servingsTarget   Int?              // Legacy field
+  desiredServings  Int?              // Desired serving size for the entire order
 
   // Event details
   theme            String?
   occasion         String?
   colors           String?           // Comma-separated or JSON array of colors
+  accentColors     String?           // Comma-separated or JSON array of accent colors
 
   // Delivery details
   isDelivery       Boolean           @default(false)
@@ -236,13 +259,27 @@ model CakeTier {
   cakeOrderId Int
   tierIndex   Int
   tierSizeId  Int
-  flavor      String
-  filling     String
-  finishType  String
-  cakeOrder   CakeOrder @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
-  tierSize    TierSize  @relation(fields: [tierSizeId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+
+  // Recipe selections (chosen per order, not locked to tier size)
+  batterRecipeId      Int?
+  batterMultiplier    Decimal?   @db.Decimal(10, 3)  // Auto-calculated from volume ratio
+  fillingRecipeId     Int?
+  fillingMultiplier   Decimal?   @db.Decimal(10, 3)
+  frostingRecipeId    Int?
+  frostingMultiplier  Decimal?   @db.Decimal(10, 3)
+
+  // Legacy flavor fields (kept for backwards compatibility, will be deprecated)
+  flavor      String?
+  filling     String?
+  finishType  String?
+
+  cakeOrder       CakeOrder @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+  tierSize        TierSize  @relation(fields: [tierSizeId], references: [id])
+  batterRecipe    Recipe?   @relation("BatterRecipe", fields: [batterRecipeId], references: [id])
+  fillingRecipe   Recipe?   @relation("FillingRecipe", fields: [fillingRecipeId], references: [id])
+  frostingRecipe  Recipe?   @relation("FrostingRecipe", fields: [frostingRecipeId], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([cakeOrderId, tierIndex])
 }

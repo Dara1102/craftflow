@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createRecipe, updateRecipe, deleteRecipe, createTierSize } from '@/app/actions/admin'
+import { createRecipe, updateRecipe, deleteRecipe } from '@/app/actions/admin'
 
 interface Ingredient {
   id: number
@@ -18,11 +18,31 @@ interface RecipeIngredient {
   ingredient: Ingredient
 }
 
+interface LaborRole {
+  id: number
+  name: string
+  hourlyRate: number
+}
+
+interface InstructionStep {
+  step: number
+  description: string
+  minutes: number
+  type: 'prep' | 'bake' | 'cool' | 'other'
+}
+
 interface Recipe {
   id: number
   name: string
   type: string
   yieldDescription: string
+  yieldVolumeMl: number | null
+  instructions: string | null
+  prepMinutes: number | null
+  bakeMinutes: number | null
+  coolMinutes: number | null
+  laborMinutes: number | null
+  laborRoleId: number | null
   recipeIngredients: RecipeIngredient[]
 }
 
@@ -30,86 +50,59 @@ interface TierSize {
   id: number
   name: string
   servings: number
+  volumeMl: number | null
 }
 
 interface Props {
   recipe: Recipe | null
   ingredients: Ingredient[]
   tierSizes: TierSize[]
-  batterRecipes?: { id: number; name: string }[]
-  frostingRecipes?: { id: number; name: string }[]
+  laborRoles: LaborRole[]
 }
 
-const SHAPES = ['Round', 'Square', 'Heart', 'Hexagon', 'Oval', 'Rectangle']
-
-// Standard sheet pan sizes used in commercial baking
-const SHEET_PAN_SIZES = [
-  // Cottage/Home Baker (fits standard home ovens)
-  { id: 'quarter', name: 'Quarter Sheet (9×13")', category: 'Cottage Baker', widthCm: 23, lengthCm: 33, servings: 12 },
-  { id: 'half', name: 'Half Sheet (13×18")', category: 'Cottage Baker', widthCm: 33, lengthCm: 46, servings: 24 },
-
-  // Commercial/Bakery Standard
-  { id: 'two-thirds', name: 'Two-Thirds Sheet (15×21")', category: 'Commercial', widthCm: 38, lengthCm: 53, servings: 35 },
-  { id: 'full', name: 'Full Sheet (18×26")', category: 'Commercial', widthCm: 46, lengthCm: 66, servings: 48 },
-
-  // Industrial/Wholesale
-  { id: 'full-plus', name: 'Full Sheet+ (18×28")', category: 'Industrial', widthCm: 46, lengthCm: 71, servings: 54 },
-  { id: 'double', name: 'Double Sheet (26×36")', category: 'Industrial', widthCm: 66, lengthCm: 91, servings: 96 },
+const STEP_TYPES = [
+  { id: 'prep', name: 'Prep', color: 'bg-blue-100 text-blue-800' },
+  { id: 'bake', name: 'Bake', color: 'bg-orange-100 text-orange-800' },
+  { id: 'cool', name: 'Cool', color: 'bg-cyan-100 text-cyan-800' },
+  { id: 'other', name: 'Other', color: 'bg-gray-100 text-gray-800' },
 ]
 
-// Yield type options
-const YIELD_TYPES = [
-  { id: 'tier', name: 'Cake Tier' },
-  { id: 'sheet', name: 'Sheet Pan' },
-  { id: 'servings', name: 'Servings Only' },
-]
+// Default batch volumes by recipe type (in ml)
+const DEFAULT_BATCH_VOLUMES: Record<string, number> = {
+  'BATTER': 3295,    // Enough for one 8-inch round cake
+  'FROSTING': 1200,  // Enough to frost one 8-inch round cake
+  'FILLING': 400,    // Enough filling for one 8-inch round cake
+}
 
-export default function RecipeForm({ recipe, ingredients, tierSizes: initialTierSizes, batterRecipes = [], frostingRecipes = [] }: Props) {
+export default function RecipeForm({ recipe, ingredients, tierSizes, laborRoles }: Props) {
   const router = useRouter()
-  const [tierSizes, setTierSizes] = useState(initialTierSizes)
   const [name, setName] = useState(recipe?.name || '')
   const [type, setType] = useState(recipe?.type || 'BATTER')
+  const [yieldVolumeMl, setYieldVolumeMl] = useState(recipe?.yieldVolumeMl?.toString() || '')
+  const [laborRoleId, setLaborRoleId] = useState(recipe?.laborRoleId?.toString() || '')
 
-  // Determine initial yield type from existing description
-  const [yieldType, setYieldType] = useState(() => {
-    if (recipe?.yieldDescription) {
-      if (recipe.yieldDescription.toLowerCase().includes('sheet')) return 'sheet'
-      if (recipe.yieldDescription.match(/\d+[- ]?inch/i)) return 'tier'
+  // Helper for calculating volume from tier
+  const [selectedHelperTier, setSelectedHelperTier] = useState('')
+
+  // Time fields
+  const [prepMinutes, setPrepMinutes] = useState(recipe?.prepMinutes?.toString() || '')
+  const [bakeMinutes, setBakeMinutes] = useState(recipe?.bakeMinutes?.toString() || '')
+  const [coolMinutes, setCoolMinutes] = useState(recipe?.coolMinutes?.toString() || '')
+
+  // Parse existing instructions or start with empty array
+  const parseInstructions = (jsonStr: string | null): InstructionStep[] => {
+    if (!jsonStr) return []
+    try {
+      return JSON.parse(jsonStr)
+    } catch {
+      return []
     }
-    return 'tier'
-  })
+  }
 
-  const [yieldTierSize, setYieldTierSize] = useState(() => {
-    if (recipe?.yieldDescription) {
-      const match = recipe.yieldDescription.match(/(\d+)[- ]?inch/i)
-      if (match) {
-        const inches = match[1]
-        const tier = initialTierSizes.find(t => t.name.toLowerCase().includes(inches))
-        return tier?.id.toString() || ''
-      }
-    }
-    return ''
-  })
+  const [instructionSteps, setInstructionSteps] = useState<InstructionStep[]>(
+    parseInstructions(recipe?.instructions || null)
+  )
 
-  const [yieldSheetSize, setYieldSheetSize] = useState(() => {
-    if (recipe?.yieldDescription) {
-      const sheet = SHEET_PAN_SIZES.find(s =>
-        recipe.yieldDescription.toLowerCase().includes(s.name.toLowerCase().split(' ')[0])
-      )
-      return sheet?.id || ''
-    }
-    return ''
-  })
-
-  const [yieldSheetCount, setYieldSheetCount] = useState('1')
-
-  const [yieldServings, setYieldServings] = useState(() => {
-    if (recipe?.yieldDescription) {
-      const match = recipe.yieldDescription.match(/(\d+)\s*servings?/i)
-      if (match) return match[1]
-    }
-    return ''
-  })
   const [recipeIngredients, setRecipeIngredients] = useState<{ ingredientId: number; quantity: number }[]>(
     recipe?.recipeIngredients.map(ri => ({
       ingredientId: ri.ingredientId,
@@ -119,87 +112,36 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // New tier modal state
-  const [showNewTierModal, setShowNewTierModal] = useState(false)
-  const [newTierName, setNewTierName] = useState('')
-  const [newTierShape, setNewTierShape] = useState('Round')
-  const [newTierDiameter, setNewTierDiameter] = useState('')
-  const [newTierLength, setNewTierLength] = useState('')
-  const [newTierHeight, setNewTierHeight] = useState('10')
-  const [newTierServings, setNewTierServings] = useState('')
-  const [newTierBatterRecipeId, setNewTierBatterRecipeId] = useState('')
-  const [newTierBatterMultiplier, setNewTierBatterMultiplier] = useState('1')
-  const [newTierFrostingRecipeId, setNewTierFrostingRecipeId] = useState('')
-  const [newTierFrostingMultiplier, setNewTierFrostingMultiplier] = useState('1')
-  const [isCreatingTier, setIsCreatingTier] = useState(false)
-
-  const newTierNeedsLength = newTierShape === 'Rectangle' || newTierShape === 'Oval'
-
-  const handleTierSelectChange = (value: string) => {
-    if (value === 'new') {
-      setShowNewTierModal(true)
-    } else {
-      setYieldTierSize(value)
+  // Set default volume when type changes (only for new recipes)
+  useEffect(() => {
+    if (!recipe && !yieldVolumeMl) {
+      setYieldVolumeMl(DEFAULT_BATCH_VOLUMES[type]?.toString() || '')
     }
-  }
+  }, [type, recipe, yieldVolumeMl])
 
-  const handleCreateTier = async () => {
-    if (!newTierName || !newTierDiameter || !newTierServings || !newTierBatterRecipeId) {
-      alert('Please fill in all required fields')
-      return
-    }
-    if (newTierNeedsLength && !newTierLength) {
-      alert('Please enter a length for rectangle/oval shapes')
-      return
-    }
+  // Calculate total labor minutes from instructions
+  const totalInstructionMinutes = instructionSteps.reduce((sum, step) => sum + (step.minutes || 0), 0)
 
-    setIsCreatingTier(true)
-    try {
-      await createTierSize({
-        name: newTierName,
-        shape: newTierShape,
-        diameterCm: parseFloat(newTierDiameter),
-        lengthCm: newTierNeedsLength && newTierLength ? parseFloat(newTierLength) : undefined,
-        heightCm: parseFloat(newTierHeight),
-        servings: parseInt(newTierServings),
-        batterRecipeId: parseInt(newTierBatterRecipeId),
-        batterMultiplier: parseFloat(newTierBatterMultiplier),
-        frostingRecipeId: newTierFrostingRecipeId ? parseInt(newTierFrostingRecipeId) : undefined,
-        frostingMultiplier: newTierFrostingRecipeId && newTierFrostingMultiplier ? parseFloat(newTierFrostingMultiplier) : undefined
-      })
+  // Calculate time by type
+  const prepMinutesFromSteps = instructionSteps.filter(s => s.type === 'prep').reduce((sum, s) => sum + s.minutes, 0)
+  const bakeMinutesFromSteps = instructionSteps.filter(s => s.type === 'bake').reduce((sum, s) => sum + s.minutes, 0)
+  const coolMinutesFromSteps = instructionSteps.filter(s => s.type === 'cool').reduce((sum, s) => sum + s.minutes, 0)
 
-      // Fetch updated tier sizes
-      const response = await fetch('/api/tier-sizes')
-      const updatedTiers = await response.json()
-      setTierSizes(updatedTiers.map((t: { id: number; name: string; servings: number }) => ({
-        id: t.id,
-        name: t.name,
-        servings: t.servings
-      })))
-
-      // Find the newly created tier and select it
-      const newTier = updatedTiers.find((t: { name: string }) => t.name === newTierName)
-      if (newTier) {
-        setYieldTierSize(newTier.id.toString())
+  // Handle tier helper selection - auto-fill volume based on tier and recipe type
+  const handleTierHelperChange = (tierId: string) => {
+    setSelectedHelperTier(tierId)
+    if (tierId) {
+      const tier = tierSizes.find(t => t.id.toString() === tierId)
+      if (tier?.volumeMl) {
+        // Calculate appropriate volume based on recipe type
+        let volume = tier.volumeMl
+        if (type === 'FROSTING') {
+          volume = Math.round(tier.volumeMl * 0.36) // Surface coverage
+        } else if (type === 'FILLING') {
+          volume = Math.round(tier.volumeMl * 0.12) // Thin layer
+        }
+        setYieldVolumeMl(volume.toString())
       }
-
-      // Reset modal state
-      setShowNewTierModal(false)
-      setNewTierName('')
-      setNewTierShape('Round')
-      setNewTierDiameter('')
-      setNewTierLength('')
-      setNewTierHeight('10')
-      setNewTierServings('')
-      setNewTierBatterRecipeId('')
-      setNewTierBatterMultiplier('1')
-      setNewTierFrostingRecipeId('')
-      setNewTierFrostingMultiplier('1')
-    } catch (error) {
-      console.error('Error creating tier:', error)
-      alert('Error creating tier size')
-    } finally {
-      setIsCreatingTier(false)
     }
   }
 
@@ -217,55 +159,88 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
     setRecipeIngredients(updated)
   }
 
+  // Instruction step handlers
+  const addInstructionStep = () => {
+    const nextStep = instructionSteps.length + 1
+    setInstructionSteps([...instructionSteps, { step: nextStep, description: '', minutes: 0, type: 'prep' }])
+  }
+
+  const removeInstructionStep = (index: number) => {
+    const updated = instructionSteps.filter((_, i) => i !== index)
+    // Renumber steps
+    updated.forEach((step, i) => { step.step = i + 1 })
+    setInstructionSteps(updated)
+  }
+
+  const updateInstructionStep = (index: number, field: keyof InstructionStep, value: string | number) => {
+    const updated = [...instructionSteps]
+    if (field === 'minutes') {
+      updated[index] = { ...updated[index], [field]: parseInt(value as string) || 0 }
+    } else {
+      updated[index] = { ...updated[index], [field]: value }
+    }
+    setInstructionSteps(updated)
+  }
+
+  // Generate yield description from volume
+  const getYieldDescription = (): string => {
+    const volume = parseInt(yieldVolumeMl)
+    if (!volume) return 'Standard batch'
+
+    // Find closest tier match
+    const closestTier = tierSizes.find(t => {
+      if (!t.volumeMl) return false
+      let targetVolume = t.volumeMl
+      if (type === 'FROSTING') targetVolume = Math.round(t.volumeMl * 0.36)
+      if (type === 'FILLING') targetVolume = Math.round(t.volumeMl * 0.12)
+      return Math.abs(targetVolume - volume) < 100 // Within 100ml
+    })
+
+    if (closestTier) {
+      return `For one ${closestTier.name}`
+    }
+    return `${volume}ml batch`
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     const validIngredients = recipeIngredients.filter(ri => ri.ingredientId > 0 && ri.quantity > 0)
 
-    // Build yield description based on yield type
-    let yieldDescription = 'Base recipe'
-
-    if (yieldType === 'tier') {
-      const selectedTier = tierSizes.find(t => t.id.toString() === yieldTierSize)
-      if (selectedTier) {
-        yieldDescription = `For one ${selectedTier.name}`
-        if (yieldServings) {
-          yieldDescription += ` (${yieldServings} servings)`
-        }
-      } else if (yieldServings) {
-        yieldDescription = `For ${yieldServings} servings`
-      }
-    } else if (yieldType === 'sheet') {
-      const selectedSheet = SHEET_PAN_SIZES.find(s => s.id === yieldSheetSize)
-      if (selectedSheet) {
-        const count = parseInt(yieldSheetCount) || 1
-        const totalServings = selectedSheet.servings * count
-        if (count === 1) {
-          yieldDescription = `For one ${selectedSheet.name} (~${totalServings} servings)`
-        } else {
-          yieldDescription = `For ${count} × ${selectedSheet.name} (~${totalServings} servings)`
-        }
-      }
-    } else if (yieldType === 'servings') {
-      if (yieldServings) {
-        yieldDescription = `For ${yieldServings} servings`
-      }
-    }
+    // Calculate total labor from instructions or use manual override
+    const calculatedLaborMinutes = instructionSteps.length > 0 ? totalInstructionMinutes : undefined
+    const finalPrepMinutes = instructionSteps.length > 0 ? prepMinutesFromSteps : (prepMinutes ? parseInt(prepMinutes) : undefined)
+    const finalBakeMinutes = instructionSteps.length > 0 ? bakeMinutesFromSteps : (bakeMinutes ? parseInt(bakeMinutes) : undefined)
+    const finalCoolMinutes = instructionSteps.length > 0 ? coolMinutesFromSteps : (coolMinutes ? parseInt(coolMinutes) : undefined)
 
     try {
       if (recipe) {
         await updateRecipe(recipe.id, {
           name,
           type,
-          yieldDescription,
+          yieldDescription: getYieldDescription(),
+          yieldVolumeMl: yieldVolumeMl ? parseInt(yieldVolumeMl) : undefined,
+          instructions: instructionSteps.length > 0 ? JSON.stringify(instructionSteps) : undefined,
+          prepMinutes: finalPrepMinutes,
+          bakeMinutes: finalBakeMinutes,
+          coolMinutes: finalCoolMinutes,
+          laborMinutes: calculatedLaborMinutes,
+          laborRoleId: laborRoleId ? parseInt(laborRoleId) : undefined,
           ingredients: validIngredients
         })
       } else {
         await createRecipe({
           name,
           type,
-          yieldDescription,
+          yieldDescription: getYieldDescription(),
+          yieldVolumeMl: yieldVolumeMl ? parseInt(yieldVolumeMl) : undefined,
+          instructions: instructionSteps.length > 0 ? JSON.stringify(instructionSteps) : undefined,
+          prepMinutes: finalPrepMinutes,
+          bakeMinutes: finalBakeMinutes,
+          coolMinutes: finalCoolMinutes,
+          laborMinutes: calculatedLaborMinutes,
+          laborRoleId: laborRoleId ? parseInt(laborRoleId) : undefined,
           ingredients: validIngredients
         })
       }
@@ -281,7 +256,7 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
 
   const handleDelete = async () => {
     if (!recipe) return
-    if (!confirm('Are you sure you want to delete this recipe? This may affect tier sizes that use it.')) return
+    if (!confirm('Are you sure you want to delete this recipe? This may affect orders that use it.')) return
 
     setIsDeleting(true)
     try {
@@ -290,14 +265,24 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
       router.refresh()
     } catch (error) {
       console.error('Error deleting recipe:', error)
-      alert('Error deleting recipe. It may be in use by tier sizes.')
+      alert('Error deleting recipe. It may be in use by orders.')
     } finally {
       setIsDeleting(false)
     }
   }
 
+  // Calculate estimated ingredient cost
+  const estimatedIngredientCost = recipeIngredients.reduce((total, ri) => {
+    const ing = ingredients.find(i => i.id === ri.ingredientId)
+    if (ing) {
+      return total + (ri.quantity * ing.costPerUnit)
+    }
+    return total
+  }, 0)
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Basic Info */}
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div className="grid grid-cols-6 gap-6">
           <div className="col-span-6 sm:col-span-4">
@@ -330,156 +315,103 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
               <option value="FROSTING">Frosting</option>
             </select>
           </div>
+        </div>
+      </div>
 
-          {/* Yield Type Selection */}
-          <div className="col-span-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Yield Type
+      {/* Batch Yield Section - Simplified */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Batch Yield</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Define how much this recipe produces. The ingredients below are for ONE batch at this volume.
+          When orders are placed, the system automatically calculates how many batches are needed.
+        </p>
+
+        <div className="grid grid-cols-6 gap-6">
+          {/* Volume Input */}
+          <div className="col-span-6 sm:col-span-3">
+            <label htmlFor="yieldVolumeMl" className="block text-sm font-medium text-gray-700">
+              Batch Volume (ml) *
             </label>
-            <div className="flex gap-4">
-              {YIELD_TYPES.map(yt => (
-                <label key={yt.id} className="flex items-center">
-                  <input
-                    type="radio"
-                    name="yieldType"
-                    value={yt.id}
-                    checked={yieldType === yt.id}
-                    onChange={(e) => setYieldType(e.target.value)}
-                    className="focus:ring-pink-500 h-4 w-4 text-pink-600 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">{yt.name}</span>
-                </label>
-              ))}
-            </div>
+            <input
+              type="number"
+              id="yieldVolumeMl"
+              min="1"
+              required
+              value={yieldVolumeMl}
+              onChange={(e) => setYieldVolumeMl(e.target.value)}
+              className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+              placeholder="e.g., 3295"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Total volume this recipe yields (used to calculate multipliers for orders)
+            </p>
           </div>
 
-          {/* Tier Size Selection - shown when yieldType is 'tier' */}
-          {yieldType === 'tier' && (
-            <>
-              <div className="col-span-6 sm:col-span-3">
-                <label htmlFor="yieldTierSize" className="block text-sm font-medium text-gray-700">
-                  Tier Size
-                </label>
-                <select
-                  id="yieldTierSize"
-                  value={yieldTierSize}
-                  onChange={(e) => handleTierSelectChange(e.target.value)}
-                  className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                >
-                  <option value="">Select tier size...</option>
-                  {tierSizes.map(tier => (
-                    <option key={tier.id} value={tier.id}>
-                      {tier.name} ({tier.servings} servings)
-                    </option>
-                  ))}
-                  <option value="new" className="text-pink-600 font-medium">+ Add new tier size...</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-500">What size cake does this recipe make?</p>
-              </div>
+          {/* Helper dropdown */}
+          <div className="col-span-6 sm:col-span-3">
+            <label htmlFor="helperTier" className="block text-sm font-medium text-gray-700">
+              Calculate from tier size (helper)
+            </label>
+            <select
+              id="helperTier"
+              value={selectedHelperTier}
+              onChange={(e) => handleTierHelperChange(e.target.value)}
+              className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+            >
+              <option value="">Select a tier to auto-calculate volume...</option>
+              {tierSizes.filter(t => t.volumeMl).map(tier => (
+                <option key={tier.id} value={tier.id}>
+                  {tier.name} ({tier.volumeMl}ml, {tier.servings} servings)
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Select a tier to auto-fill the volume (adjusted for {type.toLowerCase()})
+            </p>
+          </div>
 
-              <div className="col-span-6 sm:col-span-3">
-                <label htmlFor="yieldServings" className="block text-sm font-medium text-gray-700">
-                  Servings (optional override)
-                </label>
-                <input
-                  type="number"
-                  id="yieldServings"
-                  min="1"
-                  value={yieldServings}
-                  onChange={(e) => setYieldServings(e.target.value)}
-                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                  placeholder="e.g., 12"
-                />
-                <p className="mt-1 text-xs text-gray-500">Override if different from tier default</p>
-              </div>
-            </>
-          )}
-
-          {/* Sheet Pan Selection - shown when yieldType is 'sheet' */}
-          {yieldType === 'sheet' && (
-            <>
-              <div className="col-span-6 sm:col-span-3">
-                <label htmlFor="yieldSheetSize" className="block text-sm font-medium text-gray-700">
-                  Sheet Pan Size
-                </label>
-                <select
-                  id="yieldSheetSize"
-                  value={yieldSheetSize}
-                  onChange={(e) => setYieldSheetSize(e.target.value)}
-                  className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                >
-                  <option value="">Select sheet size...</option>
-                  {['Cottage Baker', 'Commercial', 'Industrial'].map(category => (
-                    <optgroup key={category} label={category}>
-                      {SHEET_PAN_SIZES.filter(s => s.category === category).map(sheet => (
-                        <option key={sheet.id} value={sheet.id}>
-                          {sheet.name} (~{sheet.servings} servings)
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500">Standard commercial baking sheet sizes</p>
-              </div>
-
-              <div className="col-span-6 sm:col-span-3">
-                <label htmlFor="yieldSheetCount" className="block text-sm font-medium text-gray-700">
-                  Number of Sheets
-                </label>
-                <input
-                  type="number"
-                  id="yieldSheetCount"
-                  min="1"
-                  value={yieldSheetCount}
-                  onChange={(e) => setYieldSheetCount(e.target.value)}
-                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                  placeholder="1"
-                />
-                <p className="mt-1 text-xs text-gray-500">How many sheet pans does this recipe fill?</p>
-              </div>
-
-              {yieldSheetSize && (
-                <div className="col-span-6">
-                  <div className="bg-purple-50 border border-purple-200 rounded-md p-3">
-                    <p className="text-sm text-purple-800">
+          {/* Preview */}
+          {yieldVolumeMl && (
+            <div className="col-span-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium">How scaling works:</p>
+                    <p className="mt-1">
+                      This recipe yields <strong>{parseInt(yieldVolumeMl).toLocaleString()}ml</strong> per batch.
                       {(() => {
-                        const sheet = SHEET_PAN_SIZES.find(s => s.id === yieldSheetSize)
-                        if (!sheet) return ''
-                        const count = parseInt(yieldSheetCount) || 1
-                        const totalServings = sheet.servings * count
-                        return `${count} × ${sheet.name} = ~${totalServings} servings (${sheet.widthCm}cm × ${sheet.lengthCm}cm per sheet)`
+                        const vol = parseInt(yieldVolumeMl)
+                        const eightInch = tierSizes.find(t => t.name.includes('8 inch round'))
+                        const tenInch = tierSizes.find(t => t.name.includes('10 inch round'))
+
+                        if (type === 'BATTER' && eightInch?.volumeMl && tenInch?.volumeMl) {
+                          const mult8 = (eightInch.volumeMl / vol).toFixed(2)
+                          const mult10 = (tenInch.volumeMl / vol).toFixed(2)
+                          return ` An 8" round (${eightInch.volumeMl}ml) needs ${mult8}x batches. A 10" round (${tenInch.volumeMl}ml) needs ${mult10}x batches.`
+                        }
+                        return ''
                       })()}
                     </p>
                   </div>
                 </div>
-              )}
-            </>
-          )}
-
-          {/* Servings Only - shown when yieldType is 'servings' */}
-          {yieldType === 'servings' && (
-            <div className="col-span-6 sm:col-span-3">
-              <label htmlFor="yieldServingsOnly" className="block text-sm font-medium text-gray-700">
-                Servings
-              </label>
-              <input
-                type="number"
-                id="yieldServingsOnly"
-                min="1"
-                value={yieldServings}
-                onChange={(e) => setYieldServings(e.target.value)}
-                className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                placeholder="e.g., 24"
-              />
-              <p className="mt-1 text-xs text-gray-500">For fillings, frostings, or recipes without a specific pan size</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Ingredients Section */}
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Recipe Ingredients</h3>
+          <div>
+            <h3 className="text-lg font-medium text-gray-900">Recipe Ingredients</h3>
+            <p className="text-sm text-gray-500">Quantities for ONE batch ({yieldVolumeMl || '?'}ml)</p>
+          </div>
           <a
             href="/admin/ingredients"
             target="_blank"
@@ -490,38 +422,47 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
         </div>
 
         <div className="space-y-3">
-          {recipeIngredients.map((ri, index) => (
-            <div key={index} className="flex items-center gap-3">
-              <select
-                value={ri.ingredientId}
-                onChange={(e) => updateIngredient(index, 'ingredientId', parseInt(e.target.value))}
-                className="flex-1 py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-              >
-                <option value={0}>Select ingredient...</option>
-                {ingredients.map(ing => (
-                  <option key={ing.id} value={ing.id}>
-                    {ing.name} ({ing.unit})
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={ri.quantity || ''}
-                onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value) || 0)}
-                placeholder="Quantity"
-                className="w-32 py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => removeIngredient(index)}
-                className="text-red-600 hover:text-red-800"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+          {recipeIngredients.map((ri, index) => {
+            const ing = ingredients.find(i => i.id === ri.ingredientId)
+            const lineCost = ing ? ri.quantity * ing.costPerUnit : 0
+            return (
+              <div key={index} className="flex items-center gap-3">
+                <select
+                  value={ri.ingredientId}
+                  onChange={(e) => updateIngredient(index, 'ingredientId', parseInt(e.target.value))}
+                  className="flex-1 py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                >
+                  <option value={0}>Select ingredient...</option>
+                  {ingredients.map(ing => (
+                    <option key={ing.id} value={ing.id}>
+                      {ing.name} ({ing.unit})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={ri.quantity || ''}
+                  onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value) || 0)}
+                  placeholder="Qty"
+                  className="w-24 py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                />
+                <span className="w-20 text-sm text-gray-500 text-right">
+                  ${lineCost.toFixed(2)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeIngredient(index)}
+                  className="text-red-600 hover:text-red-800"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )
+          })}
         </div>
 
         <button
@@ -529,9 +470,247 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
           onClick={addIngredient}
           className="mt-4 w-full py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
         >
-          Add Ingredient
+          + Add Ingredient
         </button>
+
+        {recipeIngredients.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-gray-200 flex justify-between items-center">
+            <span className="text-sm font-medium text-gray-700">Ingredient Cost per Batch:</span>
+            <span className="text-lg font-semibold text-gray-900">${estimatedIngredientCost.toFixed(2)}</span>
+          </div>
+        )}
       </div>
+
+      {/* Step-by-Step Instructions */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Step-by-Step Instructions</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Add detailed steps with time estimates. Time is automatically totaled for labor cost calculation.
+        </p>
+
+        <div className="space-y-3">
+          {instructionSteps.map((step, index) => (
+            <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+              <div className="flex-shrink-0 w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center text-pink-700 font-medium text-sm">
+                {step.step}
+              </div>
+              <div className="flex-1 space-y-2">
+                <textarea
+                  value={step.description}
+                  onChange={(e) => updateInstructionStep(index, 'description', e.target.value)}
+                  placeholder="Describe this step..."
+                  rows={2}
+                  className="w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                />
+                <div className="flex gap-3">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500">Type:</label>
+                    <select
+                      value={step.type}
+                      onChange={(e) => updateInstructionStep(index, 'type', e.target.value)}
+                      className="py-1 px-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-sm"
+                    >
+                      {STEP_TYPES.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500">Time:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={step.minutes || ''}
+                      onChange={(e) => updateInstructionStep(index, 'minutes', e.target.value)}
+                      placeholder="min"
+                      className="w-20 py-1 px-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-sm"
+                    />
+                    <span className="text-xs text-gray-500">min</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeInstructionStep(index)}
+                className="text-red-600 hover:text-red-800 p-1"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={addInstructionStep}
+          className="mt-4 w-full py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+        >
+          + Add Step
+        </button>
+
+        {instructionSteps.length > 0 && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <div className="flex flex-wrap gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Prep</span>
+                <span className="text-green-800">{prepMinutesFromSteps} min</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">Bake</span>
+                <span className="text-green-800">{bakeMinutesFromSteps} min</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-cyan-100 text-cyan-800">Cool</span>
+                <span className="text-green-800">{coolMinutesFromSteps} min</span>
+              </div>
+              <div className="flex items-center gap-2 font-medium">
+                <span className="text-green-800">Total: {totalInstructionMinutes} min</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Labor Time - only show if no instructions */}
+      {instructionSteps.length === 0 && (
+        <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Labor Time (Manual Entry)</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            If you prefer not to add step-by-step instructions, enter the time manually here.
+          </p>
+          <div className="grid grid-cols-6 gap-6">
+            <div className="col-span-6 sm:col-span-2">
+              <label htmlFor="prepMinutes" className="block text-sm font-medium text-gray-700">
+                Prep Time (min)
+              </label>
+              <input
+                type="number"
+                id="prepMinutes"
+                min="0"
+                value={prepMinutes}
+                onChange={(e) => setPrepMinutes(e.target.value)}
+                className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                placeholder="e.g., 30"
+              />
+            </div>
+
+            <div className="col-span-6 sm:col-span-2">
+              <label htmlFor="bakeMinutes" className="block text-sm font-medium text-gray-700">
+                Bake Time (min)
+              </label>
+              <input
+                type="number"
+                id="bakeMinutes"
+                min="0"
+                value={bakeMinutes}
+                onChange={(e) => setBakeMinutes(e.target.value)}
+                className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                placeholder="e.g., 45"
+              />
+            </div>
+
+            <div className="col-span-6 sm:col-span-2">
+              <label htmlFor="coolMinutes" className="block text-sm font-medium text-gray-700">
+                Cool Time (min)
+              </label>
+              <input
+                type="number"
+                id="coolMinutes"
+                min="0"
+                value={coolMinutes}
+                onChange={(e) => setCoolMinutes(e.target.value)}
+                className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                placeholder="e.g., 60"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Labor Role */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Labor Role</h3>
+        <div className="grid grid-cols-6 gap-6">
+          <div className="col-span-6 sm:col-span-3">
+            <label htmlFor="laborRoleId" className="block text-sm font-medium text-gray-700">
+              Who prepares this recipe?
+            </label>
+            <select
+              id="laborRoleId"
+              value={laborRoleId}
+              onChange={(e) => setLaborRoleId(e.target.value)}
+              className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+            >
+              <option value="">Default (Baker)</option>
+              {laborRoles.map(role => (
+                <option key={role.id} value={role.id}>
+                  {role.name} (${role.hourlyRate.toFixed(2)}/hr)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {(instructionSteps.length > 0 || prepMinutes || bakeMinutes || coolMinutes) && (
+            <div className="col-span-6 sm:col-span-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-6">
+                <p className="text-sm text-blue-800">
+                  {(() => {
+                    const mins = instructionSteps.length > 0
+                      ? totalInstructionMinutes
+                      : (parseInt(prepMinutes || '0') + parseInt(bakeMinutes || '0') + parseInt(coolMinutes || '0'))
+                    const role = laborRoles.find(r => r.id.toString() === laborRoleId)
+                    const rate = role?.hourlyRate || laborRoles.find(r => r.name === 'Baker')?.hourlyRate || 21
+                    const cost = (mins / 60) * rate
+                    return `Labor cost per batch: ${mins} min × $${rate.toFixed(2)}/hr = $${cost.toFixed(2)}`
+                  })()}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Cost Summary */}
+      {(recipeIngredients.length > 0 || instructionSteps.length > 0) && (
+        <div className="bg-gradient-to-r from-pink-50 to-purple-50 shadow px-4 py-5 sm:rounded-lg sm:p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Batch Cost Summary</h3>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-sm text-gray-500">Ingredients</p>
+              <p className="text-2xl font-bold text-gray-900">${estimatedIngredientCost.toFixed(2)}</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-sm text-gray-500">Labor</p>
+              <p className="text-2xl font-bold text-gray-900">
+                ${(() => {
+                  const mins = instructionSteps.length > 0
+                    ? totalInstructionMinutes
+                    : (parseInt(prepMinutes || '0') + parseInt(bakeMinutes || '0') + parseInt(coolMinutes || '0'))
+                  const role = laborRoles.find(r => r.id.toString() === laborRoleId)
+                  const rate = role?.hourlyRate || laborRoles.find(r => r.name === 'Baker')?.hourlyRate || 21
+                  return ((mins / 60) * rate).toFixed(2)
+                })()}
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-sm text-gray-500">Total per Batch</p>
+              <p className="text-2xl font-bold text-pink-600">
+                ${(() => {
+                  const mins = instructionSteps.length > 0
+                    ? totalInstructionMinutes
+                    : (parseInt(prepMinutes || '0') + parseInt(bakeMinutes || '0') + parseInt(coolMinutes || '0'))
+                  const role = laborRoles.find(r => r.id.toString() === laborRoleId)
+                  const rate = role?.hourlyRate || laborRoles.find(r => r.name === 'Baker')?.hourlyRate || 21
+                  const laborCost = (mins / 60) * rate
+                  return (estimatedIngredientCost + laborCost).toFixed(2)
+                })()}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-between">
         <div>
@@ -562,168 +741,6 @@ export default function RecipeForm({ recipe, ingredients, tierSizes: initialTier
           </button>
         </div>
       </div>
-
-      {/* New Tier Modal */}
-      {showNewTierModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-          <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Add New Tier Size</h3>
-              <p className="mt-1 text-sm text-gray-500">Create a new tier size to use in recipes</p>
-            </div>
-
-            <div className="px-6 py-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Name *</label>
-                  <input
-                    type="text"
-                    value={newTierName}
-                    onChange={(e) => setNewTierName(e.target.value)}
-                    placeholder="e.g., 10-inch Square"
-                    className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Shape</label>
-                  <select
-                    value={newTierShape}
-                    onChange={(e) => setNewTierShape(e.target.value)}
-                    className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                  >
-                    {SHAPES.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className={`grid gap-4 ${newTierNeedsLength ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    {newTierShape === 'Rectangle' ? 'Width (cm) *' : newTierShape === 'Oval' ? 'Width (cm) *' : newTierShape === 'Square' ? 'Side (cm) *' : 'Diameter (cm) *'}
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={newTierDiameter}
-                    onChange={(e) => setNewTierDiameter(e.target.value)}
-                    placeholder="e.g., 25.4"
-                    className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                  />
-                </div>
-                {newTierNeedsLength && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Length (cm) *</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={newTierLength}
-                      onChange={(e) => setNewTierLength(e.target.value)}
-                      placeholder="e.g., 35.5"
-                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Height (cm) *</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={newTierHeight}
-                    onChange={(e) => setNewTierHeight(e.target.value)}
-                    placeholder="e.g., 10"
-                    className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Servings *</label>
-                  <input
-                    type="number"
-                    value={newTierServings}
-                    onChange={(e) => setNewTierServings(e.target.value)}
-                    placeholder="e.g., 30"
-                    className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="border-t border-gray-200 pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-900 mb-3">Recipe Assignments</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Batter Recipe *</label>
-                    <select
-                      value={newTierBatterRecipeId}
-                      onChange={(e) => setNewTierBatterRecipeId(e.target.value)}
-                      className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                    >
-                      <option value="">Select batter...</option>
-                      {batterRecipes.map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Batter Multiplier</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      value={newTierBatterMultiplier}
-                      onChange={(e) => setNewTierBatterMultiplier(e.target.value)}
-                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Frosting Recipe</label>
-                    <select
-                      value={newTierFrostingRecipeId}
-                      onChange={(e) => setNewTierFrostingRecipeId(e.target.value)}
-                      className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                    >
-                      <option value="">No frosting</option>
-                      {frostingRecipes.map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Frosting Multiplier</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      disabled={!newTierFrostingRecipeId}
-                      value={newTierFrostingMultiplier}
-                      onChange={(e) => setNewTierFrostingMultiplier(e.target.value)}
-                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm disabled:bg-gray-100"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowNewTierModal(false)}
-                className="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateTier}
-                disabled={isCreatingTier}
-                className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 disabled:opacity-50"
-              >
-                {isCreatingTier ? 'Creating...' : 'Create Tier Size'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </form>
   )
 }

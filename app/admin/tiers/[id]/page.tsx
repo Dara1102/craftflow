@@ -7,11 +7,11 @@ export default async function EditTierSize({ params }: { params: Promise<{ id: s
   const { id } = await params
   const tierSizeId = parseInt(id)
 
-  const [tierSize, recipes] = await Promise.all([
+  const [tierSize, laborRoles] = await Promise.all([
     prisma.tierSize.findUnique({
       where: { id: tierSizeId }
     }),
-    prisma.recipe.findMany({ orderBy: { name: 'asc' } })
+    prisma.laborRole.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } })
   ])
 
   if (!tierSize) {
@@ -24,21 +24,19 @@ export default async function EditTierSize({ params }: { params: Promise<{ id: s
     shape: tierSize.shape,
     diameterCm: Number(tierSize.diameterCm),
     lengthCm: tierSize.lengthCm ? Number(tierSize.lengthCm) : null,
+    widthCm: tierSize.widthCm ? Number(tierSize.widthCm) : null,
     heightCm: Number(tierSize.heightCm),
+    volumeMl: tierSize.volumeMl,
     servings: tierSize.servings,
-    batterRecipeId: tierSize.batterRecipeId,
-    batterMultiplier: Number(tierSize.batterMultiplier),
-    frostingRecipeId: tierSize.frostingRecipeId,
-    frostingMultiplier: tierSize.frostingMultiplier ? Number(tierSize.frostingMultiplier) : null
+    assemblyMinutes: tierSize.assemblyMinutes,
+    assemblyRoleId: tierSize.assemblyRoleId
   }
 
-  const batterRecipes = recipes
-    .filter(r => r.type === 'BATTER')
-    .map(r => ({ id: r.id, name: r.name, type: r.type }))
-
-  const frostingRecipes = recipes
-    .filter(r => r.type === 'FROSTING')
-    .map(r => ({ id: r.id, name: r.name, type: r.type }))
+  const plainLaborRoles = laborRoles.map(role => ({
+    id: role.id,
+    name: role.name,
+    hourlyRate: Number(role.hourlyRate)
+  }))
 
   return (
     <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -53,7 +51,7 @@ export default async function EditTierSize({ params }: { params: Promise<{ id: s
         </nav>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-6">Edit Tier Size</h1>
-        <TierForm tierSize={plainTierSize} batterRecipes={batterRecipes} frostingRecipes={frostingRecipes} />
+        <TierForm tierSize={plainTierSize} laborRoles={plainLaborRoles} />
       </div>
     </div>
   )

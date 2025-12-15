@@ -15,12 +15,12 @@ export async function GET() {
     shape: ts.shape,
     diameterCm: Number(ts.diameterCm),
     lengthCm: ts.lengthCm ? Number(ts.lengthCm) : null,
+    widthCm: ts.widthCm ? Number(ts.widthCm) : null,
     heightCm: Number(ts.heightCm),
+    volumeMl: ts.volumeMl,
     servings: ts.servings,
-    batterRecipeId: ts.batterRecipeId,
-    batterMultiplier: Number(ts.batterMultiplier),
-    frostingRecipeId: ts.frostingRecipeId,
-    frostingMultiplier: ts.frostingMultiplier ? Number(ts.frostingMultiplier) : null,
+    assemblyMinutes: ts.assemblyMinutes,
+    assemblyRoleId: ts.assemblyRoleId,
   }))
 
   return NextResponse.json(plainTierSizes)

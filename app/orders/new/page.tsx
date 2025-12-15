@@ -108,12 +108,15 @@ export default function NewOrder() {
   // Cake details
   const [cakeType, setCakeType] = useState<CakeType | ''>('')
   const [size, setSize] = useState('')
+  const [desiredServings, setDesiredServings] = useState('')
 
   // Event details
   const [theme, setTheme] = useState('')
   const [occasion, setOccasion] = useState('')
   const [colors, setColors] = useState('')
   const [showColorDropdown, setShowColorDropdown] = useState(false)
+  const [accentColors, setAccentColors] = useState('')
+  const [showAccentColorDropdown, setShowAccentColorDropdown] = useState(false)
 
   // Delivery details
   const [isDelivery, setIsDelivery] = useState(false)
@@ -155,6 +158,7 @@ export default function NewOrder() {
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorDropdownRef = useRef<HTMLDivElement>(null)
+  const accentColorDropdownRef = useRef<HTMLDivElement>(null)
   const venueDropdownRef = useRef<HTMLDivElement>(null)
 
   const { data: tierSizes } = useSWR<TierSize[]>('/api/tier-sizes', fetcher)
@@ -176,6 +180,9 @@ export default function NewOrder() {
       }
       if (colorDropdownRef.current && !colorDropdownRef.current.contains(event.target as Node)) {
         setShowColorDropdown(false)
+      }
+      if (accentColorDropdownRef.current && !accentColorDropdownRef.current.contains(event.target as Node)) {
+        setShowAccentColorDropdown(false)
       }
       if (venueDropdownRef.current && !venueDropdownRef.current.contains(event.target as Node)) {
         setShowVenueDropdown(false)
@@ -421,9 +428,11 @@ export default function NewOrder() {
       eventDate,
       cakeType: cakeType || undefined,
       size,
+      desiredServings: desiredServings ? parseInt(desiredServings) : undefined,
       theme: theme || undefined,
       occasion: occasion || undefined,
       colors: colors || undefined,
+      accentColors: accentColors || undefined,
       isDelivery,
       deliveryZoneId: isDelivery ? deliveryZoneId : null,
       deliveryDistance: isDelivery && deliveryDistance ? parseFloat(deliveryDistance) : null,
@@ -763,6 +772,23 @@ export default function NewOrder() {
                   </div>
 
                   <div className="col-span-6 sm:col-span-3">
+                    <label htmlFor="desiredServings" className="block text-sm font-medium text-gray-700">
+                      Desired Servings
+                    </label>
+                    <input
+                      type="number"
+                      name="desiredServings"
+                      id="desiredServings"
+                      min="1"
+                      value={desiredServings}
+                      onChange={(e) => setDesiredServings(e.target.value)}
+                      placeholder="e.g., 50"
+                      className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Target number of servings for this order</p>
+                  </div>
+
+                  <div className="col-span-6 sm:col-span-3">
                     <label htmlFor="occasion" className="block text-sm font-medium text-gray-700">
                       Occasion
                     </label>
@@ -861,6 +887,80 @@ export default function NewOrder() {
                                 <span>{colorOpt.name}</span>
                                 {isSelected && (
                                   <svg className="h-4 w-4 text-pink-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="col-span-6 sm:col-span-3" ref={accentColorDropdownRef}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Accent Colors
+                    </label>
+                    <div className="relative">
+                      {/* Selected accent colors display */}
+                      <div
+                        onClick={() => setShowAccentColorDropdown(!showAccentColorDropdown)}
+                        className="min-h-[38px] px-3 py-2 border border-gray-300 rounded-md bg-white cursor-pointer focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        {accentColors ? (
+                          <div className="flex flex-wrap gap-1">
+                            {accentColors.split(',').map(c => c.trim()).filter(Boolean).map((colorName, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                              >
+                                {colorName}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    const selectedAccentColors = accentColors.split(',').map(c => c.trim()).filter(Boolean)
+                                    setAccentColors(selectedAccentColors.filter(c => c !== colorName).join(', '))
+                                  }}
+                                  className="ml-1 text-purple-600 hover:text-purple-800"
+                                >
+                                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-sm">Click to select accent colors...</span>
+                        )}
+                      </div>
+
+                      {/* Accent Color dropdown */}
+                      {showAccentColorDropdown && (
+                        <div className="absolute z-20 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 max-h-60 overflow-auto">
+                          {fieldOptions?.color?.map(colorOpt => {
+                            const selectedAccentColors = accentColors.split(',').map(c => c.trim()).filter(Boolean)
+                            const isSelected = selectedAccentColors.includes(colorOpt.name)
+                            return (
+                              <button
+                                key={colorOpt.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setAccentColors(selectedAccentColors.filter(c => c !== colorOpt.name).join(', '))
+                                  } else {
+                                    setAccentColors([...selectedAccentColors, colorOpt.name].join(', '))
+                                  }
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-purple-50 flex items-center justify-between ${
+                                  isSelected ? 'bg-purple-50 text-purple-700' : 'text-gray-700'
+                                }`}
+                              >
+                                <span>{colorOpt.name}</span>
+                                {isSelected && (
+                                  <svg className="h-4 w-4 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                   </svg>
                                 )}

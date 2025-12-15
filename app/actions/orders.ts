@@ -13,11 +13,13 @@ export interface CreateOrderData {
   cakeType?: CakeType
   size?: string
   servingsTarget?: number
+  desiredServings?: number
 
   // Event details
   theme?: string
   occasion?: string
   colors?: string
+  accentColors?: string
 
   // Delivery details
   isDelivery?: boolean
@@ -68,11 +70,13 @@ export async function createOrder(data: CreateOrderData) {
       cakeType: data.cakeType,
       size: data.size,
       servingsTarget: data.servingsTarget,
+      desiredServings: data.desiredServings,
 
       // Event details
       theme: data.theme,
       occasion: data.occasion,
       colors: data.colors,
+      accentColors: data.accentColors,
 
       // Delivery details
       isDelivery: data.isDelivery || false,
@@ -143,6 +147,7 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
         theme: data.theme,
         occasion: data.occasion,
         colors: data.colors,
+        accentColors: data.accentColors,
 
         // Delivery details
         isDelivery: data.isDelivery || false,

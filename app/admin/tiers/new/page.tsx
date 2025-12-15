@@ -3,15 +3,16 @@ import { prisma } from '@/lib/db'
 import TierForm from '../tier-form'
 
 export default async function NewTierSize() {
-  const recipes = await prisma.recipe.findMany({ orderBy: { name: 'asc' } })
+  const laborRoles = await prisma.laborRole.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' }
+  })
 
-  const batterRecipes = recipes
-    .filter(r => r.type === 'BATTER')
-    .map(r => ({ id: r.id, name: r.name, type: r.type }))
-
-  const frostingRecipes = recipes
-    .filter(r => r.type === 'FROSTING')
-    .map(r => ({ id: r.id, name: r.name, type: r.type }))
+  const plainLaborRoles = laborRoles.map(role => ({
+    id: role.id,
+    name: role.name,
+    hourlyRate: Number(role.hourlyRate)
+  }))
 
   return (
     <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -26,7 +27,7 @@ export default async function NewTierSize() {
         </nav>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-6">Add New Tier Size</h1>
-        <TierForm tierSize={null} batterRecipes={batterRecipes} frostingRecipes={frostingRecipes} />
+        <TierForm tierSize={null} laborRoles={plainLaborRoles} />
       </div>
     </div>
   )
