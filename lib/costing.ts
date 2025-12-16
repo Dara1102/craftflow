@@ -65,8 +65,21 @@ export interface RecipeMatch {
       quantity: Decimal
       ingredient: { id: number; name: string; unit: string; costPerUnit: Decimal }
     }[]
+    // Full recipe data for production (baker needs these)
+    instructions?: string | null        // JSON array of step-by-step instructions
+    prepMinutes?: number | null         // Prep time breakdown
+    bakeMinutes?: number | null         // Bake time breakdown
+    coolMinutes?: number | null         // Cool time breakdown
+    yieldDescription?: string           // Recipe yield description
   }
   multiplier: number
+  // Scaled ingredients for this tier (production use)
+  scaledIngredients?: {
+    ingredientId: number
+    name: string
+    quantity: number
+    unit: string
+  }[]
 }
 
 export interface CostingResult {
@@ -99,6 +112,30 @@ export interface CostingResult {
     batter: RecipeMatch | null
     filling: RecipeMatch | null
     frosting: RecipeMatch | null
+  }[]
+  // Full recipe data for production (when includeFullRecipes = true)
+  productionRecipes?: {
+    tierId: number
+    tierIndex: number
+    tierName: string
+    batter?: RecipeMatch & {
+      scaledPrepMinutes?: number | null
+      scaledBakeMinutes?: number | null
+      scaledCoolMinutes?: number | null
+      scaledLaborMinutes?: number | null
+    }
+    filling?: RecipeMatch & {
+      scaledPrepMinutes?: number | null
+      scaledBakeMinutes?: number | null
+      scaledCoolMinutes?: number | null
+      scaledLaborMinutes?: number | null
+    }
+    frosting?: RecipeMatch & {
+      scaledPrepMinutes?: number | null
+      scaledBakeMinutes?: number | null
+      scaledCoolMinutes?: number | null
+      scaledLaborMinutes?: number | null
+    }
   }[]
 }
 
@@ -182,7 +219,18 @@ function calculateMultiplier(
   return 1.0
 }
 
-export async function calculateOrderCosting(orderId: number): Promise<CostingResult> {
+/**
+ * Calculate order costing
+ * 
+ * @param orderId - Order ID to calculate costing for
+ * @param includeFullRecipes - If true, includes full recipe data with instructions for production use
+ *                             (instructions, prepMinutes, bakeMinutes, coolMinutes, scaled ingredients)
+ * @returns CostingResult with cost breakdown and optionally full recipe data for production
+ */
+export async function calculateOrderCosting(
+  orderId: number,
+  includeFullRecipes: boolean = false
+): Promise<CostingResult> {
   // Get order with all related data
   const order = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
@@ -338,22 +386,81 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     }
 
     // Store debug info
+    const batterMatch: RecipeMatch | null = batterRecipe ? {
+      recipe: {
+        ...batterRecipe,
+        // Include full recipe data if requested (for production)
+        ...(includeFullRecipes ? {
+          instructions: batterRecipe.instructions || null,
+          prepMinutes: batterRecipe.prepMinutes || null,
+          bakeMinutes: batterRecipe.bakeMinutes || null,
+          coolMinutes: batterRecipe.coolMinutes || null,
+          yieldDescription: batterRecipe.yieldDescription || null
+        } : {})
+      },
+      multiplier: batterMultiplier || 1,
+      // Include scaled ingredients for production
+      ...(includeFullRecipes && batterMultiplier ? {
+        scaledIngredients: batterRecipe.recipeIngredients.map(ri => ({
+          ingredientId: ri.ingredientId,
+          name: ri.ingredient.name,
+          quantity: Math.round(Number(ri.quantity) * batterMultiplier * 100) / 100,
+          unit: ri.ingredient.unit
+        }))
+      } : {})
+    } : null
+
+    const fillingMatch: RecipeMatch | null = fillingRecipe ? {
+      recipe: {
+        ...fillingRecipe,
+        ...(includeFullRecipes ? {
+          instructions: fillingRecipe.instructions || null,
+          prepMinutes: fillingRecipe.prepMinutes || null,
+          bakeMinutes: fillingRecipe.bakeMinutes || null,
+          coolMinutes: fillingRecipe.coolMinutes || null,
+          yieldDescription: fillingRecipe.yieldDescription || null
+        } : {})
+      },
+      multiplier: fillingMultiplier || 1,
+      ...(includeFullRecipes && fillingMultiplier ? {
+        scaledIngredients: fillingRecipe.recipeIngredients.map(ri => ({
+          ingredientId: ri.ingredientId,
+          name: ri.ingredient.name,
+          quantity: Math.round(Number(ri.quantity) * fillingMultiplier * 100) / 100,
+          unit: ri.ingredient.unit
+        }))
+      } : {})
+    } : null
+
+    const frostingMatch: RecipeMatch | null = frostingRecipe ? {
+      recipe: {
+        ...frostingRecipe,
+        ...(includeFullRecipes ? {
+          instructions: frostingRecipe.instructions || null,
+          prepMinutes: frostingRecipe.prepMinutes || null,
+          bakeMinutes: frostingRecipe.bakeMinutes || null,
+          coolMinutes: frostingRecipe.coolMinutes || null,
+          yieldDescription: frostingRecipe.yieldDescription || null
+        } : {})
+      },
+      multiplier: frostingMultiplier || 1,
+      ...(includeFullRecipes && frostingMultiplier ? {
+        scaledIngredients: frostingRecipe.recipeIngredients.map(ri => ({
+          ingredientId: ri.ingredientId,
+          name: ri.ingredient.name,
+          quantity: Math.round(Number(ri.quantity) * frostingMultiplier * 100) / 100,
+          unit: ri.ingredient.unit
+        }))
+      } : {})
+    } : null
+
     recipeMatches.push({
       tierId: tier.id,
       tierName: tierSize.name,
       tierVolumeMl: tierVolume,
-      batter: batterRecipe ? {
-        recipe: batterRecipe,
-        multiplier: batterMultiplier || 1
-      } : null,
-      filling: fillingRecipe ? {
-        recipe: fillingRecipe,
-        multiplier: fillingMultiplier || 1
-      } : null,
-      frosting: frostingRecipe ? {
-        recipe: frostingRecipe,
-        multiplier: frostingMultiplier || 1
-      } : null,
+      batter: batterMatch,
+      filling: fillingMatch,
+      frosting: frostingMatch
     })
 
     // Process batter recipe ingredients
@@ -687,6 +794,192 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
   const costPerServing = totalServings > 0 ? totalCost / totalServings : 0
   const finalPricePerServing = totalServings > 0 ? finalPrice / totalServings : 0
 
+  // Build production recipes array if requested (for baker/production use)
+  const productionRecipes: CostingResult['productionRecipes'] = includeFullRecipes
+    ? order.cakeTiers.map(tier => {
+        const tierSize = tier.tierSize
+        const tierVolume = tierSize.volumeMl
+
+        // Get recipes and multipliers (same logic as above)
+        let batterRecipe: any = tier.batterRecipe || null
+        let batterMultiplier = tier.batterMultiplier ? Number(tier.batterMultiplier) : null
+        if (!batterRecipe && tier.flavor) {
+          batterRecipe = allRecipes.find(r =>
+            r.type === 'BATTER' &&
+            (r.name.toLowerCase().includes(tier.flavor?.toLowerCase() || '') ||
+              tier.flavor?.toLowerCase().includes(r.name.toLowerCase().split(' ')[0]))
+          )
+        }
+        if (batterRecipe && !batterMultiplier) {
+          batterMultiplier = calculateMultiplier(batterRecipe.yieldVolumeMl, tierVolume, 'BATTER')
+        }
+
+        let fillingRecipe: any = tier.fillingRecipe || null
+        let fillingMultiplier = tier.fillingMultiplier ? Number(tier.fillingMultiplier) : null
+        if (!fillingRecipe && tier.filling) {
+          fillingRecipe = allRecipes.find(r =>
+            r.type === 'FILLING' &&
+            (r.name.toLowerCase().includes(tier.filling?.toLowerCase() || '') ||
+              tier.filling?.toLowerCase().includes(r.name.toLowerCase().split(' ')[0]))
+          )
+        }
+        if (fillingRecipe && !fillingMultiplier) {
+          fillingMultiplier = calculateMultiplier(fillingRecipe.yieldVolumeMl, tierVolume, 'FILLING')
+        }
+
+        let frostingRecipe: any = tier.frostingRecipe || null
+        let frostingMultiplier = tier.frostingMultiplier ? Number(tier.frostingMultiplier) : null
+        if (!frostingRecipe && tier.finishType) {
+          frostingRecipe = allRecipes.find(r =>
+            r.type === 'FROSTING' &&
+            (r.name.toLowerCase().includes(tier.finishType?.toLowerCase() || '') ||
+              tier.finishType?.toLowerCase().includes(r.name.toLowerCase().split(' ')[0]))
+          )
+        }
+        if (frostingRecipe && !frostingMultiplier) {
+          frostingMultiplier = calculateMultiplier(frostingRecipe.yieldVolumeMl, tierVolume, 'FROSTING')
+        }
+
+        return {
+          tierId: tier.id,
+          tierIndex: tier.tierIndex,
+          tierName: tierSize.name,
+          batter: batterRecipe && batterMultiplier ? {
+            recipe: {
+              ...batterRecipe,
+              instructions: batterRecipe.instructions || null,
+              prepMinutes: batterRecipe.prepMinutes || null,
+              bakeMinutes: batterRecipe.bakeMinutes || null,
+              coolMinutes: batterRecipe.coolMinutes || null,
+              yieldDescription: batterRecipe.yieldDescription || null,
+              laborMinutes: batterRecipe.laborMinutes || null,
+              laborRole: batterRecipe.laborRole ? {
+                name: batterRecipe.laborRole.name,
+                hourlyRate: batterRecipe.laborRole.hourlyRate
+              } : null,
+              recipeIngredients: batterRecipe.recipeIngredients.map((ri: any) => ({
+                ingredientId: ri.ingredientId,
+                quantity: ri.quantity,
+                ingredient: {
+                  id: ri.ingredient.id,
+                  name: ri.ingredient.name,
+                  unit: ri.ingredient.unit,
+                  costPerUnit: ri.ingredient.costPerUnit
+                }
+              }))
+            },
+            multiplier: batterMultiplier,
+            scaledIngredients: batterRecipe.recipeIngredients.map((ri: any) => ({
+              ingredientId: ri.ingredientId,
+              name: ri.ingredient.name,
+              quantity: Math.round(Number(ri.quantity) * batterMultiplier * 100) / 100,
+              unit: ri.ingredient.unit
+            })),
+            scaledPrepMinutes: batterRecipe.prepMinutes
+              ? Math.round(batterRecipe.prepMinutes * batterMultiplier)
+              : null,
+            scaledBakeMinutes: batterRecipe.bakeMinutes
+              ? Math.round(batterRecipe.bakeMinutes * batterMultiplier)
+              : null,
+            scaledCoolMinutes: batterRecipe.coolMinutes
+              ? Math.round(batterRecipe.coolMinutes * batterMultiplier)
+              : null,
+            scaledLaborMinutes: batterRecipe.laborMinutes
+              ? Math.round(batterRecipe.laborMinutes * batterMultiplier * 100) / 100
+              : null
+          } : undefined,
+          filling: fillingRecipe && fillingMultiplier ? {
+            recipe: {
+              ...fillingRecipe,
+              instructions: fillingRecipe.instructions || null,
+              prepMinutes: fillingRecipe.prepMinutes || null,
+              bakeMinutes: fillingRecipe.bakeMinutes || null,
+              coolMinutes: fillingRecipe.coolMinutes || null,
+              yieldDescription: fillingRecipe.yieldDescription || null,
+              laborMinutes: fillingRecipe.laborMinutes || null,
+              laborRole: fillingRecipe.laborRole ? {
+                name: fillingRecipe.laborRole.name,
+                hourlyRate: fillingRecipe.laborRole.hourlyRate
+              } : null,
+              recipeIngredients: fillingRecipe.recipeIngredients.map((ri: any) => ({
+                ingredientId: ri.ingredientId,
+                quantity: ri.quantity,
+                ingredient: {
+                  id: ri.ingredient.id,
+                  name: ri.ingredient.name,
+                  unit: ri.ingredient.unit,
+                  costPerUnit: ri.ingredient.costPerUnit
+                }
+              }))
+            },
+            multiplier: fillingMultiplier,
+            scaledIngredients: fillingRecipe.recipeIngredients.map((ri: any) => ({
+              ingredientId: ri.ingredientId,
+              name: ri.ingredient.name,
+              quantity: Math.round(Number(ri.quantity) * fillingMultiplier * 100) / 100,
+              unit: ri.ingredient.unit
+            })),
+            scaledPrepMinutes: fillingRecipe.prepMinutes
+              ? Math.round(fillingRecipe.prepMinutes * fillingMultiplier)
+              : null,
+            scaledBakeMinutes: fillingRecipe.bakeMinutes
+              ? Math.round(fillingRecipe.bakeMinutes * fillingMultiplier)
+              : null,
+            scaledCoolMinutes: fillingRecipe.coolMinutes
+              ? Math.round(fillingRecipe.coolMinutes * fillingMultiplier)
+              : null,
+            scaledLaborMinutes: fillingRecipe.laborMinutes
+              ? Math.round(fillingRecipe.laborMinutes * fillingMultiplier * 100) / 100
+              : null
+          } : undefined,
+          frosting: frostingRecipe && frostingMultiplier ? {
+            recipe: {
+              ...frostingRecipe,
+              instructions: frostingRecipe.instructions || null,
+              prepMinutes: frostingRecipe.prepMinutes || null,
+              bakeMinutes: frostingRecipe.bakeMinutes || null,
+              coolMinutes: frostingRecipe.coolMinutes || null,
+              yieldDescription: frostingRecipe.yieldDescription || null,
+              laborMinutes: frostingRecipe.laborMinutes || null,
+              laborRole: frostingRecipe.laborRole ? {
+                name: frostingRecipe.laborRole.name,
+                hourlyRate: frostingRecipe.laborRole.hourlyRate
+              } : null,
+              recipeIngredients: frostingRecipe.recipeIngredients.map((ri: any) => ({
+                ingredientId: ri.ingredientId,
+                quantity: ri.quantity,
+                ingredient: {
+                  id: ri.ingredient.id,
+                  name: ri.ingredient.name,
+                  unit: ri.ingredient.unit,
+                  costPerUnit: ri.ingredient.costPerUnit
+                }
+              }))
+            },
+            multiplier: frostingMultiplier,
+            scaledIngredients: frostingRecipe.recipeIngredients.map((ri: any) => ({
+              ingredientId: ri.ingredientId,
+              name: ri.ingredient.name,
+              quantity: Math.round(Number(ri.quantity) * frostingMultiplier * 100) / 100,
+              unit: ri.ingredient.unit
+            })),
+            scaledPrepMinutes: frostingRecipe.prepMinutes
+              ? Math.round(frostingRecipe.prepMinutes * frostingMultiplier)
+              : null,
+            scaledBakeMinutes: frostingRecipe.bakeMinutes
+              ? Math.round(frostingRecipe.bakeMinutes * frostingMultiplier)
+              : null,
+            scaledCoolMinutes: frostingRecipe.coolMinutes
+              ? Math.round(frostingRecipe.coolMinutes * frostingMultiplier)
+              : null,
+            scaledLaborMinutes: frostingRecipe.laborMinutes
+              ? Math.round(frostingRecipe.laborMinutes * frostingMultiplier * 100) / 100
+              : null
+          } : undefined
+        }
+      })
+    : undefined
+
   return {
     totalServings,
     ingredients,
@@ -710,5 +1003,6 @@ export async function calculateOrderCosting(orderId: number): Promise<CostingRes
     costPerServing: Math.round(costPerServing * 100) / 100,
     suggestedPricePerServing: Math.round(finalPricePerServing * 100) / 100,
     recipeMatches, // Include debug info
+    productionRecipes // Include full recipe data for production when requested
   }
 }

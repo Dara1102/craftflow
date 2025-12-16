@@ -22,7 +22,9 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
     notFound()
   }
 
-  const costing = await calculateOrderCosting(orderId)
+  // Calculate costing (without full recipes for performance)
+  // Use /api/orders/[id]/production for full recipe data with instructions
+  const costing = await calculateOrderCosting(orderId, false)
 
   return (
     <div className="max-w-6xl mx-auto py-6 sm:px-6 lg:px-8">
