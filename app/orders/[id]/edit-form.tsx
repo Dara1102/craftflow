@@ -15,9 +15,19 @@ interface TierSize {
   shape?: string
 }
 
+interface Recipe {
+  id: number
+  name: string
+  type: string
+  yieldDescription: string
+}
+
 interface CakeTier {
   id: number
   tierSizeId: number
+  batterRecipeId: number | null
+  fillingRecipeId: number | null
+  frostingRecipeId: number | null
   flavor: string | null
   filling: string | null
   finishType: string | null
@@ -74,37 +84,75 @@ interface DeliveryZone {
   perMileFee: number | null
 }
 
-interface Settings {
-  LaborRatePerHour: string
-  MarkupPercent: string
-  [key: string]: string
+interface DeliveryStartPoint {
+  id: number
+  name: string
+  address: string
+  latitude: number | null
+  longitude: number | null
+  isDefault: boolean
 }
 
+interface PlaceResult {
+  placeId: string
+  description: string
+  mainText: string
+  secondaryText: string
+}
+
+// TierCost matches what /api/tier-costs returns (assembly info only, no recipe costs)
 interface TierCost {
   tierSizeId: number
   name: string
+  shape: string
   servings: number
-  batterCost: number
-  frostingCost: number
-  totalIngredientCost: number
-  // Labor data
-  batterLaborMinutes: number
-  batterLaborRole: string | null
-  batterLaborRate: number | null
-  frostingLaborMinutes: number
-  frostingLaborRole: string | null
-  frostingLaborRate: number | null
+  volumeMl: number | null
   assemblyMinutes: number
   assemblyRole: string | null
   assemblyRate: number | null
-  totalLaborMinutes: number
-  totalLaborCost: number
+  assemblyLaborCost: number
 }
 
 interface LaborRole {
   id: number
   name: string
   hourlyRate: number
+}
+
+// Costing result from the centralized costing API
+interface CostingResult {
+  totalServings: number
+  ingredientCost: number
+  decorationMaterialCost: number
+  decorationLaborCost: number
+  topperCost: number
+  deliveryCost: number
+  baseLaborCost: number
+  totalLaborCost: number
+  totalCost: number
+  markupPercent: number
+  suggestedPrice: number
+  discountAmount: number
+  finalPrice: number
+  costPerServing: number
+  suggestedPricePerServing: number
+  laborBreakdown: Array<{
+    role: string
+    hours: number
+    rate: number
+    cost: number
+  }>
+  delivery?: {
+    zoneName: string
+    baseFee: number
+    perMileFee?: number
+    estimatedDistance?: number
+  }
+  discount?: {
+    type: string
+    value: number
+    reason?: string
+  }
 }
 
 interface Order {
@@ -203,6 +251,12 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     order.deliveryTime ? new Date(order.deliveryTime).toISOString().slice(0, 16) : ''
   )
   const [deliveryAddress, setDeliveryAddress] = useState(order.deliveryAddress || '')
+  const [deliveryStartPointId, setDeliveryStartPointId] = useState<number | null>(null)
+  const [venueSearch, setVenueSearch] = useState('')
+  const [venueResults, setVenueResults] = useState<PlaceResult[]>([])
+  const [showVenueDropdown, setShowVenueDropdown] = useState(false)
+  const [selectedVenueCoords, setSelectedVenueCoords] = useState<{lat: number, lng: number} | null>(null)
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false)
 
   // Labor
   const [estimatedHours, setEstimatedHours] = useState(order.estimatedHours.toString())
@@ -214,6 +268,9 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const [tiers, setTiers] = useState(
     order.cakeTiers.map(tier => ({
       tierSizeId: tier.tierSizeId,
+      batterRecipeId: tier.batterRecipeId,
+      fillingRecipeId: tier.fillingRecipeId,
+      frostingRecipeId: tier.frostingRecipeId,
       flavor: tier.flavor,
       filling: tier.filling,
       finishType: tier.finishType
@@ -251,14 +308,27 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorDropdownRef = useRef<HTMLDivElement>(null)
   const accentColorDropdownRef = useRef<HTMLDivElement>(null)
+  const venueDropdownRef = useRef<HTMLDivElement>(null)
 
-  // Fetch field options, decorations list, and delivery zones
+  // Fetch field options, decorations list, delivery zones, and recipes
   const { data: fieldOptions } = useSWR<FieldOptions>('/api/field-options', fetcher)
   const { data: decorations } = useSWR<DecorationTechnique[]>('/api/decorations', fetcher)
   const { data: deliveryZones } = useSWR<DeliveryZone[]>('/api/delivery-zones', fetcher)
-  const { data: settings } = useSWR<Settings>('/api/settings', fetcher)
+  const { data: deliveryStartPoints } = useSWR<DeliveryStartPoint[]>('/api/delivery-start-points', fetcher)
   const { data: tierCosts } = useSWR<TierCost[]>('/api/tier-costs', fetcher)
   const { data: laborRoles } = useSWR<LaborRole[]>('/api/labor-roles', fetcher)
+  const { data: recipes } = useSWR<Recipe[]>('/api/recipes', fetcher)
+
+  // Filter recipes by type
+  const batterRecipes = recipes?.filter(r => r.type === 'BATTER') || []
+  const fillingRecipes = recipes?.filter(r => r.type === 'FILLING') || []
+  const frostingRecipes = recipes?.filter(r => r.type === 'FROSTING') || []
+
+  // Fetch full costing from centralized costing API
+  const { data: costing, mutate: mutateCosting, isLoading: costingLoading } = useSWR<CostingResult>(
+    `/api/orders/${order.id}/costing`,
+    fetcher
+  )
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -272,10 +342,88 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
       if (accentColorDropdownRef.current && !accentColorDropdownRef.current.contains(event.target as Node)) {
         setShowAccentColorDropdown(false)
       }
+      if (venueDropdownRef.current && !venueDropdownRef.current.contains(event.target as Node)) {
+        setShowVenueDropdown(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Set default delivery start point when loaded
+  useEffect(() => {
+    if (deliveryStartPoints && deliveryStartPoints.length > 0 && !deliveryStartPointId) {
+      const defaultPoint = deliveryStartPoints.find(sp => sp.isDefault) || deliveryStartPoints[0]
+      setDeliveryStartPointId(defaultPoint.id)
+    }
+  }, [deliveryStartPoints, deliveryStartPointId])
+
+  // Venue search with debounce
+  useEffect(() => {
+    if (venueSearch.length < 3) {
+      setVenueResults([])
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/places/search?query=${encodeURIComponent(venueSearch)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setVenueResults(data)
+          setShowVenueDropdown(true)
+        }
+      } catch (error) {
+        console.error('Failed to search venues:', error)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [venueSearch])
+
+  // Calculate distance when venue is selected
+  const calculateDeliveryDistance = async (destLat: number, destLng: number) => {
+    const startPoint = deliveryStartPoints?.find(sp => sp.id === deliveryStartPointId)
+    if (!startPoint?.latitude || !startPoint?.longitude) {
+      console.warn('No start point coordinates available')
+      return
+    }
+
+    setIsCalculatingDistance(true)
+    try {
+      const res = await fetch(
+        `/api/places/distance?originLat=${startPoint.latitude}&originLng=${startPoint.longitude}&destLat=${destLat}&destLng=${destLng}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setDeliveryDistance(data.distanceMiles.toString())
+      }
+    } catch (error) {
+      console.error('Failed to calculate distance:', error)
+    } finally {
+      setIsCalculatingDistance(false)
+    }
+  }
+
+  const handleVenueSelect = async (place: PlaceResult) => {
+    setVenueSearch(place.mainText)
+    setShowVenueDropdown(false)
+
+    try {
+      const res = await fetch(`/api/places/details?placeId=${place.placeId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setDeliveryAddress(data.address)
+        if (data.latitude && data.longitude) {
+          setSelectedVenueCoords({ lat: data.latitude, lng: data.longitude })
+          await calculateDeliveryDistance(data.latitude, data.longitude)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to get place details:', error)
+      setDeliveryAddress(place.description)
+    }
+  }
 
   // Customer search
   useEffect(() => {
@@ -351,7 +499,15 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   }, [tiers, tierSizes, hoursManuallySet])
 
   const addTier = () => {
-    setTiers([...tiers, { tierSizeId: 0, flavor: '', filling: '', finishType: '' }])
+    setTiers([...tiers, {
+      tierSizeId: 0,
+      batterRecipeId: null,
+      fillingRecipeId: null,
+      frostingRecipeId: null,
+      flavor: '',
+      filling: '',
+      finishType: ''
+    }])
   }
 
   const removeTier = (index: number) => {
@@ -398,9 +554,14 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
       return
     }
 
-    const validTiers = tiers.filter(t => t.tierSizeId > 0 && t.flavor && t.filling && t.finishType)
+    // Valid tier requires: tierSize + (recipes OR legacy fields)
+    const validTiers = tiers.filter(t =>
+      t.tierSizeId > 0 &&
+      (t.batterRecipeId || t.flavor) &&
+      (t.frostingRecipeId || t.finishType)
+    )
     if (validTiers.length === 0) {
-      alert('Please add at least one complete tier')
+      alert('Please add at least one complete tier with size and recipes (or flavor/finish)')
       return
     }
 
@@ -438,6 +599,9 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         status,
         tiers: validTiers.map(t => ({
           tierSizeId: parseInt(t.tierSizeId.toString()),
+          batterRecipeId: t.batterRecipeId,
+          fillingRecipeId: t.fillingRecipeId,
+          frostingRecipeId: t.frostingRecipeId,
           flavor: t.flavor || '',
           filling: t.filling || '',
           finishType: t.finishType || '',
@@ -445,6 +609,8 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         decorations: selectedDecorations
       })
       setSaveMessage('Order saved successfully!')
+      // Refresh the costing data after save
+      mutateCosting()
       setTimeout(() => setSaveMessage(null), 3000)
     } catch {
       setSaveMessage('Failed to save order. Please try again.')
@@ -504,96 +670,6 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     return parts.join(' ')
   }
 
-  // Calculate price estimate (matches lib/costing.ts formula)
-  const calculateEstimate = () => {
-    // Get settings values (same defaults as lib/costing.ts)
-    const hourlyRate = settings ? parseFloat(settings.LaborRatePerHour) : 20
-    const markupPercent = settings ? parseFloat(settings.MarkupPercent) : 0.7
-
-    // Calculate tier ingredient costs
-    let ingredientCost = 0
-    const tierCount = tiers.filter(t => t.tierSizeId > 0).length
-    const tierCostsArray = Array.isArray(tierCosts) ? tierCosts : []
-    tiers.forEach(tier => {
-      if (tier.tierSizeId > 0) {
-        const tierCost = tierCostsArray.find(tc => tc.tierSizeId === tier.tierSizeId)
-        if (tierCost) {
-          ingredientCost += tierCost.totalIngredientCost
-        }
-      }
-    })
-
-    // Calculate decoration costs
-    let decorationMaterialCost = 0
-    selectedDecorations.forEach(sd => {
-      const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
-      if (dec) {
-        // Multiply by tier count for TIER-based decorations (simplified - full logic in costing.ts)
-        decorationMaterialCost += dec.defaultCostPerUnit * sd.quantity
-      }
-    })
-
-    // Calculate topper cost (same logic as lib/costing.ts)
-    let topperCost = 0
-    const standardTopperCost = 5 // Base cost for standard toppers
-    if (topperType === 'custom' && customTopperFee) {
-      topperCost = parseFloat(customTopperFee)
-    } else if (topperType && topperType !== 'none' && topperType !== '') {
-      topperCost = standardTopperCost
-    }
-
-    // Calculate labor cost
-    const hours = parseFloat(estimatedHours) || 0
-    const laborCost = hours * hourlyRate
-
-    // Calculate delivery cost (not marked up - pass-through cost)
-    let deliveryFee = 0
-    if (isDelivery && deliveryZoneId) {
-      const zone = deliveryZones?.find(z => z.id === deliveryZoneId)
-      if (zone) {
-        deliveryFee = zone.baseFee
-        if (zone.perMileFee && deliveryDistance) {
-          deliveryFee += zone.perMileFee * (parseFloat(deliveryDistance) || 0)
-        }
-      }
-    }
-
-    // Calculate suggested price using same formula as costing report:
-    // (ingredientCost + decorationMaterialCost + topperCost + laborCost) * (1 + markupPercent) + deliveryFee
-    const totalCostBeforeMarkup = ingredientCost + decorationMaterialCost + topperCost + laborCost
-    const suggestedPrice = totalCostBeforeMarkup * (1 + markupPercent)
-
-    // Calculate discount
-    let discountAmount = 0
-    if (discountType && discountValue) {
-      const discountVal = parseFloat(discountValue)
-      if (discountType === 'PERCENT') {
-        discountAmount = suggestedPrice * (discountVal / 100)
-      } else {
-        discountAmount = discountVal
-      }
-    }
-
-    // Final price = suggested price - discount + delivery (delivery not discounted)
-    const finalPrice = suggestedPrice - discountAmount + deliveryFee
-
-    return {
-      ingredientCost,
-      decorationMaterialCost,
-      topperCost,
-      laborCost,
-      laborMinutes: hours * 60,
-      hourlyRate,
-      markupPercent,
-      suggestedPrice,
-      discountAmount,
-      deliveryFee,
-      totalCostBeforeMarkup,
-      total: finalPrice
-    }
-  }
-
-  const estimate = calculateEstimate()
   const cakeDescription = getCakeDescription()
 
   return (
@@ -946,7 +1022,8 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
 
               {isDelivery && (
                 <div className="grid grid-cols-6 gap-4 pt-4 border-t border-gray-200">
-                  <div className="col-span-6 sm:col-span-4">
+                  {/* Delivery Zone */}
+                  <div className="col-span-6 sm:col-span-3">
                     <label htmlFor="deliveryZone" className="block text-sm font-medium text-gray-700">
                       Delivery Zone
                     </label>
@@ -975,26 +1052,118 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                     )}
                   </div>
 
+                  {/* Delivery Start Point */}
+                  <div className="col-span-6 sm:col-span-3">
+                    <label htmlFor="deliveryStartPoint" className="block text-sm font-medium text-gray-700">
+                      Delivery Start Point
+                    </label>
+                    <select
+                      id="deliveryStartPoint"
+                      value={deliveryStartPointId || ''}
+                      onChange={(e) => {
+                        setDeliveryStartPointId(e.target.value ? parseInt(e.target.value) : null)
+                        if (selectedVenueCoords) {
+                          const newStartPoint = deliveryStartPoints?.find(sp => sp.id === parseInt(e.target.value))
+                          if (newStartPoint?.latitude && newStartPoint?.longitude) {
+                            calculateDeliveryDistance(selectedVenueCoords.lat, selectedVenueCoords.lng)
+                          }
+                        }
+                      }}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    >
+                      <option value="">Select start point...</option>
+                      {deliveryStartPoints?.map((sp) => (
+                        <option key={sp.id} value={sp.id}>{sp.name}</option>
+                      ))}
+                    </select>
+                    {deliveryStartPointId && deliveryStartPoints && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {deliveryStartPoints.find(sp => sp.id === deliveryStartPointId)?.address}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Venue Search */}
+                  <div className="col-span-6" ref={venueDropdownRef}>
+                    <label htmlFor="venueSearch" className="block text-sm font-medium text-gray-700">
+                      Search Venue/Location
+                    </label>
+                    <div className="relative mt-1">
+                      <input
+                        type="text"
+                        id="venueSearch"
+                        value={venueSearch}
+                        onChange={(e) => setVenueSearch(e.target.value)}
+                        placeholder="Search for venue, restaurant, address..."
+                        className="focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                      />
+                      {showVenueDropdown && venueResults.length > 0 && (
+                        <ul className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+                          {venueResults.map((place) => (
+                            <li
+                              key={place.placeId}
+                              onClick={() => handleVenueSelect(place)}
+                              className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-pink-50"
+                            >
+                              <div className="font-medium text-gray-900">{place.mainText}</div>
+                              <div className="text-gray-500 text-xs">{place.secondaryText}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Type a venue name to auto-fill address and calculate distance
+                    </p>
+                  </div>
+
+                  {/* Delivery Address */}
+                  <div className="col-span-6">
+                    <label htmlFor="deliveryAddress" className="block text-sm font-medium text-gray-700">
+                      Delivery Address
+                    </label>
+                    <textarea
+                      name="deliveryAddress"
+                      id="deliveryAddress"
+                      rows={2}
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                      className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                      placeholder="Full delivery address"
+                    />
+                  </div>
+
+                  {/* Distance */}
                   <div className="col-span-6 sm:col-span-2">
                     <label htmlFor="deliveryDistance" className="block text-sm font-medium text-gray-700">
                       Distance (miles)
                     </label>
-                    <input
-                      type="number"
-                      name="deliveryDistance"
-                      id="deliveryDistance"
-                      step="0.1"
-                      min="0"
-                      value={deliveryDistance}
-                      onChange={(e) => setDeliveryDistance(e.target.value)}
-                      placeholder="e.g., 8.5"
-                      className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                    />
-                    {deliveryZoneId && deliveryDistance && (() => {
-                      const zone = deliveryZones?.find(z => z.id === deliveryZoneId)
+                    <div className="relative mt-1">
+                      <input
+                        type="number"
+                        name="deliveryDistance"
+                        id="deliveryDistance"
+                        step="0.1"
+                        min="0"
+                        value={deliveryDistance}
+                        onChange={(e) => setDeliveryDistance(e.target.value)}
+                        placeholder="0.0"
+                        className="focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md pr-12"
+                      />
+                      {isCalculatingDistance && (
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                          <svg className="animate-spin h-4 w-4 text-pink-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    {deliveryZoneId && deliveryDistance && Array.isArray(deliveryZones) && (() => {
+                      const zone = deliveryZones.find(z => z.id === deliveryZoneId)
                       if (zone?.perMileFee) {
                         const dist = parseFloat(deliveryDistance) || 0
-                        const totalFee = zone.baseFee + (zone.perMileFee * dist)
+                        const totalFee = (zone.baseFee || 0) + ((zone.perMileFee || 0) * dist)
                         return (
                           <p className="mt-1 text-xs text-gray-500">
                             Est. fee: ${totalFee.toFixed(2)}
@@ -1005,7 +1174,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                     })()}
                   </div>
 
-                  <div className="col-span-6 sm:col-span-3">
+                  <div className="col-span-6 sm:col-span-2">
                     <label htmlFor="deliveryContact" className="block text-sm font-medium text-gray-700">
                       Contact Name
                     </label>
@@ -1016,10 +1185,11 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                       value={deliveryContact}
                       onChange={(e) => setDeliveryContact(e.target.value)}
                       className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                      placeholder="Who to contact"
                     />
                   </div>
 
-                  <div className="col-span-6 sm:col-span-3">
+                  <div className="col-span-6 sm:col-span-2">
                     <label htmlFor="deliveryPhone" className="block text-sm font-medium text-gray-700">
                       Contact Phone
                     </label>
@@ -1043,20 +1213,6 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                       id="deliveryTime"
                       value={deliveryTime}
                       onChange={(e) => setDeliveryTime(e.target.value)}
-                      className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                    />
-                  </div>
-
-                  <div className="col-span-6">
-                    <label htmlFor="deliveryAddress" className="block text-sm font-medium text-gray-700">
-                      Delivery Address
-                    </label>
-                    <textarea
-                      name="deliveryAddress"
-                      id="deliveryAddress"
-                      rows={2}
-                      value={deliveryAddress}
-                      onChange={(e) => setDeliveryAddress(e.target.value)}
                       className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -1107,7 +1263,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-700">Tier Size</label>
                     <select
                       value={tier.tierSizeId}
@@ -1123,47 +1279,146 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                       ))}
                     </select>
                   </div>
+
+                  {/* Recipe Selection */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-700">Flavor</label>
+                    <label className="block text-xs font-medium text-gray-700">
+                      Batter Recipe
+                      <span className="text-pink-500 ml-1">*</span>
+                    </label>
                     <select
-                      value={tier.flavor || ''}
-                      onChange={(e) => updateTier(index, 'flavor', e.target.value)}
+                      value={tier.batterRecipeId || ''}
+                      onChange={(e) => {
+                        const recipeId = e.target.value ? parseInt(e.target.value) : null
+                        updateTier(index, 'batterRecipeId', recipeId)
+                        // Auto-set flavor from recipe name
+                        const recipe = batterRecipes.find(r => r.id === recipeId)
+                        if (recipe) {
+                          updateTier(index, 'flavor', recipe.name)
+                        }
+                      }}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                      required
                     >
-                      <option value="">Select flavor...</option>
-                      {fieldOptions?.flavor?.map(opt => (
-                        <option key={opt.id} value={opt.name}>{opt.name}</option>
+                      <option value="">Select batter recipe...</option>
+                      {batterRecipes.map(recipe => (
+                        <option key={recipe.id} value={recipe.id}>
+                          {recipe.name}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700">Filling</label>
+                    <label className="block text-xs font-medium text-gray-700">
+                      Filling Recipe
+                    </label>
                     <select
-                      value={tier.filling || ''}
-                      onChange={(e) => updateTier(index, 'filling', e.target.value)}
+                      value={tier.fillingRecipeId || ''}
+                      onChange={(e) => {
+                        const recipeId = e.target.value ? parseInt(e.target.value) : null
+                        updateTier(index, 'fillingRecipeId', recipeId)
+                        // Auto-set filling from recipe name
+                        const recipe = fillingRecipes.find(r => r.id === recipeId)
+                        if (recipe) {
+                          updateTier(index, 'filling', recipe.name)
+                        }
+                      }}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                      required
                     >
-                      <option value="">Select filling...</option>
-                      {fieldOptions?.filling?.map(opt => (
-                        <option key={opt.id} value={opt.name}>{opt.name}</option>
+                      <option value="">No filling</option>
+                      {fillingRecipes.map(recipe => (
+                        <option key={recipe.id} value={recipe.id}>
+                          {recipe.name}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700">Finish Type</label>
+                    <label className="block text-xs font-medium text-gray-700">
+                      Frosting Recipe
+                      <span className="text-pink-500 ml-1">*</span>
+                    </label>
                     <select
-                      value={tier.finishType || ''}
-                      onChange={(e) => updateTier(index, 'finishType', e.target.value)}
+                      value={tier.frostingRecipeId || ''}
+                      onChange={(e) => {
+                        const recipeId = e.target.value ? parseInt(e.target.value) : null
+                        updateTier(index, 'frostingRecipeId', recipeId)
+                        // Auto-set finishType from recipe name
+                        const recipe = frostingRecipes.find(r => r.id === recipeId)
+                        if (recipe) {
+                          updateTier(index, 'finishType', recipe.name)
+                        }
+                      }}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                      required
                     >
-                      <option value="">Select finish...</option>
-                      {fieldOptions?.cakeSurface?.map(opt => (
-                        <option key={opt.id} value={opt.name}>{opt.name}</option>
+                      <option value="">Select frosting recipe...</option>
+                      {frostingRecipes.map(recipe => (
+                        <option key={recipe.id} value={recipe.id}>
+                          {recipe.name}
+                        </option>
                       ))}
                     </select>
+                  </div>
+                  <div className="col-span-2 text-xs text-gray-500 pt-1">
+                    Recipes enable accurate ingredient costing and labor calculation
+                  </div>
+
+                  {/* Legacy fields - collapsible for backwards compatibility */}
+                  <div className="col-span-2 pt-2 border-t border-gray-100">
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+                        Legacy fields (flavor/filling/finish text)
+                      </summary>
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500">Flavor</label>
+                          <select
+                            value={tier.flavor || ''}
+                            onChange={(e) => updateTier(index, 'flavor', e.target.value)}
+                            className="mt-1 block w-full py-1.5 px-2 border border-gray-200 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-xs"
+                          >
+                            <option value="">Select...</option>
+                            {tier.flavor && !fieldOptions?.flavor?.some(opt => opt.name === tier.flavor) && (
+                              <option value={tier.flavor}>{tier.flavor}</option>
+                            )}
+                            {fieldOptions?.flavor?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500">Filling</label>
+                          <select
+                            value={tier.filling || ''}
+                            onChange={(e) => updateTier(index, 'filling', e.target.value)}
+                            className="mt-1 block w-full py-1.5 px-2 border border-gray-200 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-xs"
+                          >
+                            <option value="">Select...</option>
+                            {tier.filling && !fieldOptions?.filling?.some(opt => opt.name === tier.filling) && (
+                              <option value={tier.filling}>{tier.filling}</option>
+                            )}
+                            {fieldOptions?.filling?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500">Finish</label>
+                          <select
+                            value={tier.finishType || ''}
+                            onChange={(e) => updateTier(index, 'finishType', e.target.value)}
+                            className="mt-1 block w-full py-1.5 px-2 border border-gray-200 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-xs"
+                          >
+                            <option value="">Select...</option>
+                            {tier.finishType && !fieldOptions?.cakeSurface?.some(opt => opt.name === tier.finishType) && (
+                              <option value={tier.finishType}>{tier.finishType}</option>
+                            )}
+                            {fieldOptions?.cakeSurface?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </details>
                   </div>
                 </div>
               </div>
@@ -1428,53 +1683,40 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
             <div className="grid grid-cols-6 gap-6">
               {/* Auto-calculated labor preview */}
               <div className="col-span-6 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
-                <h4 className="text-sm font-semibold text-blue-900 mb-3">Auto-Calculated Labor (from sources)</h4>
+                <h4 className="text-sm font-semibold text-blue-900 mb-3">Auto-Calculated Labor (from tier assembly)</h4>
                 {(() => {
-                  // Calculate tier-based labor
-                  let totalBatterMinutes = 0
-                  let totalFrostingMinutes = 0
+                  // Calculate tier-based assembly labor
+                  // Note: Batter/frosting labor requires full costing calculation with recipes
                   let totalAssemblyMinutes = 0
-                  let totalTierLaborCost = 0
+                  let totalAssemblyLaborCost = 0
 
                   const validTiers = tiers.filter(t => t.tierSizeId > 0)
                   const tierCostsArr = Array.isArray(tierCosts) ? tierCosts : []
                   validTiers.forEach(tier => {
                     const tierCost = tierCostsArr.find(tc => tc.tierSizeId === tier.tierSizeId)
                     if (tierCost) {
-                      totalBatterMinutes += tierCost.batterLaborMinutes
-                      totalFrostingMinutes += tierCost.frostingLaborMinutes
-                      totalAssemblyMinutes += tierCost.assemblyMinutes
-                      totalTierLaborCost += tierCost.totalLaborCost
+                      totalAssemblyMinutes += tierCost.assemblyMinutes || 0
+                      totalAssemblyLaborCost += tierCost.assemblyLaborCost || 0
                     }
                   })
 
-                  const totalAutoMinutes = totalBatterMinutes + totalFrostingMinutes + totalAssemblyMinutes
-                  const totalAutoHours = totalAutoMinutes / 60
+                  const totalAutoHours = totalAssemblyMinutes / 60
 
                   return (
                     <div className="space-y-2">
-                      <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
-                          <p className="text-gray-600">Batter/Baking</p>
-                          <p className="font-medium text-blue-800">{Math.round(totalBatterMinutes)} min</p>
+                          <p className="text-gray-600">Assembly Time</p>
+                          <p className="font-medium text-blue-800">{Math.round(totalAssemblyMinutes)} min ({totalAutoHours.toFixed(1)} hrs)</p>
                         </div>
                         <div>
-                          <p className="text-gray-600">Frosting</p>
-                          <p className="font-medium text-blue-800">{Math.round(totalFrostingMinutes)} min</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-600">Assembly</p>
-                          <p className="font-medium text-blue-800">{Math.round(totalAssemblyMinutes)} min</p>
+                          <p className="text-gray-600">Assembly Cost</p>
+                          <p className="font-medium text-blue-800">${totalAssemblyLaborCost.toFixed(2)}</p>
                         </div>
                       </div>
-                      <div className="pt-2 border-t border-blue-200 flex justify-between items-center">
-                        <div>
-                          <span className="text-gray-600">Total Auto Labor: </span>
-                          <span className="font-bold text-blue-900">{totalAutoHours.toFixed(1)} hrs</span>
-                          <span className="text-gray-500 ml-2">(${totalTierLaborCost.toFixed(2)})</span>
-                        </div>
-                        <p className="text-xs text-gray-500">+ decoration labor calculated separately</p>
-                      </div>
+                      <p className="text-xs text-gray-500 pt-2 border-t border-blue-200">
+                        Recipe labor (batter, filling, frosting) is calculated in the full costing report.
+                      </p>
                     </div>
                   )
                 })()}
@@ -1610,82 +1852,105 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
               </div>
             </div>
 
-            {/* Costing Breakdown */}
+            {/* Costing Breakdown - Full Costing from API */}
             <div className="bg-white rounded-lg p-4 border border-pink-100">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Costing Breakdown</h4>
-              <div className="space-y-2 text-sm">
-                {/* Costs Section */}
-                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Costs</div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Tier Ingredients (batter/frosting)</span>
-                  <span className="text-gray-900">${estimate.ingredientCost.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Decoration Materials</span>
-                  <span className="text-gray-900">${estimate.decorationMaterialCost.toFixed(2)}</span>
-                </div>
-                {estimate.topperCost > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Topper</span>
-                    <span className="text-gray-900">${estimate.topperCost.toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Labor ({estimatedHours}h @ ${estimate.hourlyRate}/hr)</span>
-                  <span className="text-gray-900">${estimate.laborCost.toFixed(2)}</span>
-                </div>
-
-                {/* Subtotal */}
-                <div className="border-t border-gray-100 pt-2 mt-2">
-                  <div className="flex justify-between font-medium">
-                    <span className="text-gray-700">Subtotal (cost)</span>
-                    <span className="text-gray-900">${estimate.totalCostBeforeMarkup.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                {/* Markup */}
-                <div className="flex justify-between text-gray-500">
-                  <span>Markup ({(estimate.markupPercent * 100).toFixed(0)}%)</span>
-                  <span>+${(estimate.totalCostBeforeMarkup * estimate.markupPercent).toFixed(2)}</span>
-                </div>
-
-                {/* Suggested Price (before discount) */}
-                <div className="flex justify-between font-medium">
-                  <span className="text-gray-700">Suggested Price</span>
-                  <span className="text-gray-900">${estimate.suggestedPrice.toFixed(2)}</span>
-                </div>
-
-                {/* Discount */}
-                {estimate.discountAmount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>
-                      Discount
-                      {discountType === 'PERCENT' && ` (${discountValue}%)`}
-                      {discountReason && <span className="text-xs text-gray-500 ml-1">- {discountReason}</span>}
-                    </span>
-                    <span>-${estimate.discountAmount.toFixed(2)}</span>
-                  </div>
-                )}
-
-                {/* Delivery (pass-through, not marked up or discounted) */}
-                {estimate.deliveryFee > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">
-                      Delivery
-                      {deliveryDistance && ` (${deliveryDistance} mi)`}
-                    </span>
-                    <span className="text-gray-900">+${estimate.deliveryFee.toFixed(2)}</span>
-                  </div>
-                )}
-
-                {/* Final Price */}
-                <div className="border-t border-gray-200 pt-2 mt-2">
-                  <div className="flex justify-between text-lg font-bold">
-                    <span className="text-gray-900">Final Price</span>
-                    <span className="text-pink-600">${estimate.total.toFixed(2)}</span>
-                  </div>
-                </div>
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-medium text-gray-700">Order Costing</h4>
+                <button
+                  type="button"
+                  onClick={() => mutateCosting()}
+                  className="text-xs text-pink-600 hover:text-pink-800"
+                  disabled={costingLoading}
+                >
+                  {costingLoading ? 'Loading...' : 'Refresh'}
+                </button>
               </div>
+
+              {costingLoading ? (
+                <div className="text-center py-4 text-gray-500 text-sm">
+                  Loading costing...
+                </div>
+              ) : costing ? (
+                <div className="space-y-2 text-sm">
+                  {/* Cost Breakdown */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Ingredients</span>
+                    <span className="text-gray-900">${costing.ingredientCost.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Decorations</span>
+                    <span className="text-gray-900">${(costing.decorationMaterialCost + costing.decorationLaborCost).toFixed(2)}</span>
+                  </div>
+                  {costing.topperCost > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Topper</span>
+                      <span className="text-gray-900">${costing.topperCost.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Labor</span>
+                    <span className="text-gray-900">${costing.totalLaborCost.toFixed(2)}</span>
+                  </div>
+
+                  {/* Total Cost */}
+                  <div className="border-t border-gray-100 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Cost</span>
+                      <span className="text-gray-900">${costing.totalCost.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {/* Markup */}
+                  <div className="flex justify-between text-gray-500">
+                    <span>Markup ({(costing.markupPercent * 100).toFixed(0)}%)</span>
+                    <span>+${(costing.suggestedPrice - costing.totalCost).toFixed(2)}</span>
+                  </div>
+
+                  {/* Suggested Price */}
+                  <div className="flex justify-between font-medium">
+                    <span className="text-gray-700">Suggested Price</span>
+                    <span className="text-gray-900">${costing.suggestedPrice.toFixed(2)}</span>
+                  </div>
+
+                  {/* Discount */}
+                  {costing.discount && costing.discountAmount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>
+                        Discount
+                        {costing.discount.type === 'PERCENT' && ` (${costing.discount.value}%)`}
+                      </span>
+                      <span>-${costing.discountAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Delivery */}
+                  {costing.deliveryCost > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">
+                        Delivery
+                        {costing.delivery?.zoneName && ` (${costing.delivery.zoneName})`}
+                      </span>
+                      <span className="text-gray-900">+${costing.deliveryCost.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Final Price */}
+                  <div className="border-t border-gray-200 pt-2 mt-2">
+                    <div className="flex justify-between text-lg font-bold">
+                      <span className="text-gray-900">Final Price</span>
+                      <span className="text-pink-600">${costing.finalPrice.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>Per serving ({costing.totalServings})</span>
+                      <span>${costing.suggestedPricePerServing.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-amber-600 text-sm">
+                  Unable to load costing. Try refreshing.
+                </div>
+              )}
             </div>
           </div>
         </div>

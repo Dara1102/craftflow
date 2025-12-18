@@ -124,8 +124,16 @@ Use simple rules:
 4. **Cost**
 
 - IngredientCost = sum(totalIngredientQty × ingredient.costPerUnit).
-- DecorationCost = sum(materialQty × material.costPerUnit).
-- LaborCost = `CakeOrder.estimatedHours × LaborRatePerHour` (from Settings).
+- DecorationCost = Calculated from `DecorationTechnique` records with unit types:
+  - **SINGLE**: quantity × baseCost (no scaling)
+  - **CAKE**: quantity × totalSurfaceAreaMultiplier × baseCost (scales by all tiers)
+  - **TIER**: quantity × avgSizeMultiplier × baseCost (scales by selected tiers only)
+  - **SET**: quantity × baseCost (no scaling)
+- LaborCost = Role-based calculation:
+  - Recipe labor (from recipes with laborRole)
+  - Tier assembly labor (from tier sizes with assemblyRole)
+  - Decoration labor (from decoration techniques with laborRole)
+  - Manual labor (from bakerHours/assistantHours)
 
 5. **Suggested price**
 

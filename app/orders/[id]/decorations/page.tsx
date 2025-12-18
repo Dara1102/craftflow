@@ -155,7 +155,7 @@ export default function OrderDecorationsPage() {
 
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Order Decorations</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Order #{order.id} Decorations</h1>
           <p className="text-sm text-gray-500">Select decoration techniques for {order.customerName}</p>
         </div>
         <Link

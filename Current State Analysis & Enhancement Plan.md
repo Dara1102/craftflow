@@ -14,11 +14,13 @@ Your app is **already more advanced** than the MVP scope! You have:
 - ✅ Comprehensive order management
 
 **Missing pieces** for a complete quote-to-order workflow:
-- ❌ Quote system (orders go straight to DRAFT/CONFIRMED)
-- ❌ Real-time pricing during order creation
+- ✅ Quote system (IMPLEMENTED - December 16, 2025)
+- ✅ Real-time pricing during quote creation (IMPLEMENTED)
 - ❌ Material availability tracking
 - ❌ Quote document generation
 - ❌ Customer-specific pricing rules
+- ✅ **NEW:** Tier selection for TIER unit decorations (IMPLEMENTED - December 16, 2025)
+- ✅ **NEW:** Unit type override per quote (IMPLEMENTED - December 16, 2025)
 
 ---
 
@@ -46,7 +48,7 @@ Your schema is more sophisticated than the MVP scope:
 
 **What it calculates:**
 - ✅ Ingredient costs (from recipes × multipliers)
-- ✅ Decoration material costs
+- ✅ Decoration material costs (with unit type support: SINGLE, CAKE, TIER, SET)
 - ✅ Decoration labor costs (by role)
 - ✅ Recipe labor costs (batter, filling, frosting)
 - ✅ Tier assembly labor
@@ -61,8 +63,13 @@ Your schema is more sophisticated than the MVP scope:
 **Advanced Features:**
 - Volume-based multiplier calculation
 - Recipe auto-matching based on flavor/filling names
-- Labor breakdown by role
+- **Role-based labor costs** (different rates per role: Baker $21/hr, Decorator $30/hr, Assistant $18/hr)
+- Labor breakdown by role with individual costs
+- Recipe instructions support (for production)
+- Full recipe data with scaled ingredients (when includeFullRecipes = true)
 - Debug info with recipe matches
+- **NEW (Dec 16, 2025):** Tier selection for TIER unit decorations
+- **NEW (Dec 16, 2025):** Unit type override per quote
 
 ### 3. **Order Creation Flow** ✅
 `app/orders/new/page.tsx` has:
@@ -104,15 +111,17 @@ Your schema is more sophisticated than the MVP scope:
 
 **Current State:**
 - Basic price estimate in new order form
-- Only includes decoration materials + labor
-- **Does NOT include ingredient costs** (major gap!)
-- No real-time updates as tiers/decorations change
+- ✅ Includes decoration materials + labor
+- ✅ Includes ingredient costs (via quote costing API)
+- ✅ Real-time updates as tiers/decorations change
+- ✅ **NEW:** Tier selection for TIER unit decorations
+- ✅ **NEW:** Unit type override capability
 
 **What's Needed:**
-- Real-time cost calculation API endpoint
-- Include ingredient costs in estimate
-- Update pricing as user adds/modifies tiers
-- Show material availability warnings
+- ✅ Real-time cost calculation API endpoint (IMPLEMENTED)
+- ✅ Include ingredient costs in estimate (IMPLEMENTED)
+- ✅ Update pricing as user adds/modifies tiers (IMPLEMENTED)
+- ❌ Show material availability warnings (Future enhancement)
 
 ### 3. **Material Availability Tracking** ❌
 
@@ -465,3 +474,4 @@ Your app has a **solid foundation** with advanced costing and order management. 
 The Implementation Guide I created provides a roadmap, but your existing code is actually more advanced in some areas (decoration techniques, labor roles). Focus on adding the missing quote workflow and real-time pricing first, then enhance with material tracking and pricing rules.
 
 Would you like me to start implementing any of these enhancements?
+

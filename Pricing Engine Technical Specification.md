@@ -233,12 +233,10 @@ export interface DecorationUsage {
 }
 
 export interface LaborBreakdown {
-  baseHours: number;
-  complexityMultiplier: number;
-  tierMultiplier: number;
-  totalHours: number;
-  hourlyRate: number;
-  totalCost: number;
+  role: string;        // e.g., "Baker", "Decorator", "Bakery Assistant"
+  hours: number;       // Total hours for this role
+  rate: number;        // Hourly rate for this role
+  cost: number;        // Total cost (hours × rate)
 }
 
 export interface QuoteInput {
@@ -618,80 +616,124 @@ export class PricingEngine {
   }
   
   /**
-   * Calculate labor cost
+   * Calculate labor cost (Role-Based)
+   * 
+   * NOTE: This is a simplified example. The actual implementation in lib/costing.ts
+   * calculates labor from multiple sources:
+   * 1. Recipe labor (from recipes with laborRole)
+   * 2. Assembly labor (from tier sizes with assemblyRole)
+   * 3. Decoration labor (from decoration techniques with laborRole)
+   * 4. Manual labor (from bakerHours/assistantHours)
+   * 
+   * All labor is aggregated by role with different hourly rates.
    */
   private async calculateLaborCost(
     tiers: any[],
-    estimatedHours: number
-  ): Promise<LaborBreakdown> {
-    // Get labor rate from settings
-    const laborRateSetting = await prisma.setting.findUnique({
-      where: { key: 'LaborRatePerHour' },
-    });
+    order: CakeOrder
+  ): Promise<LaborBreakdown[]> {
+    const laborMinutesByRole = new Map<string, { minutes: number; rate: number }>();
     
-    const hourlyRate = laborRateSetting 
-      ? Number(laborRateSetting.value) 
-      : 20; // Default
+    // Get labor roles
+    const laborRoles = await prisma.laborRole.findMany({ where: { isActive: true } });
+    const bakerRole = laborRoles.find(r => r.name === 'Baker');
+    const decoratorRole = laborRoles.find(r => r.name === 'Decorator');
+    const assistantRole = laborRoles.find(r => r.name === 'Bakery Assistant');
     
-    // Calculate complexity multipliers
-    let complexityMultiplier = 1.0;
-    let tierMultiplier = 1.0;
+    const bakerRate = bakerRole ? Number(bakerRole.hourlyRate) : 21;
+    const decoratorRate = decoratorRole ? Number(decoratorRole.hourlyRate) : 30;
+    const assistantRate = assistantRole ? Number(assistantRole.hourlyRate) : 18;
     
+    // 1. Recipe labor (from recipes)
     for (const tier of tiers) {
-      // Finish type multiplier
-      switch (tier.finishType) {
-        case 'fondant':
-          complexityMultiplier = Math.max(complexityMultiplier, 1.5);
-          break;
-        case 'ganache':
-          complexityMultiplier = Math.max(complexityMultiplier, 1.2);
-          break;
-        case 'buttercream':
-        default:
-          complexityMultiplier = Math.max(complexityMultiplier, 1.0);
-          break;
+      if (tier.batterRecipe?.laborMinutes && tier.batterMultiplier) {
+        const role = tier.batterRecipe.laborRole;
+        const roleName = role?.name || 'Baker';
+        const roleRate = role ? Number(role.hourlyRate) : bakerRate;
+        const scaledMinutes = tier.batterRecipe.laborMinutes * tier.batterMultiplier;
+        
+        const existing = laborMinutesByRole.get(roleName);
+        if (existing) {
+          existing.minutes += scaledMinutes;
+        } else {
+          laborMinutesByRole.set(roleName, { minutes: scaledMinutes, rate: roleRate });
+        }
       }
+      // Similar for fillingRecipe and frostingRecipe...
+    }
+    
+    // 2. Assembly labor (from tier sizes)
+    for (const tier of tiers) {
+      if (tier.tierSize.assemblyMinutes) {
+        const role = tier.tierSize.assemblyRole;
+        const roleName = role?.name || 'Baker';
+        const roleRate = role ? Number(role.hourlyRate) : bakerRate;
+        
+        const existing = laborMinutesByRole.get(roleName);
+        if (existing) {
+          existing.minutes += tier.tierSize.assemblyMinutes;
+        } else {
+          laborMinutesByRole.set(roleName, { 
+            minutes: tier.tierSize.assemblyMinutes, 
+            rate: roleRate 
+          });
+        }
+      }
+    }
+    
+    // 3. Decoration labor (from decoration techniques)
+    for (const decoration of order.orderDecorations) {
+      const technique = decoration.decorationTechnique;
+      const role = technique.laborRole;
+      const roleName = role?.name || 'Decorator';
+      const roleRate = role ? Number(role.hourlyRate) : decoratorRate;
+      const laborMins = technique.laborMinutes * decoration.quantity;
       
-      // Decoration complexity
-      switch (tier.decorationComplexity) {
-        case 'INTRICATE':
-          complexityMultiplier = Math.max(complexityMultiplier, 2.0);
-          break;
-        case 'COMPLEX':
-          complexityMultiplier = Math.max(complexityMultiplier, 1.5);
-          break;
-        case 'MODERATE':
-          complexityMultiplier = Math.max(complexityMultiplier, 1.2);
-          break;
-        case 'SIMPLE':
-        default:
-          break;
+      const existing = laborMinutesByRole.get(roleName);
+      if (existing) {
+        existing.minutes += laborMins;
+      } else {
+        laborMinutesByRole.set(roleName, { minutes: laborMins, rate: roleRate });
       }
     }
     
-    // Tier multiplier (multi-tier cakes take more time)
-    if (tiers.length > 1) {
-      tierMultiplier = 1.0 + (tiers.length - 1) * 0.2;
+    // 4. Manual labor (from order fields)
+    if (order.bakerHours) {
+      const existing = laborMinutesByRole.get('Baker');
+      if (existing) {
+        existing.minutes += order.bakerHours * 60;
+      } else {
+        laborMinutesByRole.set('Baker', { 
+          minutes: order.bakerHours * 60, 
+          rate: bakerRate 
+        });
+      }
     }
     
-    // Base hours calculation
-    const baseHoursPerTier = 2.0; // Default
-    const baseHours = tiers.length * baseHoursPerTier;
+    if (order.assistantHours) {
+      const existing = laborMinutesByRole.get('Bakery Assistant');
+      if (existing) {
+        existing.minutes += order.assistantHours * 60;
+      } else {
+        laborMinutesByRole.set('Bakery Assistant', { 
+          minutes: order.assistantHours * 60, 
+          rate: assistantRate 
+        });
+      }
+    }
     
-    // Use provided estimate or calculate
-    const totalHours = estimatedHours || 
-      baseHours * complexityMultiplier * tierMultiplier;
+    // Build breakdown array
+    const laborBreakdown: LaborBreakdown[] = [];
+    for (const [role, data] of laborMinutesByRole) {
+      const hours = data.minutes / 60;
+      laborBreakdown.push({
+        role,
+        hours: Math.round(hours * 100) / 100,
+        rate: data.rate,
+        cost: Math.round(hours * data.rate * 100) / 100
+      });
+    }
     
-    const totalCost = totalHours * hourlyRate;
-    
-    return {
-      baseHours,
-      complexityMultiplier,
-      tierMultiplier,
-      totalHours,
-      hourlyRate,
-      totalCost,
-    };
+    return laborBreakdown.sort((a, b) => b.cost - a.cost);
   }
   
   /**
@@ -994,3 +1036,4 @@ describe('PricingEngine', () => {
 5. Implement quote persistence
 6. Add PDF generation for quotes
 7. Create admin interface for pricing rules
+

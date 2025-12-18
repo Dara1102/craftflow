@@ -49,6 +49,9 @@ export interface CreateOrderData {
   status: OrderStatus
   tiers: {
     tierSizeId: number
+    batterRecipeId?: number | null
+    fillingRecipeId?: number | null
+    frostingRecipeId?: number | null
     flavor: string
     filling: string
     finishType: string
@@ -108,6 +111,9 @@ export async function createOrder(data: CreateOrderData) {
         create: data.tiers.map((tier, index) => ({
           tierIndex: index + 1,
           tierSizeId: tier.tierSizeId,
+          batterRecipeId: tier.batterRecipeId || null,
+          fillingRecipeId: tier.fillingRecipeId || null,
+          frostingRecipeId: tier.frostingRecipeId || null,
           flavor: tier.flavor,
           filling: tier.filling,
           finishType: tier.finishType,
@@ -188,6 +194,9 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
         cakeOrderId: orderId,
         tierIndex: index + 1,
         tierSizeId: tier.tierSizeId,
+        batterRecipeId: tier.batterRecipeId || null,
+        fillingRecipeId: tier.fillingRecipeId || null,
+        frostingRecipeId: tier.frostingRecipeId || null,
         flavor: tier.flavor,
         filling: tier.filling,
         finishType: tier.finishType,

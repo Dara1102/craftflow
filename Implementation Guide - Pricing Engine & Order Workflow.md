@@ -124,131 +124,175 @@ This document outlines how to build the pricing engine and order workflow system
 
 ## Pricing Engine Architecture
 
-### Core Pricing Engine Module: `lib/pricing-engine.ts`
+### Core Pricing Engine Module: `lib/costing.ts`
 
-The pricing engine is the heart of the system. It calculates both:
+**Note:** The actual implementation is in `lib/costing.ts`, not `lib/pricing-engine.ts`. This document reflects the actual codebase.
+
+The pricing engine calculates both:
 1. **Cost to Company** (COGS - Cost of Goods Sold)
 2. **Price to Customer** (with markup and adjustments)
 
 ### Key Functions
 
-#### 1. `calculateOrderCost(orderId: string): OrderCostBreakdown`
+#### 1. `calculateOrderCosting(orderId: number, includeFullRecipes?: boolean): Promise<CostingResult>`
 
 This is the main calculation function that processes a complete order.
 
 ```typescript
-interface OrderCostBreakdown {
+interface CostingResult {
   // Material Costs
   ingredientCost: number;
-  decorationCost: number;
-  structuralMaterialCost: number;
+  decorationMaterialCost: number;
+  decorationLaborCost: number;
+  topperCost: number;
+  deliveryCost: number;
   
-  // Labor Costs
-  laborCost: number;
-  laborHours: number;
-  
-  // Overhead (optional, for future)
-  overheadCost?: number;
+  // Labor Costs (Role-Based)
+  baseLaborCost: number;        // Recipe + assembly + manual labor
+  totalLaborCost: number;        // Base + decoration labor
+  laborBreakdown: LaborBreakdown[];  // Breakdown by role with different rates
   
   // Totals
-  totalCostToCompany: number;
+  totalCost: number;
   costPerServing: number;
   
   // Pricing
-  baseMarkup: number; // percentage
+  markupPercent: number;
   suggestedPrice: number;
-  pricePerServing: number;
+  discountAmount: number;
+  finalPrice: number;
+  suggestedPricePerServing: number;
   
   // Detailed breakdowns
-  ingredients: IngredientUsage[];
-  decorations: DecorationUsage[];
-  laborBreakdown: LaborBreakdown;
+  ingredients: IngredientCostDetail[];
+  decorations: DecorationCostDetail[];
+  topper: TopperCostDetail | null;
+  delivery: DeliveryCostDetail | null;
+  discount: DiscountDetail | null;
   
-  // Metadata
-  calculationTimestamp: Date;
-  pricingVersion: string; // for audit trail
+  // Production recipes (when includeFullRecipes = true)
+  productionRecipes?: {...}[]
 }
 ```
 
-#### 2. `calculateTierCost(tier: CakeTier): TierCostBreakdown`
-
-Calculates cost for a single tier.
+#### Labor Breakdown (Role-Based)
 
 ```typescript
-interface TierCostBreakdown {
-  tierIndex: number;
-  tierSize: TierSize;
-  
-  // Recipe-based costs
-  batterCost: number;
-  fillingCost: number;
-  frostingCost: number;
-  
-  // Material costs
-  fondantCost: number;
-  otherDecorationCost: number;
-  
-  // Labor estimate
-  laborHours: number;
-  laborCost: number;
-  
-  totalCost: number;
-  servings: number;
+interface LaborBreakdown {
+  role: string;        // e.g., "Baker", "Decorator", "Bakery Assistant"
+  hours: number;      // Total hours for this role
+  rate: number;       // Hourly rate for this role
+  cost: number;       // Total cost (hours × rate)
 }
 ```
 
-#### 3. `calculateRecipeCost(recipeId: string, multiplier: number): RecipeCost`
-
-Calculates cost of scaling a recipe.
-
+**Example:**
 ```typescript
-interface RecipeCost {
-  recipeId: string;
-  recipeName: string;
-  multiplier: number;
-  ingredients: {
-    ingredientId: string;
-    ingredientName: string;
-    quantity: number;
-    unit: string;
-    unitCost: number;
-    totalCost: number;
-  }[];
-  totalCost: number;
-}
+laborBreakdown: [
+  { role: "Baker", hours: 2.5, rate: 21, cost: 52.50 },
+  { role: "Decorator", hours: 3.0, rate: 30, cost: 90.00 },
+  { role: "Bakery Assistant", hours: 1.0, rate: 18, cost: 18.00 }
+]
 ```
 
-#### 4. `calculateDecorationCost(order: CakeOrder): DecorationCost`
+#### 2. Labor Cost Calculation (Role-Based)
 
-Calculates decoration and structural material costs.
+The system uses **role-based labor costs** with different hourly rates:
 
+**Labor Roles:**
+- **Baker** ($21/hr) - Recipe preparation, tier assembly
+- **Decorator** ($30/hr) - Decoration techniques, finishing
+- **Bakery Assistant** ($18/hr) - Simple tasks, packaging
+
+**How Labor is Calculated:**
+
+1. **Recipe Labor:**
+   - Each recipe has `laborRole` and `laborMinutes`
+   - Scaled by recipe multiplier
+   - Cost = (scaledMinutes / 60) × role.hourlyRate
+
+2. **Tier Assembly Labor:**
+   - Each `TierSize` has `assemblyMinutes` and `assemblyRole`
+   - Cost = (assemblyMinutes / 60) × role.hourlyRate
+
+3. **Decoration Labor:**
+   - Each `DecorationTechnique` has `laborMinutes` and `laborRole`
+   - Quantity multiplied based on unit type (CAKE, TIER, SET)
+   - Cost = (totalMinutes / 60) × role.hourlyRate
+
+4. **Manual Labor:**
+   - Order has `bakerHours` and `assistantHours` for additional work
+   - Cost = bakerHours × bakerRate + assistantHours × assistantRate
+
+**All labor is tracked by role** and aggregated into `laborBreakdown` array.
+
+#### 3. Recipe Cost Calculation
+
+Recipes are calculated with volume-based multipliers:
+
+**Multiplier Calculation:**
+- Uses `recipe.yieldVolumeMl` and `tierSize.volumeMl`
+- Different factors for recipe types:
+  - **BATTER**: 1.0 (full volume)
+  - **FROSTING**: 0.36 (surface coverage)
+  - **FILLING**: 0.12 (thin layer)
+
+**Recipe Labor:**
+- Each recipe has `laborMinutes` and `laborRole`
+- Labor is scaled by multiplier
+- Uses role-specific hourly rate
+
+**Example:**
 ```typescript
-interface DecorationCost {
-  fondant: {
-    quantity: number; // in grams
-    unitCost: number;
-    totalCost: number;
-  };
-  boards: {
-    quantity: number;
-    unitCost: number;
-    totalCost: number;
-  };
-  dowels: {
-    quantity: number;
-    unitCost: number;
-    totalCost: number;
-  };
-  otherMaterials: {
-    materialId: string;
-    name: string;
-    quantity: number;
-    unit: string;
-    unitCost: number;
-    totalCost: number;
-  }[];
-  totalCost: number;
-}
+// Vanilla Sponge Batter recipe
+- yieldVolumeMl: 2000
+- laborMinutes: 30
+- laborRole: Baker ($21/hr)
+
+// For 10" round tier (volumeMl: 4000)
+- multiplier: 4000 / 2000 = 2.0
+- scaled labor: 30 × 2.0 = 60 minutes
+- labor cost: (60 / 60) × $21 = $21.00
+```
+
+#### 4. Decoration Cost Calculation
+
+Decorations use `DecorationTechnique` model with role-based labor:
+
+**Decoration Structure:**
+- Each technique has:
+  - `defaultCostPerUnit` (material cost)
+  - `laborMinutes` (labor time)
+  - `laborRole` (who performs it - uses role's hourly rate)
+  - `unit` (CAKE, TIER, or SET)
+
+**Quantity Calculation:**
+- **CAKE**: Uses order quantity directly
+- **TIER**: Quantity × number of tiers
+- **SET**: Uses order quantity directly
+
+**Cost Calculation:**
+```typescript
+materialCost = defaultCostPerUnit × quantityMultiplier
+laborMinutes = technique.laborMinutes × quantityMultiplier
+laborCost = (laborMinutes / 60) × laborRole.hourlyRate
+totalCost = materialCost + laborCost
+```
+
+**Example:**
+```typescript
+// Sugar Flowers decoration
+- defaultCostPerUnit: $15.00
+- laborMinutes: 45
+- laborRole: Decorator ($30/hr)
+- unit: TIER
+- quantity: 1
+
+// For 3-tier cake:
+- quantityMultiplier: 1 × 3 = 3
+- materialCost: $15.00 × 3 = $45.00
+- laborCost: (45 × 3 / 60) × $30 = $67.50
+- totalCost: $112.50
 ```
 
 ---
@@ -386,60 +430,119 @@ Tier 1 (8" round):
 
 ### 2. Decoration Cost Calculation
 
-**Fondant Calculation:**
+**Actual Implementation Uses `DecorationTechnique` Model:**
+
+Decorations are tracked via `OrderDecoration` records that reference `DecorationTechnique`:
+
+**Decoration Structure:**
+- Each technique has:
+  - `defaultCostPerUnit` (material cost)
+  - `laborMinutes` (labor time)
+  - `laborRole` (who performs it - uses role's hourly rate)
+  - `unit` (CAKE, TIER, or SET)
+
+**Unit Types and Quantity Calculation:**
+- **SINGLE**: Quantity = number of items (e.g., 5 sugar flowers)
+- **CAKE**: Quantity = number of instances on whole cake, scales by total surface area of all tiers
+- **TIER**: Quantity = number of tiers this applies to, scales by average size of **selected tiers**
+- **SET**: Quantity = number of sets
+
+**Tier Selection for TIER Unit Decorations:**
+When a decoration has `unit = 'TIER'`, users can now select which specific tiers the decoration applies to:
+- User selects tier checkboxes (Tier 1, Tier 2, Tier 3, etc.)
+- Cost calculation uses only the selected tiers for size scaling
+- If no tiers are selected, validation prevents saving
+- When tiers are added/removed, decorations automatically update their tier selections
+
+**Cost Calculation:**
+```typescript
+quantityMultiplier = orderDecoration.quantity
+
+if (technique.unit === 'SINGLE') {
+  // No scaling - quantity is number of items
+  quantityMultiplier = orderDecoration.quantity
+}
+else if (technique.unit === 'CAKE') {
+  // Scale by total surface area of all tiers
+  totalSurfaceArea = sum of (top + side surface) for all tiers
+  baseSurfaceArea = calculate from technique.baseCakeSize
+  quantityMultiplier = orderDecoration.quantity × (totalSurfaceArea / baseSurfaceArea)
+}
+else if (technique.unit === 'TIER') {
+  // Scale by average size of SELECTED tiers only
+  selectedTiers = orderDecoration.tierIndices || allTiers
+  avgSizeMultiplier = average of size multipliers for selectedTiers
+  quantityMultiplier = orderDecoration.quantity × avgSizeMultiplier
+}
+else if (technique.unit === 'SET') {
+  // No scaling - quantity is number of sets
+  quantityMultiplier = orderDecoration.quantity
+}
+
+materialCost = technique.defaultCostPerUnit × quantityMultiplier
+laborMinutes = technique.laborMinutes × quantityMultiplier
+laborCost = (laborMinutes / 60) × technique.laborRole.hourlyRate
+totalCost = materialCost + laborCost
 ```
-For each tier:
-  - Calculate surface area:
-    - Top area = π × (diameterCm/2)²
-    - Side area = π × diameterCm × heightCm
-    - Total area = top area + side area
-  
-  - Fondant needed = total area × fondantUsageRuleValue (g/cm²)
-  - Fondant cost = fondant needed × fondant.costPerUnit
 
-Sum across all tiers
+**Example:**
+```
+Sugar Flowers decoration:
+- defaultCostPerUnit: $15.00
+- laborMinutes: 45
+- laborRole: Decorator ($30/hr)
+- unit: TIER
+- quantity: 1
+
+For 3-tier cake:
+- quantityMultiplier: 1 × 3 = 3
+- materialCost: $15.00 × 3 = $45.00
+- laborCost: (45 × 3 / 60) × $30 = $67.50
+- totalCost: $112.50
 ```
 
-**Structural Materials:**
+**Note:** The system does NOT currently calculate fondant/boards/dowels automatically. These would need to be added as `DecorationTechnique` entries if needed.
+
+### 3. Labor Cost Calculation (Role-Based)
+
+**Current Implementation (Already Built):**
+
+Labor costs are calculated from multiple sources and aggregated by role:
+
+1. **Recipe Labor:**
+   - Each recipe has `laborMinutes` and `laborRole`
+   - Scaled by recipe multiplier
+   - Cost = (scaledMinutes / 60) × role.hourlyRate
+
+2. **Tier Assembly Labor:**
+   - Each `TierSize` has `assemblyMinutes` and `assemblyRole`
+   - Cost = (assemblyMinutes / 60) × role.hourlyRate
+
+3. **Decoration Labor:**
+   - Each `DecorationTechnique` has `laborMinutes` and `laborRole`
+   - Quantity multiplied based on unit type
+   - Cost = (totalMinutes / 60) × role.hourlyRate
+
+4. **Manual Labor:**
+   - Order has `bakerHours` and `assistantHours` for additional work
+   - Cost = bakerHours × bakerRate + assistantHours × assistantRate
+
+**Labor Roles:**
+- **Baker** ($21/hr) - Recipe prep, tier assembly
+- **Decorator** ($30/hr) - Decoration techniques
+- **Bakery Assistant** ($18/hr) - Simple tasks, packaging
+
+**Result:** `laborBreakdown` array showing cost per role:
+```typescript
+[
+  { role: "Baker", hours: 2.5, rate: 21, cost: 52.50 },
+  { role: "Decorator", hours: 3.0, rate: 30, cost: 90.00 }
+]
 ```
-Boards:
-  - 1 board per order (or per tier for large orders)
-  - Cost = quantity × board.costPerUnit
 
-Dowels:
-  - 4 dowels per tier (except top tier)
-  - Cost = quantity × dowel.costPerUnit
-
-Other decorations:
-  - Based on usageRuleType:
-    - PER_TIER: quantity = number of tiers × usageRuleValue
-    - PER_SERVING: quantity = total servings × usageRuleValue
-    - MANUAL: salesperson enters quantity
-```
-
-### 3. Labor Cost Calculation
-
-**Base Labor Estimate:**
-```
-laborCost = estimatedHours × laborRatePerHour
-
-Where estimatedHours comes from:
-  1. Base hours per tier (from TierSize or Recipe)
-  2. Complexity multiplier based on:
-     - Finish type (fondant = +50%, buttercream = base)
-     - Decoration complexity (simple = 1.0x, complex = 1.5x, intricate = 2.0x)
-     - Number of tiers (multi-tier = +20% per additional tier)
-  
-  estimatedHours = baseHours × complexityMultiplier × tierMultiplier
-```
-
-**Enhanced Labor Calculation (Future):**
-- Track actual hours vs. estimated
-- Learn from historical data
-- Adjust estimates based on:
-  - Specific decorator skill level
-  - Time of year (busy season)
-  - Order size
+**Total Labor:**
+- `baseLaborCost` = recipe + assembly + manual (excludes decoration)
+- `totalLaborCost` = baseLaborCost + decorationLaborCost
 
 ### 4. Total Cost to Company
 
@@ -781,3 +884,4 @@ This pricing engine and order workflow system provides:
 - **Scalable architecture** to grow with your business
 
 The system balances simplicity (for MVP) with extensibility (for future enhancements), incorporating best practices from leading bakery ERP systems while maintaining focus on custom order workflows.
+

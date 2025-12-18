@@ -45,8 +45,8 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
         {/* Header with actions */}
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h3 className="text-2xl font-bold text-gray-900">Order Costing Report</h3>
-            <p className="mt-1 text-sm text-gray-500">Detailed cost breakdown for {order.customerName}</p>
+            <h3 className="text-2xl font-bold text-gray-900">Order #{order.id} Costing Report</h3>
+            <p className="mt-1 text-sm text-gray-500">{order.customerName} &bull; {new Date(order.eventDate).toLocaleDateString()}</p>
           </div>
           <div className="flex gap-3">
             <Link

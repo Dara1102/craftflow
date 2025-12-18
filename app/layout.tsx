@@ -31,8 +31,14 @@ export default function RootLayout({
                   <Link href="/" className="text-gray-900 hover:text-pink-600 inline-flex items-center px-1 pt-1 text-sm font-medium">
                     Orders
                   </Link>
+                  <Link href="/quotes" className="text-gray-500 hover:text-pink-600 inline-flex items-center px-1 pt-1 text-sm font-medium">
+                    Quotes
+                  </Link>
                   <Link href="/orders/new" className="text-gray-500 hover:text-pink-600 inline-flex items-center px-1 pt-1 text-sm font-medium">
                     + New Order
+                  </Link>
+                  <Link href="/quotes/new" className="text-gray-500 hover:text-pink-600 inline-flex items-center px-1 pt-1 text-sm font-medium">
+                    + New Quote
                   </Link>
 
                   {/* Admin Dropdown */}
@@ -92,7 +98,9 @@ export default function RootLayout({
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                       <div className="py-1">
                         <Link href="/" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Orders</Link>
+                        <Link href="/quotes" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Quotes</Link>
                         <Link href="/orders/new" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">+ New Order</Link>
+                        <Link href="/quotes/new" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">+ New Quote</Link>
                         <div className="border-t border-gray-100 my-1"></div>
                         <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase">Admin</div>
                         <Link href="/admin/ingredients" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Ingredients</Link>

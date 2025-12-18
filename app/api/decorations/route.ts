@@ -8,7 +8,16 @@ export async function GET() {
       { category: 'asc' },
       { subcategory: 'asc' },
       { name: 'asc' }
-    ]
+    ],
+    select: {
+      id: true,
+      name: true,
+      category: true,
+      subcategory: true,
+      defaultCostPerUnit: true,
+      unit: true,
+      imageReference: true
+    }
   })
 
   return NextResponse.json(decorations)

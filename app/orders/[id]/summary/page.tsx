@@ -252,11 +252,11 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
           {/* Price Section */}
           <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
             <div className="space-y-2">
-              {/* Base price (without delivery) */}
+              {/* Base price (before discount and delivery) */}
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Cake Price</span>
                 <span className="text-lg font-semibold text-gray-900">
-                  ${(costing.suggestedPrice - costing.deliveryCost).toFixed(2)}
+                  ${costing.suggestedPrice.toFixed(2)}
                 </span>
               </div>
 
@@ -279,11 +279,21 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
                 </div>
               )}
 
+              {/* Discount if applicable */}
+              {costing.discountAmount > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-green-600">Discount Applied</span>
+                  <span className="text-lg font-semibold text-green-600">
+                    -${costing.discountAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
               {/* Total */}
               <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                <span className="text-sm font-medium text-gray-700">Estimated Total</span>
+                <span className="text-sm font-medium text-gray-700">Total</span>
                 <span className="text-3xl font-bold text-pink-600">
-                  ${costing.suggestedPrice.toFixed(2)}
+                  ${costing.finalPrice.toFixed(2)}
                 </span>
               </div>
             </div>

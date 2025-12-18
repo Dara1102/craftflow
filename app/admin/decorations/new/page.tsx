@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 const skillLevels = ['LOW', 'MEDIUM', 'HIGH'] as const
 const materialGrades = ['STANDARD', 'PREMIUM', 'LUXURY'] as const
-const units = ['CAKE', 'TIER', 'SET'] as const
+const units = ['SINGLE', 'CAKE', 'TIER', 'SET'] as const
 
 export default async function NewDecorationPage() {
   const laborRoles = await prisma.laborRole.findMany({
@@ -24,7 +24,7 @@ export default async function NewDecorationPage() {
       subcategory: formData.get('subcategory') as string,
       skillLevel: formData.get('skillLevel') as 'LOW' | 'MEDIUM' | 'HIGH',
       description: formData.get('description') as string,
-      unit: formData.get('unit') as 'CAKE' | 'TIER' | 'SET',
+      unit: formData.get('unit') as 'SINGLE' | 'CAKE' | 'TIER' | 'SET',
       baseCakeSize: formData.get('baseCakeSize') as string,
       defaultCostPerUnit: parseFloat(formData.get('defaultCostPerUnit') as string),
       laborMinutes: parseInt(formData.get('laborMinutes') as string),
@@ -182,13 +182,14 @@ export default async function NewDecorationPage() {
 
             <div>
               <label htmlFor="unit" className="block text-sm font-medium text-gray-700">
-                Unit
+                Unit Type *
               </label>
               <select
                 name="unit"
                 id="unit"
-                defaultValue="CAKE"
+                defaultValue="SINGLE"
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm"
+                required
               >
                 {units.map((unit) => (
                   <option key={unit} value={unit}>
@@ -196,7 +197,18 @@ export default async function NewDecorationPage() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-gray-500">How this technique is priced</p>
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-xs text-blue-800 font-medium mb-1">Unit Type Guide:</p>
+                <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                  <li><strong>SINGLE:</strong> Per-item (sugar flowers, toppers) - quantity = number of items, no scaling</li>
+                  <li><strong>CAKE:</strong> Whole cake surface design (fondant quilt) - covers all tiers, scales by total surface area</li>
+                  <li><strong>TIER:</strong> Per-tier design (ombre on specific tiers) - quantity = number of tiers, scales by average tier size</li>
+                  <li><strong>SET:</strong> Matching set (unicorn cake set) - quantity = number of sets, no scaling</li>
+                </ul>
+                <p className="text-xs text-blue-600 mt-2 italic">
+                  CAKE and TIER require <code>baseCakeSize</code> to be set for proper scaling.
+                </p>
+              </div>
             </div>
           </div>
 

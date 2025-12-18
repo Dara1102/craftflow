@@ -43,6 +43,9 @@ model Recipe {
   cakeTiers         CakeTier[]          @relation("BatterRecipe")
   fillingTiers      CakeTier[]          @relation("FillingRecipe")
   frostingTiers     CakeTier[]          @relation("FrostingRecipe")
+  quoteBatterTiers   QuoteTier[]         @relation("QuoteBatterRecipe")
+  quoteFillingTiers  QuoteTier[]         @relation("QuoteFillingRecipe")
+  quoteFrostingTiers QuoteTier[]         @relation("QuoteFrostingRecipe")
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 }
@@ -82,6 +85,7 @@ model TierSize {
   assemblyRole        LaborRole? @relation(fields: [assemblyRoleId], references: [id])
 
   cakeTiers           CakeTier[]
+  quoteTiers          QuoteTier[]
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 }
@@ -114,9 +118,10 @@ enum MaterialGrade {
 }
 
 enum DecorationUnit {
-  CAKE
-  TIER
-  SET
+  SINGLE  // Per-item decorations (e.g., sugar flowers, sculpted balloons) - quantity = number of items
+  CAKE    // Whole cake decoration (no size scaling) - quantity = number of instances on whole cake
+  TIER    // Tier-based decoration with size scaling - quantity = number of instances, scaled by tier size
+  SET     // User-defined set of matching decorations - quantity = number of sets
 }
 
 model DecorationTechnique {
@@ -139,6 +144,7 @@ model DecorationTechnique {
   imageReference       String?
   isActive             Boolean        @default(true)
   orderDecorations     OrderDecoration[]
+  quoteDecorations     QuoteDecoration[]
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 }
@@ -165,6 +171,14 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
 enum DiscountType {
   PERCENT
   FIXED
@@ -189,6 +203,7 @@ model Customer {
   birthday    DateTime?
   notes       String?
   orders      CakeOrder[]
+  quotes      Quote[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -237,6 +252,9 @@ model CakeOrder {
   topperText       String?           // Custom text for topper (e.g., initials, custom message)
   customTopperFee  Decimal?          @db.Decimal(10, 2)  // Fee for custom toppers
 
+  // Pricing
+  markupPercent    Decimal?          @db.Decimal(10, 4)  // e.g., 0.70 for 70% markup, null = use default from settings
+
   // Discount
   discountType     DiscountType?     // PERCENT or FIXED
   discountValue    Decimal?          @db.Decimal(10, 2)  // Percentage (e.g., 10 for 10%) or fixed dollar amount
@@ -246,6 +264,7 @@ model CakeOrder {
   status           OrderStatus       @default(DRAFT)
   cakeTiers        CakeTier[]
   orderDecorations OrderDecoration[]
+  convertedFromQuote Quote?            @relation("QuoteToOrder")
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -318,6 +337,7 @@ model DeliveryZone {
   isActive    Boolean     @default(true)
   sortOrder   Int         @default(0)
   orders      CakeOrder[]
+  quotes      Quote[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 }
@@ -334,4 +354,134 @@ model DeliveryStartPoint {
   sortOrder   Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+// Quote model for sales quotes before order confirmation
+model Quote {
+  id               Int               @id @default(autoincrement())
+  quoteNumber      String            @unique  // e.g., "Q-2024-001"
+  customerId       Int?
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  customerName     String            // Customer name (required even if customerId is set)
+  
+  // Event details
+  eventDate        DateTime
+  eventType        String?
+  theme            String?
+  occasion         String?
+  colors           String?
+  accentColors     String?
+  
+  // Cake details
+  cakeType         CakeType?
+  desiredServings  Int?
+
+  // Customer budget (desired budget range or single value)
+  budgetMin        Decimal?          @db.Decimal(10, 2)  // Minimum budget (or single budget if budgetMax is null)
+  budgetMax        Decimal?          @db.Decimal(10, 2)  // Maximum budget (null if single value)
+
+  // Delivery details
+  isDelivery       Boolean           @default(false)
+  deliveryZoneId   Int?
+  deliveryZone     DeliveryZone?     @relation(fields: [deliveryZoneId], references: [id])
+  deliveryDistance Decimal?          @db.Decimal(10, 2)
+  deliveryContact  String?
+  deliveryPhone    String?
+  deliveryTime     DateTime?
+  deliveryAddress  String?
+  
+  // Labor
+  bakerHours       Decimal?          @db.Decimal(10, 2)
+  assistantHours   Decimal?          @db.Decimal(10, 2)
+  
+  // Topper
+  topperType       String?
+  topperText       String?
+  customTopperFee  Decimal?          @db.Decimal(10, 2)
+  
+  // Pricing
+  markupPercent    Decimal           @db.Decimal(10, 4)  // e.g., 0.70 for 70% markup
+  depositPercent   Decimal?          @db.Decimal(5, 2)   // e.g., 0.50 for 50%, 1.0 for full, null = use default
+  discountType     DiscountType?
+  discountValue    Decimal?          @db.Decimal(10, 2)
+  discountReason   String?
+  
+  // Locked costs (when quote is accepted, costs are locked and not recalculated)
+  lockedCosting    String?          @db.Text  // JSON string of CostingResult when accepted
+  lockedAt         DateTime?        // When costs were locked (when status changed to ACCEPTED)
+  
+  // Quote metadata
+  status           QuoteStatus       @default(DRAFT)
+  expiresAt        DateTime?         // Quote expiration date
+  notes            String?
+  termsAndConditions String?         // Custom terms for this quote
+  
+  // Relationship to order (when quote is accepted)
+  convertedOrderId Int?              @unique  // If quote was converted to order
+  convertedOrder   CakeOrder?        @relation("QuoteToOrder", fields: [convertedOrderId], references: [id])
+
+  // Version tracking for quote revisions
+  version          Int               @default(1)  // Revision number (1 = original, 2 = first revision, etc.)
+  originalQuoteId  Int?              // Links to the original quote for revisions
+  originalQuote    Quote?            @relation("QuoteRevisions", fields: [originalQuoteId], references: [id])
+  revisions        Quote[]           @relation("QuoteRevisions")  // All revisions of this quote
+
+  // Quote tiers and decorations
+  quoteTiers       QuoteTier[]
+  quoteDecorations QuoteDecoration[]
+  
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  sentAt           DateTime?         // When quote was sent to customer
+  
+  @@index([customerId])
+  @@index([status])
+  @@index([eventDate])
+  @@index([quoteNumber])
+}
+
+model QuoteTier {
+  id          Int       @id @default(autoincrement())
+  quoteId     Int
+  tierIndex   Int
+  tierSizeId  Int
+  
+  // Recipe selections
+  batterRecipeId      Int?
+  batterMultiplier    Decimal?   @db.Decimal(10, 3)
+  fillingRecipeId     Int?
+  fillingMultiplier   Decimal?   @db.Decimal(10, 3)
+  frostingRecipeId    Int?
+  frostingMultiplier  Decimal?   @db.Decimal(10, 3)
+  
+  // Legacy flavor fields
+  flavor      String?
+  filling     String?
+  finishType  String?
+  
+  quote       Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  tierSize    TierSize  @relation(fields: [tierSizeId], references: [id])
+  batterRecipe    Recipe?   @relation("QuoteBatterRecipe", fields: [batterRecipeId], references: [id])
+  fillingRecipe   Recipe?   @relation("QuoteFillingRecipe", fields: [fillingRecipeId], references: [id])
+  frostingRecipe  Recipe?   @relation("QuoteFrostingRecipe", fields: [frostingRecipeId], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@unique([quoteId, tierIndex])
+}
+
+model QuoteDecoration {
+  id                    Int                 @id @default(autoincrement())
+  quoteId               Int
+  decorationTechniqueId Int
+  quantity              Int                 @default(1)
+  unitOverride          DecorationUnit?     // Optional override of decoration's default unit for this quote
+  tierIndices           Int[]               @default([]) // For TIER unit: which tier indices this decoration applies to (e.g., [1, 2])
+  notes                 String?
+  quote                 Quote                @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  decorationTechnique   DecorationTechnique @relation(fields: [decorationTechniqueId], references: [id])
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  
+  @@unique([quoteId, decorationTechniqueId])
 }

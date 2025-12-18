@@ -26,10 +26,38 @@ const DEFAULT_SLICE_SIZES = {
   generous: { widthCm: 5, depthCm: 7.5 },
 }
 
+// Default quote policy
+const DEFAULT_QUOTE_POLICY = `**Quote Terms & Conditions**
+
+1. **Validity**: This quote is valid for 30 days from the date of issue.
+
+2. **Deposit**: A 50% non-refundable deposit is required to confirm your order. The remaining balance is due 7 days before the event date.
+
+3. **Changes**: Order changes may be made up to 14 days before the event date. Changes made after this time may incur additional fees or may not be possible.
+
+4. **Cancellation**:
+   - More than 30 days before event: Full deposit refund minus $50 administrative fee
+   - 14-30 days before event: 50% deposit refund
+   - Less than 14 days before event: No refund
+
+5. **Delivery**: Delivery fees are non-refundable. We are not responsible for damage caused by third-party handling after delivery.
+
+6. **Allergies**: Please inform us of any allergies. While we take precautions, our kitchen handles nuts, dairy, eggs, and gluten.
+
+7. **Images**: Design images are for reference only. Final cake may vary slightly due to the handcrafted nature of our work.
+
+8. **Storage**: Cakes should be stored in a cool, dry place and consumed within 3 days of delivery.`
+
 export default function SettingsForm({ initialSettings, initialStartPoints }: Props) {
   const [laborRate, setLaborRate] = useState(initialSettings.LaborRatePerHour || '25')
   const [markupPercent, setMarkupPercent] = useState(
     ((parseFloat(initialSettings.MarkupPercent || '0.7') * 100).toString())
+  )
+  const [quotePolicy, setQuotePolicy] = useState(
+    initialSettings.QuotePolicy || DEFAULT_QUOTE_POLICY
+  )
+  const [defaultDepositPercent, setDefaultDepositPercent] = useState(
+    ((parseFloat(initialSettings.DefaultDepositPercent || '0.5') * 100).toString())
   )
 
   // Slice size settings
@@ -70,6 +98,8 @@ export default function SettingsForm({ initialSettings, initialStartPoints }: Pr
     // Save business settings
     await updateSetting('LaborRatePerHour', laborRate)
     await updateSetting('MarkupPercent', (parseFloat(markupPercent) / 100).toString())
+    await updateSetting('QuotePolicy', quotePolicy)
+    await updateSetting('DefaultDepositPercent', (parseFloat(defaultDepositPercent) / 100).toString())
 
     // Save slice size settings
     await updateSetting('SliceWeddingWidthCm', weddingWidth)
@@ -205,6 +235,64 @@ export default function SettingsForm({ initialSettings, initialStartPoints }: Pr
                   The markup percentage applied to total costs.
                 </p>
               </div>
+
+              <div className="col-span-6 sm:col-span-3">
+                <label htmlFor="depositPercent" className="block text-sm font-medium text-gray-700">
+                  Default Deposit (%)
+                </label>
+                <input
+                  type="number"
+                  name="depositPercent"
+                  id="depositPercent"
+                  step="5"
+                  min="0"
+                  max="100"
+                  value={defaultDepositPercent}
+                  onChange={(e) => setDefaultDepositPercent(e.target.value)}
+                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  Default deposit required on quotes. Can be overridden per quote.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quote Policy Settings */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div className="md:grid md:grid-cols-3 md:gap-6">
+          <div className="md:col-span-1">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Quote Policy</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Default terms and conditions shown on customer quotes.
+            </p>
+            <button
+              type="button"
+              onClick={() => setQuotePolicy(DEFAULT_QUOTE_POLICY)}
+              className="mt-3 text-sm text-pink-600 hover:text-pink-800 underline"
+            >
+              Reset to default
+            </button>
+          </div>
+          <div className="mt-5 md:mt-0 md:col-span-2">
+            <div>
+              <label htmlFor="quotePolicy" className="block text-sm font-medium text-gray-700">
+                Terms & Conditions
+              </label>
+              <p className="text-xs text-gray-500 mb-2">
+                Use **text** for bold formatting. Each quote can override this default.
+              </p>
+              <textarea
+                id="quotePolicy"
+                name="quotePolicy"
+                rows={16}
+                value={quotePolicy}
+                onChange={(e) => setQuotePolicy(e.target.value)}
+                className="mt-1 shadow-sm focus:ring-pink-500 focus:border-pink-500 block w-full sm:text-sm border-gray-300 rounded-md font-mono"
+                placeholder="Enter your quote terms and conditions..."
+              />
             </div>
           </div>
         </div>

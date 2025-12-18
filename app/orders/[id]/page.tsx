@@ -87,7 +87,12 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
 
         {/* Quick Actions */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Edit Order</h1>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Edit Order #{order.id}</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {order.customer?.name || order.customerName} &bull; {new Date(order.eventDate).toLocaleDateString()}
+            </p>
+          </div>
           <Link
             href={`/orders/${order.id}/costing`}
             className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium"
