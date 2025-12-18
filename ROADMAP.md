@@ -29,6 +29,13 @@ AI-powered bakery management platform that transforms how bakeries price, quote,
 
 ## v1.5 - Enhanced Operations (Q2)
 
+### Corporate & Bulk Orders
+- [ ] **Recurring Orders** - Weekly, bi-weekly, monthly schedules
+- [ ] **Volume Pricing Breakpoints** - Tiered discounts by quantity
+- [ ] **Breakpoint Calculator** - AI-assisted optimal pricing tiers
+- [ ] **Corporate Accounts** - Company profiles with negotiated rates
+- [ ] **Standing Orders** - Auto-generate orders from templates
+
 ### Price Intelligence
 - [ ] Ingredient price history tracking
 - [ ] Price change alerts (>10% threshold)
@@ -75,6 +82,73 @@ Generate production sheets for BOH staff:
 | **Timeline** | Prep → Bake → Cool → Decorate → Assemble |
 | **Staff Assignments** | Tasks by role (Baker, Decorator, Assistant) |
 | **Order Summary** | Customer, event date, delivery details |
+
+---
+
+## Corporate & Bulk Orders (v1.5 Feature Detail)
+
+### Volume Pricing Breakpoints
+
+**Business Model:**
+Bakeries can set tiered pricing that automatically applies discounts based on quantity ordered.
+
+**Example Breakpoint Structure:**
+| Quantity Range | Discount | Per-Cookie Price |
+|----------------|----------|------------------|
+| 1-99 | 0% | $3.50 |
+| 100-199 | 5% | $3.33 |
+| 200-299 | 10% | $3.15 |
+| 300-399 | 15% | $2.98 |
+| 400+ | 20% | $2.80 |
+
+**UI Strategy:**
+
+1. **Manual Setup** (Default)
+   - User defines breakpoint tiers per product or product category
+   - Simple table interface: Quantity From → Quantity To → Discount %
+   - Preview showing price-per-unit at each tier
+
+2. **AI-Assisted Calculator** (Professional tier)
+   - Analyzes ingredient costs, labor efficiency, and profit margins
+   - Suggests optimal breakpoints that maintain target margin
+   - Factors in: batch efficiency (making 100 cookies isn't 4x harder than 25)
+   - Shows profit analysis at each tier
+
+3. **Corporate Account Rates**
+   - Override breakpoints for specific corporate customers
+   - Negotiated flat rates or custom tier structures
+   - Track profitability per corporate account
+
+### Recurring Orders
+
+**Schedule Options:**
+- Weekly (same day each week)
+- Bi-weekly
+- Monthly (same date or "2nd Tuesday")
+- Custom interval
+
+**Standing Order Flow:**
+1. Create order template with products, quantities, delivery details
+2. Set recurrence schedule
+3. System auto-generates draft orders X days before delivery
+4. Baker reviews/confirms or modifies
+5. Order flows to production
+
+### Database Models (Planned)
+
+```
+VolumeBreakpoint {
+  id, menuItemId OR productTypeId, minQuantity, maxQuantity, discountPercent
+}
+
+CorporateAccount {
+  id, customerId, accountName, paymentTerms, defaultBreakpoints (JSON), notes
+}
+
+RecurringOrder {
+  id, customerId, templateName, products (JSON), schedule, nextOrderDate, isActive
+}
+```
 
 ---
 
