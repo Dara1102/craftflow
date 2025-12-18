@@ -22,6 +22,7 @@ AI-powered bakery management platform that transforms how bakeries price, quote,
 - [ ] **Product Menu** - Add cupcakes, cake pops, cookies to orders
 - [ ] **Combined Orders** - Single quote for: 3-tier cake + 24 cupcakes + cake pops
 - [ ] **Product Packages** - "Dessert Table", "Birthday Bundle" bundles
+- [ ] **Packaging & Supplies** - Cupcake liners, boxes, containers, gift packaging
 - [ ] **Production Reports** - BOH sheets with recipes, ingredients, timeline
 
 ---

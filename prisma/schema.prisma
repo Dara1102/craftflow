@@ -46,6 +46,13 @@ model Recipe {
   quoteBatterTiers   QuoteTier[]         @relation("QuoteBatterRecipe")
   quoteFillingTiers  QuoteTier[]         @relation("QuoteFillingRecipe")
   quoteFrostingTiers QuoteTier[]         @relation("QuoteFrostingRecipe")
+
+  // Menu item relations
+  menuBatterItems    MenuItem[]         @relation("MenuBatterRecipe")
+  menuFillingItems   MenuItem[]         @relation("MenuFillingRecipe")
+  menuFrostingItems  MenuItem[]         @relation("MenuFrostingRecipe")
+  productTypes       ProductType[]      // Default recipe for product types
+
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 }
@@ -107,6 +114,7 @@ model LaborRole {
   recipes              Recipe[]
   tierSizes            TierSize[]
   decorationTechniques DecorationTechnique[]
+  menuItems            MenuItem[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -264,6 +272,8 @@ model CakeOrder {
   status           OrderStatus       @default(DRAFT)
   cakeTiers        CakeTier[]
   orderDecorations OrderDecoration[]
+  orderItems       OrderItem[]       // Menu items (cupcakes, cake pops, etc.)
+  orderPackaging   OrderPackaging[]  // Order-level packaging
   convertedFromQuote Quote?            @relation("QuoteToOrder")
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -429,11 +439,13 @@ model Quote {
   // Quote tiers and decorations
   quoteTiers       QuoteTier[]
   quoteDecorations QuoteDecoration[]
-  
+  quoteItems       QuoteItem[]       // Menu items (cupcakes, cake pops, etc.)
+  quotePackaging   QuotePackaging[]  // Quote-level packaging
+
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   sentAt           DateTime?         // When quote was sent to customer
-  
+
   @@index([customerId])
   @@index([status])
   @@index([eventDate])
@@ -482,6 +494,224 @@ model QuoteDecoration {
   decorationTechnique   DecorationTechnique @relation(fields: [decorationTechniqueId], references: [id])
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
-  
+
   @@unique([quoteId, decorationTechniqueId])
+}
+
+// ============================================
+// PRODUCT MENU SYSTEM
+// ============================================
+
+// Product types beyond cakes (cupcakes, cake pops, cookies, etc.)
+model ProductType {
+  id              Int        @id @default(autoincrement())
+  name            String     @unique  // "Cupcakes", "Cake Pops", "Cookies", "Macarons", "Brownies"
+  category        String     // "Individual", "Dozen", "Batch"
+  baseUnit        String     // "each", "dozen", "half_dozen", "batch"
+  description     String?
+  defaultRecipeId Int?       // Default batter recipe for this product type
+  defaultRecipe   Recipe?    @relation(fields: [defaultRecipeId], references: [id])
+  isActive        Boolean    @default(true)
+  sortOrder       Int        @default(0)
+
+  menuItems       MenuItem[]
+  orderItems      OrderItem[]
+  quoteItems      QuoteItem[]
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+// Menu items with recipes and pricing
+model MenuItem {
+  id               Int          @id @default(autoincrement())
+  productTypeId    Int
+  productType      ProductType  @relation(fields: [productTypeId], references: [id])
+  name             String       // "Vanilla Cupcake", "Chocolate Cake Pop", "Red Velvet Cupcake"
+  description      String?
+
+  // Recipe-based costing
+  batterRecipeId   Int?
+  batterRecipe     Recipe?      @relation("MenuBatterRecipe", fields: [batterRecipeId], references: [id])
+  fillingRecipeId  Int?
+  fillingRecipe    Recipe?      @relation("MenuFillingRecipe", fields: [fillingRecipeId], references: [id])
+  frostingRecipeId Int?
+  frostingRecipe   Recipe?      @relation("MenuFrostingRecipe", fields: [frostingRecipeId], references: [id])
+
+  // For batch products: how many from one recipe batch
+  yieldsPerRecipe  Int?         // e.g., 24 cupcakes from 1 batch, 48 cake pops
+
+  // Menu pricing (customer-facing) - per unit
+  menuPrice        Decimal      @db.Decimal(10, 2)  // Price per unit (e.g., $3.50 per cupcake)
+
+  // Labor
+  laborMinutes     Int?         // Minutes per unit (or per batch if yieldsPerRecipe set)
+  laborRoleId      Int?
+  laborRole        LaborRole?   @relation(fields: [laborRoleId], references: [id])
+
+  // Decoration level affects pricing
+  decorationLevel  String?      // "plain", "decorated", "premium", "custom"
+
+  // Default packaging
+  defaultPackagingId Int?
+  defaultPackaging   Packaging?  @relation(fields: [defaultPackagingId], references: [id])
+
+  isActive         Boolean      @default(true)
+  sortOrder        Int          @default(0)
+  imageUrl         String?
+
+  orderItems       OrderItem[]
+  quoteItems       QuoteItem[]
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([productTypeId])
+}
+
+// Order items - generalized line items (cake tiers OR menu products)
+enum OrderItemType {
+  CAKE_TIER
+  MENU_ITEM
+  CUSTOM
+}
+
+model OrderItem {
+  id              Int            @id @default(autoincrement())
+  cakeOrderId     Int
+  cakeOrder       CakeOrder      @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+
+  itemType        OrderItemType
+
+  // For MENU_ITEM
+  menuItemId      Int?
+  menuItem        MenuItem?      @relation(fields: [menuItemId], references: [id])
+  productTypeId   Int?           // Denormalized for easy querying
+  productType     ProductType?   @relation(fields: [productTypeId], references: [id])
+
+  // Common fields
+  quantity        Int            @default(1)  // 24 cupcakes, 12 cake pops
+  unitPrice       Decimal?       @db.Decimal(10, 2)  // Calculated or from menu
+  itemName        String?        // Custom name for CUSTOM items
+  notes           String?
+
+  // Packaging for this item
+  packagingId     Int?
+  packaging       Packaging?     @relation(fields: [packagingId], references: [id])
+  packagingQty    Int?           // Number of packaging units (e.g., 2 boxes of 12)
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([cakeOrderId])
+  @@index([menuItemId])
+}
+
+// Quote items - same as OrderItem but for quotes
+model QuoteItem {
+  id              Int            @id @default(autoincrement())
+  quoteId         Int
+  quote           Quote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  itemType        OrderItemType
+
+  menuItemId      Int?
+  menuItem        MenuItem?      @relation(fields: [menuItemId], references: [id])
+  productTypeId   Int?
+  productType     ProductType?   @relation(fields: [productTypeId], references: [id])
+
+  quantity        Int            @default(1)
+  unitPrice       Decimal?       @db.Decimal(10, 2)
+  itemName        String?
+  notes           String?
+
+  packagingId     Int?
+  packaging       Packaging?     @relation(fields: [packagingId], references: [id])
+  packagingQty    Int?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([quoteId])
+}
+
+// ============================================
+// PACKAGING & SUPPLIES
+// ============================================
+
+enum PackagingType {
+  BOX           // Cake boxes, cupcake boxes
+  CONTAINER     // Individual cupcake containers, cake pop bags
+  LINER         // Cupcake liners
+  BOARD         // Cake boards, drums
+  WRAP          // Cellophane, shrink wrap
+  BAG           // Gift bags, treat bags
+  INSERT        // Cupcake inserts for boxes
+  OTHER
+}
+
+model Packaging {
+  id              Int            @id @default(autoincrement())
+  name            String         @unique  // "12-count Cupcake Box", "6\" Cake Box", "Standard Cupcake Liner"
+  type            PackagingType
+  description     String?
+
+  // Sizing
+  capacity        Int?           // How many items it holds (12 for 12-count box, 1 for individual container)
+  sizeFit         String?        // What it fits: "6\" cake", "standard cupcake", "mini cupcake"
+
+  // Cost
+  costPerUnit     Decimal        @db.Decimal(10, 4)  // Cost per packaging unit
+
+  // Vendor info
+  vendor          String?
+  sku             String?
+  reorderUrl      String?
+
+  isActive        Boolean        @default(true)
+  sortOrder       Int            @default(0)
+
+  // Relations
+  menuItems       MenuItem[]     // Default packaging for menu items
+  orderItems      OrderItem[]
+  quoteItems      QuoteItem[]
+  orderPackaging  OrderPackaging[]
+  quotePackaging  QuotePackaging[]
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([type])
+}
+
+// Order-level packaging (for the whole order, not specific items)
+model OrderPackaging {
+  id              Int        @id @default(autoincrement())
+  cakeOrderId     Int
+  cakeOrder       CakeOrder  @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+  packagingId     Int
+  packaging       Packaging  @relation(fields: [packagingId], references: [id])
+  quantity        Int        @default(1)
+  notes           String?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([cakeOrderId, packagingId])
+}
+
+// Quote-level packaging
+model QuotePackaging {
+  id              Int        @id @default(autoincrement())
+  quoteId         Int
+  quote           Quote      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  packagingId     Int
+  packaging       Packaging  @relation(fields: [packagingId], references: [id])
+  quantity        Int        @default(1)
+  notes           String?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([quoteId, packagingId])
 }
