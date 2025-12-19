@@ -8,24 +8,37 @@ export async function GET(
   const { id } = await params
   const orderId = parseInt(id)
 
-  const order = await prisma.cakeOrder.findUnique({
+  const orderRaw = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      cakeTiers: {
+      CakeTier: {
         include: {
-          tierSize: true
+          TierSize: true
         }
       },
-      orderDecorations: {
+      OrderDecoration: {
         include: {
-          decorationTechnique: true
+          DecorationTechnique: true
         }
       }
     }
   })
 
-  if (!order) {
+  if (!orderRaw) {
     return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+  }
+
+  // Transform to expected format for frontend
+  const order = {
+    ...orderRaw,
+    cakeTiers: orderRaw.CakeTier.map(tier => ({
+      ...tier,
+      tierSize: tier.TierSize
+    })),
+    orderDecorations: orderRaw.OrderDecoration.map(dec => ({
+      ...dec,
+      decorationTechnique: dec.DecorationTechnique
+    }))
   }
 
   return NextResponse.json(order)

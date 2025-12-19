@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { updateOrder, deleteOrder } from '@/app/actions/orders'
 import { OrderStatus, CakeType, DiscountType } from '@prisma/client'
 import useSWR from 'swr'
+import ProductSelector from '@/app/components/ProductSelector'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
@@ -49,7 +50,9 @@ interface DecorationTechnique {
   category: string
   subcategory: string
   defaultCostPerUnit: number
-  skillLevel: string
+  unit: 'SINGLE' | 'CAKE' | 'TIER' | 'SET'
+  baseCakeSize: string | null
+  skillLevel?: string
 }
 
 interface OrderDecoration {
@@ -57,6 +60,8 @@ interface OrderDecoration {
   decorationTechniqueId: number
   quantity: number
   notes: string | null
+  unitOverride?: 'SINGLE' | 'CAKE' | 'TIER' | 'SET' | null
+  tierIndices?: number[]
   decorationTechnique: DecorationTechnique
 }
 
@@ -107,6 +112,11 @@ interface TierCost {
   shape: string
   servings: number
   volumeMl: number | null
+  // Dimensions for decoration size scaling
+  diameterCm: number | null
+  lengthCm: number | null
+  widthCm: number | null
+  heightCm: number | null
   assemblyMinutes: number
   assemblyRole: string | null
   assemblyRate: number | null
@@ -125,6 +135,8 @@ interface CostingResult {
   ingredientCost: number
   decorationMaterialCost: number
   decorationLaborCost: number
+  productCost: number
+  packagingCost: number
   topperCost: number
   deliveryCost: number
   baseLaborCost: number
@@ -189,6 +201,21 @@ interface Order {
   status: OrderStatus
   cakeTiers: CakeTier[]
   orderDecorations: OrderDecoration[]
+  orderItems?: OrderItem[]
+  orderPackaging?: OrderPackagingItem[]
+}
+
+interface OrderPackagingItem {
+  id: number
+  packagingId: number
+  quantity: number
+  notes: string | null
+  packaging: {
+    id: number
+    name: string
+    type: string
+    costPerUnit: number
+  }
 }
 
 interface Props {
@@ -209,6 +236,27 @@ interface SelectedDecoration {
   decorationTechniqueId: number
   quantity: number
   notes?: string
+  unitOverride?: 'SINGLE' | 'CAKE' | 'TIER' | 'SET'
+  tierIndices?: number[]
+}
+
+interface OrderItem {
+  id: number
+  menuItemId: number
+  quantity: number
+  packagingId: number | null
+  packagingQty: number | null
+  notes: string | null
+  menuItem: {
+    id: number
+    name: string
+    menuPrice: number
+    productType: { name: string }
+  }
+  packagingSelections?: Array<{
+    packagingId: number
+    quantity: number
+  }>
 }
 
 export default function EditOrderForm({ order, tierSizes }: Props) {
@@ -282,10 +330,45 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     order.orderDecorations.map(dec => ({
       decorationTechniqueId: dec.decorationTechniqueId,
       quantity: dec.quantity,
-      notes: dec.notes || undefined
+      notes: dec.notes || undefined,
+      unitOverride: dec.unitOverride || undefined,
+      tierIndices: dec.tierIndices && dec.tierIndices.length > 0 ? dec.tierIndices : undefined
     }))
   )
   const [decorationSearch, setDecorationSearch] = useState('')
+
+  // Products (menu items like cupcakes, cake pops)
+  const [selectedProducts, setSelectedProducts] = useState<Array<{
+    menuItemId: number
+    quantity: number
+    packagingSelections: Array<{ packagingId: number; quantity: number }>
+    notes?: string
+  }>>(
+    (order.orderItems || []).map(item => ({
+      menuItemId: item.menuItemId,
+      quantity: item.quantity,
+      // Use packagingSelections if available, otherwise convert legacy single packaging
+      packagingSelections: item.packagingSelections && item.packagingSelections.length > 0
+        ? item.packagingSelections
+        : item.packagingId
+          ? [{ packagingId: item.packagingId, quantity: item.packagingQty || 1 }]
+          : [],
+      notes: item.notes || undefined
+    }))
+  )
+
+  // Order-level packaging (standalone packaging not tied to products)
+  const [orderLevelPackaging, setOrderLevelPackaging] = useState<Array<{
+    packagingId: number
+    quantity: number
+    notes?: string
+  }>>(
+    (order.orderPackaging || []).map(op => ({
+      packagingId: op.packagingId,
+      quantity: op.quantity,
+      notes: op.notes || undefined
+    }))
+  )
 
   // Topper
   const [topperType, setTopperType] = useState(order.topperType || '')
@@ -318,6 +401,18 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const { data: tierCosts } = useSWR<TierCost[]>('/api/tier-costs', fetcher)
   const { data: laborRoles } = useSWR<LaborRole[]>('/api/labor-roles', fetcher)
   const { data: recipes } = useSWR<Recipe[]>('/api/recipes', fetcher)
+  const { data: packaging } = useSWR<Array<{
+    id: number
+    name: string
+    type: string
+    costPerUnit: number
+  }>>('/api/packaging', fetcher)
+  const { data: menuItems } = useSWR<Array<{
+    id: number
+    name: string
+    menuPrice: number
+    productType: { id: number; name: string }
+  }>>('/api/menu-items', fetcher)
 
   // Filter recipes by type
   const batterRecipes = recipes?.filter(r => r.type === 'BATTER') || []
@@ -525,7 +620,19 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     if (selectedDecorations.find(d => d.decorationTechniqueId === decorationId)) {
       return
     }
-    setSelectedDecorations([...selectedDecorations, { decorationTechniqueId: decorationId, quantity: 1 }])
+    // Get the decoration's default unit
+    const decoration = decorations?.find(d => d.id === decorationId)
+    const defaultUnit = decoration?.unit as 'SINGLE' | 'CAKE' | 'TIER' | 'SET' | undefined
+    // If default unit is TIER, initialize with all tier indices
+    const initialTierIndices = defaultUnit === 'TIER'
+      ? tiers.map((_, i) => i + 1)
+      : undefined
+    setSelectedDecorations([...selectedDecorations, {
+      decorationTechniqueId: decorationId,
+      quantity: 1,
+      unitOverride: undefined,
+      tierIndices: initialTierIndices
+    }])
     setDecorationSearch('')
   }
 
@@ -538,6 +645,244 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
       d.decorationTechniqueId === decorationId ? { ...d, quantity } : d
     ))
   }
+
+  const updateDecorationUnit = (decorationId: number, unit: 'SINGLE' | 'CAKE' | 'TIER' | 'SET' | undefined) => {
+    setSelectedDecorations(selectedDecorations.map(d => {
+      if (d.decorationTechniqueId !== decorationId) return d
+      // If changing to TIER, initialize tierIndices with all tiers
+      const newTierIndices = unit === 'TIER' && !d.tierIndices
+        ? tiers.map((_, i) => i + 1)
+        : d.tierIndices
+      return { ...d, unitOverride: unit, tierIndices: unit === 'TIER' ? newTierIndices : undefined }
+    }))
+  }
+
+  const updateDecorationTierIndices = (decorationId: number, tierIndices: number[]) => {
+    setSelectedDecorations(selectedDecorations.map(d =>
+      d.decorationTechniqueId === decorationId ? { ...d, tierIndices } : d
+    ))
+  }
+
+  // Calculate decoration size multiplier based on tier dimensions and baseCakeSize
+  const calculateDecorationSizeMultiplier = (
+    tierCostInfo: TierCost | undefined,
+    baseCakeSize: string | null
+  ): number => {
+    if (!baseCakeSize || !tierCostInfo) return 1.0
+
+    // Parse base cake size (e.g., "6\" round" -> 6 inches)
+    const baseSizeMatch = baseCakeSize.match(/(\d+(?:\.\d+)?)\s*["']?\s*(?:inch|in|"|')?/i)
+    if (!baseSizeMatch) return 1.0
+
+    const baseSizeInches = parseFloat(baseSizeMatch[1])
+    const baseSizeCm = baseSizeInches * 2.54
+
+    // For round cakes, compare surface areas
+    if (tierCostInfo.shape === 'Round' && tierCostInfo.diameterCm) {
+      const tierRadiusCm = tierCostInfo.diameterCm / 2
+      const baseRadiusCm = baseSizeCm / 2
+      const tierArea = Math.PI * tierRadiusCm * tierRadiusCm
+      const baseArea = Math.PI * baseRadiusCm * baseRadiusCm
+      if (baseArea > 0) {
+        return Math.round((tierArea / baseArea) * 100) / 100
+      }
+    }
+
+    // For rectangular cakes
+    if ((tierCostInfo.shape === 'Sheet' || tierCostInfo.shape === 'Rectangle') &&
+        tierCostInfo.lengthCm && tierCostInfo.widthCm) {
+      const tierArea = tierCostInfo.lengthCm * tierCostInfo.widthCm
+      const baseArea = baseSizeCm * baseSizeCm
+      if (baseArea > 0) {
+        return Math.round((tierArea / baseArea) * 100) / 100
+      }
+    }
+
+    return 1.0
+  }
+
+  // Calculate the scaled cost for a decoration based on unit type and tier sizes
+  const calculateDecorationScaledCost = (
+    decoration: SelectedDecoration,
+    technique: DecorationTechnique | undefined
+  ): number => {
+    if (!technique) return 0
+
+    const effectiveUnit = decoration.unitOverride || technique.unit
+    const baseCost = Number(technique.defaultCostPerUnit)
+    let quantity = decoration.quantity
+
+    // SINGLE: No size scaling
+    if (effectiveUnit === 'SINGLE' || effectiveUnit === 'SET') {
+      return baseCost * quantity
+    }
+
+    // CAKE: Scale by total surface area of all tiers
+    if (effectiveUnit === 'CAKE') {
+      if (!technique.baseCakeSize || tiers.length === 0) {
+        return baseCost * quantity
+      }
+
+      let totalSurfaceMultiplier = 0
+      for (const tier of tiers) {
+        const tierCostInfo = tierCosts?.find(tc => tc.tierSizeId === tier.tierSizeId)
+        if (!tierCostInfo) continue
+
+        // Calculate surface area for this tier
+        let tierSurfaceArea = 0
+        if (tierCostInfo.shape === 'Round' && tierCostInfo.diameterCm && tierCostInfo.heightCm) {
+          const radius = tierCostInfo.diameterCm / 2
+          tierSurfaceArea = Math.PI * radius * radius // Top surface
+          const circumference = Math.PI * tierCostInfo.diameterCm
+          tierSurfaceArea += circumference * tierCostInfo.heightCm // Side surface
+        } else if (tierCostInfo.lengthCm && tierCostInfo.widthCm && tierCostInfo.heightCm) {
+          tierSurfaceArea = tierCostInfo.lengthCm * tierCostInfo.widthCm // Top surface
+          const perimeter = 2 * (tierCostInfo.lengthCm + tierCostInfo.widthCm)
+          tierSurfaceArea += perimeter * tierCostInfo.heightCm // Side surface
+        }
+        totalSurfaceMultiplier += tierSurfaceArea
+      }
+
+      // Calculate base surface area
+      const baseSizeMatch = technique.baseCakeSize.match(/(\d+)\s*["']?\s*(round|square)?/i)
+      if (baseSizeMatch && totalSurfaceMultiplier > 0) {
+        const baseDiameter = parseFloat(baseSizeMatch[1]) * 2.54
+        const baseRadius = baseDiameter / 2
+        let baseSurfaceArea = Math.PI * baseRadius * baseRadius // Top
+        const baseCircumference = Math.PI * baseDiameter
+        const baseHeight = 10 // Assume 10cm height
+        baseSurfaceArea += baseCircumference * baseHeight // Side
+
+        if (baseSurfaceArea > 0) {
+          const surfaceMultiplier = totalSurfaceMultiplier / baseSurfaceArea
+          quantity = quantity * surfaceMultiplier
+        }
+      }
+
+      return baseCost * quantity
+    }
+
+    // TIER: Scale by specific tiers or all tiers
+    if (effectiveUnit === 'TIER') {
+      if (!technique.baseCakeSize) {
+        return baseCost * quantity
+      }
+
+      const tierIndicesToUse = decoration.tierIndices?.length
+        ? decoration.tierIndices
+        : tiers.map((_, i) => i + 1)
+
+      let totalSizeMultiplier = 0
+      let validTiers = 0
+
+      for (const tierIndex of tierIndicesToUse) {
+        const tier = tiers[tierIndex - 1]
+        if (!tier) continue
+
+        const tierCostInfo = tierCosts?.find(tc => tc.tierSizeId === tier.tierSizeId)
+        if (!tierCostInfo) continue
+
+        const sizeMultiplier = calculateDecorationSizeMultiplier(tierCostInfo, technique.baseCakeSize)
+        totalSizeMultiplier += sizeMultiplier
+        validTiers++
+      }
+
+      if (validTiers > 0) {
+        const avgSizeMultiplier = totalSizeMultiplier / validTiers
+        quantity = quantity * avgSizeMultiplier
+      }
+
+      return baseCost * quantity
+    }
+
+    return baseCost * quantity
+  }
+
+  // Calculate local decoration cost (for live updates in Order Summary)
+  const localDecorationCost = useMemo(() => {
+    if (!decorations) return 0
+    return selectedDecorations.reduce((sum, sd) => {
+      const dec = decorations.find(d => d.id === sd.decorationTechniqueId)
+      return sum + calculateDecorationScaledCost(sd, dec)
+    }, 0)
+  }, [selectedDecorations, decorations, tiers, tierCosts])
+
+  // Calculate local product cost (menu items like cupcakes, cake pops)
+  const localProductCost = useMemo(() => {
+    if (!menuItems) return 0
+    return selectedProducts.reduce((sum, sp) => {
+      const menuItem = menuItems.find(m => m.id === sp.menuItemId)
+      if (!menuItem) return sum
+      return sum + (Number(menuItem.menuPrice) * sp.quantity)
+    }, 0)
+  }, [selectedProducts, menuItems])
+
+  // Calculate local packaging cost (both product packaging and standalone packaging)
+  const localPackagingCost = useMemo(() => {
+    if (!packaging) return 0
+
+    // Product-level packaging
+    const productPackagingCost = selectedProducts.reduce((sum, sp) => {
+      return sum + (sp.packagingSelections || []).reduce((packSum, ps) => {
+        const pack = packaging.find(p => p.id === ps.packagingId)
+        if (!pack) return packSum
+        return packSum + (Number(pack.costPerUnit) * ps.quantity)
+      }, 0)
+    }, 0)
+
+    // Order-level standalone packaging
+    const standalonePackagingCost = orderLevelPackaging.reduce((sum, op) => {
+      const pack = packaging.find(p => p.id === op.packagingId)
+      if (!pack) return sum
+      return sum + (Number(pack.costPerUnit) * op.quantity)
+    }, 0)
+
+    return productPackagingCost + standalonePackagingCost
+  }, [selectedProducts, orderLevelPackaging, packaging])
+
+  // Calculate local topper cost
+  const localTopperCost = useMemo(() => {
+    const STANDARD_TOPPER_COST = 5 // Base cost for standard toppers
+    if (!topperType || topperType === 'none' || topperType === '') {
+      return 0
+    }
+    if (topperType === 'custom' && customTopperFee) {
+      return parseFloat(customTopperFee) || 0
+    }
+    return STANDARD_TOPPER_COST
+  }, [topperType, customTopperFee])
+
+  // Create a live costing object that uses local calculations
+  const liveCosting = useMemo(() => {
+    if (!costing) return null
+
+    // Calculate differences between local and API costs
+    const decorationDiff = localDecorationCost - costing.decorationMaterialCost
+    const productDiff = localProductCost - (costing.productCost || 0)
+    const packagingDiff = localPackagingCost - (costing.packagingCost || 0)
+    const topperDiff = localTopperCost - (costing.topperCost || 0)
+    const totalDiff = decorationDiff + productDiff + packagingDiff + topperDiff
+
+    // Adjust totals based on the differences
+    const newTotalCost = costing.totalCost + totalDiff
+    const newSuggestedPrice = costing.suggestedPrice + (totalDiff * (1 + costing.markupPercent))
+    const newFinalPrice = newSuggestedPrice - costing.discountAmount + costing.deliveryCost
+
+    const roundedSuggestedPrice = Math.round(newSuggestedPrice * 100) / 100
+    const servings = costing.totalServings || 1
+
+    return {
+      ...costing,
+      decorationMaterialCost: Math.round(localDecorationCost * 100) / 100,
+      productCost: Math.round(localProductCost * 100) / 100,
+      packagingCost: Math.round(localPackagingCost * 100) / 100,
+      topperCost: Math.round(localTopperCost * 100) / 100,
+      totalCost: Math.round(newTotalCost * 100) / 100,
+      suggestedPrice: roundedSuggestedPrice,
+      finalPrice: Math.round(newFinalPrice * 100) / 100,
+      suggestedPricePerServing: Math.round((roundedSuggestedPrice / servings) * 100) / 100,
+    }
+  }, [costing, localDecorationCost, localProductCost, localPackagingCost, localTopperCost])
 
   const filteredDecorations = decorations?.filter(d =>
     decorationSearch.length >= 2 &&
@@ -606,7 +951,18 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
           filling: t.filling || '',
           finishType: t.finishType || '',
         })),
-        decorations: selectedDecorations
+        decorations: selectedDecorations,
+        products: selectedProducts.map(p => ({
+          menuItemId: p.menuItemId,
+          quantity: p.quantity,
+          packagingSelections: p.packagingSelections,
+          notes: p.notes || null
+        })),
+        orderPackaging: orderLevelPackaging.map(op => ({
+          packagingId: op.packagingId,
+          quantity: op.quantity,
+          notes: op.notes || null
+        }))
       })
       setSaveMessage('Order saved successfully!')
       // Refresh the costing data after save
@@ -1284,7 +1640,6 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   <div>
                     <label className="block text-xs font-medium text-gray-700">
                       Batter Recipe
-                      <span className="text-pink-500 ml-1">*</span>
                     </label>
                     <select
                       value={tier.batterRecipeId || ''}
@@ -1299,13 +1654,28 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                       }}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                     >
-                      <option value="">Select batter recipe...</option>
+                      <option value="">Select recipe...</option>
                       {batterRecipes.map(recipe => (
                         <option key={recipe.id} value={recipe.id}>
                           {recipe.name}
                         </option>
                       ))}
                     </select>
+                    {!tier.batterRecipeId && (
+                      <select
+                        value={tier.flavor || ''}
+                        onChange={(e) => updateTier(index, 'flavor', e.target.value)}
+                        className="mt-2 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                      >
+                        <option value="">Or select flavor...</option>
+                        {tier.flavor && !fieldOptions?.flavor?.some(opt => opt.name === tier.flavor) && (
+                          <option value={tier.flavor}>{tier.flavor}</option>
+                        )}
+                        {fieldOptions?.flavor?.map(opt => (
+                          <option key={opt.id} value={opt.name}>{opt.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700">
@@ -1324,18 +1694,32 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                       }}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                     >
-                      <option value="">No filling</option>
+                      <option value="">Select recipe...</option>
                       {fillingRecipes.map(recipe => (
                         <option key={recipe.id} value={recipe.id}>
                           {recipe.name}
                         </option>
                       ))}
                     </select>
+                    {!tier.fillingRecipeId && (
+                      <select
+                        value={tier.filling || ''}
+                        onChange={(e) => updateTier(index, 'filling', e.target.value)}
+                        className="mt-2 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                      >
+                        <option value="">Or select filling...</option>
+                        {tier.filling && !fieldOptions?.filling?.some(opt => opt.name === tier.filling) && (
+                          <option value={tier.filling}>{tier.filling}</option>
+                        )}
+                        {fieldOptions?.filling?.map(opt => (
+                          <option key={opt.id} value={opt.name}>{opt.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700">
                       Frosting Recipe
-                      <span className="text-pink-500 ml-1">*</span>
                     </label>
                     <select
                       value={tier.frostingRecipeId || ''}
@@ -1350,75 +1734,28 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                       }}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                     >
-                      <option value="">Select frosting recipe...</option>
+                      <option value="">Select recipe...</option>
                       {frostingRecipes.map(recipe => (
                         <option key={recipe.id} value={recipe.id}>
                           {recipe.name}
                         </option>
                       ))}
                     </select>
-                  </div>
-                  <div className="col-span-2 text-xs text-gray-500 pt-1">
-                    Recipes enable accurate ingredient costing and labor calculation
-                  </div>
-
-                  {/* Legacy fields - collapsible for backwards compatibility */}
-                  <div className="col-span-2 pt-2 border-t border-gray-100">
-                    <details className="text-xs">
-                      <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
-                        Legacy fields (flavor/filling/finish text)
-                      </summary>
-                      <div className="grid grid-cols-3 gap-2 mt-2">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500">Flavor</label>
-                          <select
-                            value={tier.flavor || ''}
-                            onChange={(e) => updateTier(index, 'flavor', e.target.value)}
-                            className="mt-1 block w-full py-1.5 px-2 border border-gray-200 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-xs"
-                          >
-                            <option value="">Select...</option>
-                            {tier.flavor && !fieldOptions?.flavor?.some(opt => opt.name === tier.flavor) && (
-                              <option value={tier.flavor}>{tier.flavor}</option>
-                            )}
-                            {fieldOptions?.flavor?.map(opt => (
-                              <option key={opt.id} value={opt.name}>{opt.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500">Filling</label>
-                          <select
-                            value={tier.filling || ''}
-                            onChange={(e) => updateTier(index, 'filling', e.target.value)}
-                            className="mt-1 block w-full py-1.5 px-2 border border-gray-200 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-xs"
-                          >
-                            <option value="">Select...</option>
-                            {tier.filling && !fieldOptions?.filling?.some(opt => opt.name === tier.filling) && (
-                              <option value={tier.filling}>{tier.filling}</option>
-                            )}
-                            {fieldOptions?.filling?.map(opt => (
-                              <option key={opt.id} value={opt.name}>{opt.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500">Finish</label>
-                          <select
-                            value={tier.finishType || ''}
-                            onChange={(e) => updateTier(index, 'finishType', e.target.value)}
-                            className="mt-1 block w-full py-1.5 px-2 border border-gray-200 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-xs"
-                          >
-                            <option value="">Select...</option>
-                            {tier.finishType && !fieldOptions?.cakeSurface?.some(opt => opt.name === tier.finishType) && (
-                              <option value={tier.finishType}>{tier.finishType}</option>
-                            )}
-                            {fieldOptions?.cakeSurface?.map(opt => (
-                              <option key={opt.id} value={opt.name}>{opt.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </details>
+                    {!tier.frostingRecipeId && (
+                      <select
+                        value={tier.finishType || ''}
+                        onChange={(e) => updateTier(index, 'finishType', e.target.value)}
+                        className="mt-2 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                      >
+                        <option value="">Or select finish...</option>
+                        {tier.finishType && !fieldOptions?.cakeSurface?.some(opt => opt.name === tier.finishType) && (
+                          <option value={tier.finishType}>{tier.finishType}</option>
+                        )}
+                        {fieldOptions?.cakeSurface?.map(opt => (
+                          <option key={opt.id} value={opt.name}>{opt.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1430,6 +1767,142 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
             >
               Add Tier
             </button>
+
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800">
+                <strong>Tip:</strong> Selecting recipes ensures accurate ingredient and labor costing.
+                If a recipe isn&apos;t available, use the flavor/filling/finish dropdowns as fallback.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Additional Products */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div className="md:grid md:grid-cols-3 md:gap-6">
+          <div className="md:col-span-1">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Additional Products</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Add cupcakes, cake pops, cookies, and other menu items to this order.
+            </p>
+            <Link
+              href="/admin/menu"
+              target="_blank"
+              className="mt-2 inline-flex items-center text-sm text-pink-600 hover:text-pink-700"
+            >
+              Manage menu items
+              <svg className="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </Link>
+          </div>
+          <div className="mt-5 md:mt-0 md:col-span-2">
+            <ProductSelector
+              selectedProducts={selectedProducts}
+              onProductsChange={setSelectedProducts}
+              showPackaging={true}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Additional Packaging (standalone, not tied to products) */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div className="md:grid md:grid-cols-3 md:gap-6">
+          <div className="md:col-span-1">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Additional Packaging</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Add standalone packaging like cake boxes, boards, or wraps that are not tied to specific products.
+            </p>
+            <Link
+              href="/admin/menu/packaging"
+              target="_blank"
+              className="mt-2 inline-flex items-center text-sm text-pink-600 hover:text-pink-700"
+            >
+              Manage packaging
+              <svg className="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </Link>
+          </div>
+          <div className="mt-5 md:mt-0 md:col-span-2 space-y-4">
+            {/* Add packaging dropdown */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Add Packaging</label>
+              <select
+                className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                value=""
+                onChange={(e) => {
+                  const packagingId = parseInt(e.target.value)
+                  if (packagingId && !orderLevelPackaging.some(p => p.packagingId === packagingId)) {
+                    setOrderLevelPackaging([...orderLevelPackaging, { packagingId, quantity: 1 }])
+                  }
+                }}
+              >
+                <option value="">Select packaging to add...</option>
+                {packaging?.filter(p => !orderLevelPackaging.some(op => op.packagingId === p.id)).map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.type}) - ${Number(p.costPerUnit).toFixed(2)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selected packaging list */}
+            {orderLevelPackaging.length > 0 && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Selected Packaging</label>
+                {orderLevelPackaging.map((op) => {
+                  const pkg = packaging?.find(p => p.id === op.packagingId)
+                  if (!pkg) return null
+                  return (
+                    <div key={op.packagingId} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{pkg.name}</p>
+                        <p className="text-sm text-gray-500">{pkg.type} &bull; ${Number(pkg.costPerUnit).toFixed(2)} each</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center">
+                          <label className="sr-only">Quantity</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={op.quantity}
+                            onChange={(e) => {
+                              const newQty = parseInt(e.target.value) || 1
+                              setOrderLevelPackaging(orderLevelPackaging.map(item =>
+                                item.packagingId === op.packagingId
+                                  ? { ...item, quantity: newQty }
+                                  : item
+                              ))
+                            }}
+                            className="w-16 text-center border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOrderLevelPackaging(orderLevelPackaging.filter(item => item.packagingId !== op.packagingId))}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+                <p className="text-sm text-gray-600 text-right">
+                  Est. Packaging Cost: <span className="font-medium text-pink-600">
+                    ${orderLevelPackaging.reduce((sum, op) => {
+                      const pkg = packaging?.find(p => p.id === op.packagingId)
+                      return sum + ((Number(pkg?.costPerUnit) || 0) * op.quantity)
+                    }, 0).toFixed(2)}
+                  </span>
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1490,43 +1963,114 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                 {selectedDecorations.map((sd) => {
                   const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
                   if (!dec) return null
+                  const effectiveUnit = sd.unitOverride || dec.unit
                   return (
-                    <div key={sd.decorationTechniqueId} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{dec.name}</p>
-                        <p className="text-sm text-gray-500">${dec.defaultCostPerUnit}/unit</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center">
-                          <label className="sr-only">Quantity</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={sd.quantity}
-                            onChange={(e) => updateDecorationQuantity(sd.decorationTechniqueId, parseInt(e.target.value) || 1)}
-                            className="w-16 text-center border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                          />
+                    <div key={sd.decorationTechniqueId} className="p-3 bg-gray-50 rounded-md border border-gray-200">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <span className="font-medium text-gray-900">{dec.name}</span>
+                          <span className="text-gray-500 text-sm ml-2">({dec.category})</span>
+                          {sd.unitOverride && (
+                            <span className="ml-2 text-xs text-blue-600 italic">
+                              (Unit: {sd.unitOverride.toLowerCase()}, default: {dec.unit.toLowerCase()})
+                            </span>
+                          )}
                         </div>
                         <button
                           type="button"
                           onClick={() => removeDecoration(sd.decorationTechniqueId)}
                           className="text-red-600 hover:text-red-800"
                         >
-                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                          Remove
                         </button>
                       </div>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <label className="text-sm text-gray-600 flex items-center gap-2">
+                          <span>Qty:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={sd.quantity}
+                            onChange={(e) => updateDecorationQuantity(sd.decorationTechniqueId, parseInt(e.target.value) || 1)}
+                            className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
+                          />
+                        </label>
+                        <label className="text-sm text-gray-600 flex items-center gap-2">
+                          <span>Unit:</span>
+                          <select
+                            value={sd.unitOverride || dec.unit}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              updateDecorationUnit(
+                                sd.decorationTechniqueId,
+                                value === dec.unit ? undefined : value as 'SINGLE' | 'CAKE' | 'TIER' | 'SET'
+                              )
+                            }}
+                            className="px-2 py-1 border border-gray-300 rounded text-sm"
+                          >
+                            <option value="SINGLE">Single</option>
+                            <option value="CAKE">Cake</option>
+                            <option value="TIER">Tier</option>
+                            <option value="SET">Set</option>
+                          </select>
+                          {sd.unitOverride && (
+                            <button
+                              type="button"
+                              onClick={() => updateDecorationUnit(sd.decorationTechniqueId, undefined)}
+                              className="text-xs text-gray-500 hover:text-gray-700"
+                              title="Reset to default"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </label>
+                        <span className="text-sm text-gray-500">${Number(dec.defaultCostPerUnit).toFixed(2)}/unit</span>
+                        <span className="text-sm font-medium text-pink-600">
+                          = ${calculateDecorationScaledCost(sd, dec).toFixed(2)}
+                        </span>
+                      </div>
+                      {/* Tier selection for TIER unit */}
+                      {effectiveUnit === 'TIER' && tiers.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-200">
+                          <span className="text-xs text-gray-600">Apply to tiers:</span>
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {tiers.map((tier, idx) => {
+                              const tierIndex = idx + 1
+                              const isSelected = sd.tierIndices?.includes(tierIndex) ?? false
+                              const tierSize = tierSizes.find(ts => ts.id === tier.tierSizeId)
+                              return (
+                                <label key={tierIndex} className="inline-flex items-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      const newIndices = e.target.checked
+                                        ? [...(sd.tierIndices || []), tierIndex]
+                                        : (sd.tierIndices || []).filter(i => i !== tierIndex)
+                                      updateDecorationTierIndices(sd.decorationTechniqueId, newIndices)
+                                    }}
+                                    className="rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                                  />
+                                  <span className="ml-1 text-xs text-gray-700">
+                                    Tier {tierIndex} ({tierSize?.name || 'Unknown'})
+                                  </span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
                 <p className="text-sm text-gray-600 text-right">
-                  Est. Decoration Cost: <span className="font-medium text-pink-600">
+                  Est. Decoration Materials: <span className="font-medium text-pink-600">
                     ${selectedDecorations.reduce((sum, sd) => {
                       const dec = decorations?.find(d => d.id === sd.decorationTechniqueId)
-                      return sum + ((dec?.defaultCostPerUnit || 0) * sd.quantity)
+                      return sum + calculateDecorationScaledCost(sd, dec)
                     }, 0).toFixed(2)}
                   </span>
+                  <span className="text-xs text-gray-400 ml-1">(size-scaled)</span>
                 </p>
               </div>
             )}
@@ -1870,67 +2414,79 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                 <div className="text-center py-4 text-gray-500 text-sm">
                   Loading costing...
                 </div>
-              ) : costing ? (
+              ) : liveCosting ? (
                 <div className="space-y-2 text-sm">
                   {/* Cost Breakdown */}
                   <div className="flex justify-between">
                     <span className="text-gray-600">Ingredients</span>
-                    <span className="text-gray-900">${costing.ingredientCost.toFixed(2)}</span>
+                    <span className="text-gray-900">${liveCosting.ingredientCost.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Decorations</span>
-                    <span className="text-gray-900">${(costing.decorationMaterialCost + costing.decorationLaborCost).toFixed(2)}</span>
+                    <span className="text-gray-600">Decorations (materials)</span>
+                    <span className="text-gray-900">${liveCosting.decorationMaterialCost.toFixed(2)}</span>
                   </div>
-                  {costing.topperCost > 0 && (
+                  {liveCosting.topperCost > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Topper</span>
-                      <span className="text-gray-900">${costing.topperCost.toFixed(2)}</span>
+                      <span className="text-gray-900">${liveCosting.topperCost.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {liveCosting.productCost > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Products</span>
+                      <span className="text-gray-900">${liveCosting.productCost.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {liveCosting.packagingCost > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Packaging</span>
+                      <span className="text-gray-900">${liveCosting.packagingCost.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Labor</span>
-                    <span className="text-gray-900">${costing.totalLaborCost.toFixed(2)}</span>
+                    <span className="text-gray-600">Labor (all)</span>
+                    <span className="text-gray-900">${liveCosting.totalLaborCost.toFixed(2)}</span>
                   </div>
 
                   {/* Total Cost */}
                   <div className="border-t border-gray-100 pt-2 mt-2">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Total Cost</span>
-                      <span className="text-gray-900">${costing.totalCost.toFixed(2)}</span>
+                      <span className="text-gray-900">${liveCosting.totalCost.toFixed(2)}</span>
                     </div>
                   </div>
 
                   {/* Markup */}
                   <div className="flex justify-between text-gray-500">
-                    <span>Markup ({(costing.markupPercent * 100).toFixed(0)}%)</span>
-                    <span>+${(costing.suggestedPrice - costing.totalCost).toFixed(2)}</span>
+                    <span>Markup ({(liveCosting.markupPercent * 100).toFixed(0)}%)</span>
+                    <span>+${(liveCosting.suggestedPrice - liveCosting.totalCost).toFixed(2)}</span>
                   </div>
 
                   {/* Suggested Price */}
                   <div className="flex justify-between font-medium">
                     <span className="text-gray-700">Suggested Price</span>
-                    <span className="text-gray-900">${costing.suggestedPrice.toFixed(2)}</span>
+                    <span className="text-gray-900">${liveCosting.suggestedPrice.toFixed(2)}</span>
                   </div>
 
                   {/* Discount */}
-                  {costing.discount && costing.discountAmount > 0 && (
+                  {liveCosting.discount && liveCosting.discountAmount > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>
                         Discount
-                        {costing.discount.type === 'PERCENT' && ` (${costing.discount.value}%)`}
+                        {liveCosting.discount.type === 'PERCENT' && ` (${liveCosting.discount.value}%)`}
                       </span>
-                      <span>-${costing.discountAmount.toFixed(2)}</span>
+                      <span>-${liveCosting.discountAmount.toFixed(2)}</span>
                     </div>
                   )}
 
                   {/* Delivery */}
-                  {costing.deliveryCost > 0 && (
+                  {liveCosting.deliveryCost > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">
                         Delivery
-                        {costing.delivery?.zoneName && ` (${costing.delivery.zoneName})`}
+                        {liveCosting.delivery?.zoneName && ` (${liveCosting.delivery.zoneName})`}
                       </span>
-                      <span className="text-gray-900">+${costing.deliveryCost.toFixed(2)}</span>
+                      <span className="text-gray-900">+${liveCosting.deliveryCost.toFixed(2)}</span>
                     </div>
                   )}
 
@@ -1938,11 +2494,11 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   <div className="border-t border-gray-200 pt-2 mt-2">
                     <div className="flex justify-between text-lg font-bold">
                       <span className="text-gray-900">Final Price</span>
-                      <span className="text-pink-600">${costing.finalPrice.toFixed(2)}</span>
+                      <span className="text-pink-600">${liveCosting.finalPrice.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-gray-500 mt-1">
-                      <span>Per serving ({costing.totalServings})</span>
-                      <span>${costing.suggestedPricePerServing.toFixed(2)}</span>
+                      <span>Per serving ({liveCosting.totalServings})</span>
+                      <span>${liveCosting.suggestedPricePerServing.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>

@@ -14,46 +14,46 @@ export async function GET(
     const { id } = await params
     const quoteId = parseInt(id)
 
-    const quote = await prisma.quote.findUnique({
+    const quoteRaw = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        customer: true,
-        deliveryZone: true,
-        quoteTiers: {
+        Customer: true,
+        DeliveryZone: true,
+        QuoteTier: {
           include: {
-            tierSize: {
+            TierSize: {
               include: {
-                assemblyRole: true
+                LaborRole: true
               }
             },
-            batterRecipe: {
+            Recipe_QuoteTier_batterRecipeIdToRecipe: {
               include: {
-                recipeIngredients: {
+                RecipeIngredient: {
                   include: {
-                    ingredient: true
+                    Ingredient: true
                   }
                 },
-                laborRole: true
+                LaborRole: true
               }
             },
-            fillingRecipe: {
+            Recipe_QuoteTier_fillingRecipeIdToRecipe: {
               include: {
-                recipeIngredients: {
+                RecipeIngredient: {
                   include: {
-                    ingredient: true
+                    Ingredient: true
                   }
                 },
-                laborRole: true
+                LaborRole: true
               }
             },
-            frostingRecipe: {
+            Recipe_QuoteTier_frostingRecipeIdToRecipe: {
               include: {
-                recipeIngredients: {
+                RecipeIngredient: {
                   include: {
-                    ingredient: true
+                    Ingredient: true
                   }
                 },
-                laborRole: true
+                LaborRole: true
               }
             }
           },
@@ -61,24 +61,88 @@ export async function GET(
             tierIndex: 'asc'
           }
         },
-        quoteDecorations: {
+        QuoteDecoration: {
           include: {
-            decorationTechnique: {
+            DecorationTechnique: {
               include: {
-                laborRole: true
+                LaborRole: true
               }
             }
           }
         },
-        convertedOrder: true
+        QuoteItem: {
+          include: {
+            MenuItem: {
+              include: {
+                ProductType: true,
+                Recipe_MenuItem_batterRecipeIdToRecipe: true,
+                Recipe_MenuItem_fillingRecipeIdToRecipe: true,
+                Recipe_MenuItem_frostingRecipeIdToRecipe: true,
+                Packaging: true
+              }
+            },
+            Packaging: true
+          }
+        },
+        CakeOrder: true
       }
     })
 
-    if (!quote) {
+    if (!quoteRaw) {
       return NextResponse.json(
         { error: 'Quote not found' },
         { status: 404 }
       )
+    }
+
+    // Helper to transform recipe with ingredients
+    const transformRecipe = (recipe: any) => {
+      if (!recipe) return null
+      return {
+        ...recipe,
+        laborRole: recipe.LaborRole,
+        recipeIngredients: recipe.RecipeIngredient?.map((ri: any) => ({
+          ...ri,
+          ingredient: ri.Ingredient
+        })) || []
+      }
+    }
+
+    // Transform to expected format for frontend
+    const quote = {
+      ...quoteRaw,
+      customer: quoteRaw.Customer,
+      deliveryZone: quoteRaw.DeliveryZone,
+      quoteTiers: quoteRaw.QuoteTier.map((tier: any) => ({
+        ...tier,
+        tierSize: tier.TierSize ? {
+          ...tier.TierSize,
+          assemblyRole: tier.TierSize.LaborRole
+        } : null,
+        batterRecipe: transformRecipe(tier.Recipe_QuoteTier_batterRecipeIdToRecipe),
+        fillingRecipe: transformRecipe(tier.Recipe_QuoteTier_fillingRecipeIdToRecipe),
+        frostingRecipe: transformRecipe(tier.Recipe_QuoteTier_frostingRecipeIdToRecipe)
+      })),
+      quoteDecorations: quoteRaw.QuoteDecoration.map((dec: any) => ({
+        ...dec,
+        decorationTechnique: dec.DecorationTechnique ? {
+          ...dec.DecorationTechnique,
+          laborRole: dec.DecorationTechnique.LaborRole
+        } : null
+      })),
+      quoteItems: quoteRaw.QuoteItem.map((item: any) => ({
+        ...item,
+        menuItem: item.MenuItem ? {
+          ...item.MenuItem,
+          productType: item.MenuItem.ProductType,
+          batterRecipe: item.MenuItem.Recipe_MenuItem_batterRecipeIdToRecipe,
+          fillingRecipe: item.MenuItem.Recipe_MenuItem_fillingRecipeIdToRecipe,
+          frostingRecipe: item.MenuItem.Recipe_MenuItem_frostingRecipeIdToRecipe,
+          defaultPackaging: item.MenuItem.Packaging
+        } : null,
+        packaging: item.Packaging
+      })),
+      convertedOrder: quoteRaw.CakeOrder
     }
 
     // If quote is ACCEPTED and has locked costing, use that instead of recalculating

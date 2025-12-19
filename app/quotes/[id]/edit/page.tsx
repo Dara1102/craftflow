@@ -1061,6 +1061,18 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                             <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
                           ))}
                         </select>
+                        {!tier.batterRecipeId && (
+                          <select
+                            value={tier.flavor || ''}
+                            onChange={(e) => updateTier(index, 'flavor', e.target.value)}
+                            className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md"
+                          >
+                            <option value="">Or select flavor...</option>
+                            {fieldOptions?.flavor?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
 
                       <div>
@@ -1077,6 +1089,18 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                             <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
                           ))}
                         </select>
+                        {!tier.fillingRecipeId && (
+                          <select
+                            value={tier.filling || ''}
+                            onChange={(e) => updateTier(index, 'filling', e.target.value)}
+                            className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md"
+                          >
+                            <option value="">Or select filling...</option>
+                            {fieldOptions?.filling?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
 
                       <div>
@@ -1093,10 +1117,29 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                             <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
                           ))}
                         </select>
+                        {!tier.frostingRecipeId && (
+                          <select
+                            value={tier.finishType || ''}
+                            onChange={(e) => updateTier(index, 'finishType', e.target.value)}
+                            className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md"
+                          >
+                            <option value="">Or select finish...</option>
+                            {fieldOptions?.cakeSurface?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                     </div>
                   </div>
                 ))}
+
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-800">
+                    <strong>Tip:</strong> Selecting recipes ensures accurate ingredient and labor costing.
+                    If a recipe isn&apos;t available, use the flavor/filling/finish dropdowns as fallback.
+                  </p>
+                </div>
               </div>
             </div>
 

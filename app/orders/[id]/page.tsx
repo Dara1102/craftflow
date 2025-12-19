@@ -7,28 +7,98 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
   const { id } = await params
   const orderId = parseInt(id)
 
-  const order = await prisma.cakeOrder.findUnique({
+  const orderRaw = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      customer: true,
-      cakeTiers: {
+      Customer: true,
+      CakeTier: {
         include: {
-          tierSize: true
+          TierSize: true
         },
         orderBy: {
           tierIndex: 'asc'
         }
       },
-      orderDecorations: {
+      OrderDecoration: {
         include: {
-          decorationTechnique: true
+          DecorationTechnique: true
+        }
+      },
+      OrderItem: {
+        include: {
+          MenuItem: {
+            include: {
+              ProductType: true
+            }
+          },
+          Packaging: true,
+          OrderItemPackaging: {
+            include: {
+              Packaging: true
+            }
+          }
+        }
+      },
+      OrderPackaging: {
+        include: {
+          Packaging: true
         }
       }
     }
   })
 
-  if (!order) {
+  if (!orderRaw) {
     notFound()
+  }
+
+  // Transform to expected format for frontend - exclude PascalCase relations
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { Customer, CakeTier, OrderDecoration, OrderItem, OrderPackaging, ...orderBase } = orderRaw
+  const order = {
+    ...orderBase,
+    customer: Customer,
+    cakeTiers: CakeTier.map(tier => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { TierSize, ...tierBase } = tier
+      return {
+        ...tierBase,
+        tierSize: TierSize
+      }
+    }),
+    orderDecorations: OrderDecoration.map(dec => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { DecorationTechnique, ...decBase } = dec
+      return {
+        ...decBase,
+        decorationTechnique: DecorationTechnique
+      }
+    }),
+    orderItems: OrderItem.map(item => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { MenuItem, Packaging, OrderItemPackaging: ItemPackaging, ...itemBase } = item
+      return {
+        ...itemBase,
+        menuItem: MenuItem ? {
+          ...MenuItem,
+          productType: MenuItem.ProductType
+        } : null,
+        packaging: Packaging,
+        // Include multiple packaging selections
+        packagingSelections: ItemPackaging?.map(oip => ({
+          packagingId: oip.packagingId,
+          quantity: oip.quantity,
+          packaging: oip.Packaging
+        })) || []
+      }
+    }),
+    // Order-level packaging (not tied to products)
+    orderPackaging: OrderPackaging.map(op => ({
+      id: op.id,
+      packagingId: op.packagingId,
+      quantity: op.quantity,
+      notes: op.notes,
+      packaging: op.Packaging
+    }))
   }
 
   const tierSizes = await prisma.tierSize.findMany({
@@ -46,6 +116,8 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
     customTopperFee: order.customTopperFee ? Number(order.customTopperFee) : null,
     discountValue: order.discountValue ? Number(order.discountValue) : null,
     deliveryDistance: order.deliveryDistance ? Number(order.deliveryDistance) : null,
+    markupPercent: order.markupPercent ? Number(order.markupPercent) : null,
+    deliveryFee: order.deliveryFee ? Number(order.deliveryFee) : null,
     cakeTiers: order.cakeTiers.map(tier => ({
       ...tier,
       tierSize: {
@@ -61,6 +133,44 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
       decorationTechnique: {
         ...dec.decorationTechnique,
         defaultCostPerUnit: Number(dec.decorationTechnique.defaultCostPerUnit),
+      }
+    })),
+    orderItems: order.orderItems
+      .filter(item => item.menuItem !== null)
+      .map(item => ({
+        id: item.id,
+        menuItemId: item.menuItemId!,
+        quantity: item.quantity,
+        packagingId: item.packagingId,
+        packagingQty: item.packagingQty,
+        notes: item.notes,
+        menuItem: {
+          id: item.menuItem!.id,
+          name: item.menuItem!.name,
+          menuPrice: Number(item.menuItem!.menuPrice),
+          productType: { name: item.menuItem!.productType.name }
+        },
+        packaging: item.packaging ? {
+          id: item.packaging.id,
+          name: item.packaging.name,
+          type: item.packaging.type,
+          costPerUnit: Number(item.packaging.costPerUnit)
+        } : null,
+        packagingSelections: (item.packagingSelections || []).map(ps => ({
+          packagingId: ps.packagingId,
+          quantity: ps.quantity
+        }))
+      })),
+    orderPackaging: order.orderPackaging.map(op => ({
+      id: op.id,
+      packagingId: op.packagingId,
+      quantity: op.quantity,
+      notes: op.notes,
+      packaging: {
+        id: op.packaging.id,
+        name: op.packaging.name,
+        type: op.packaging.type,
+        costPerUnit: Number(op.packaging.costPerUnit)
       }
     }))
   }
@@ -93,12 +203,20 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
               {order.customer?.name || order.customerName} &bull; {new Date(order.eventDate).toLocaleDateString()}
             </p>
           </div>
-          <Link
-            href={`/orders/${order.id}/costing`}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium"
-          >
-            View Costing
-          </Link>
+          <div className="flex gap-3">
+            <Link
+              href={`/orders/${order.id}/production`}
+              className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition text-sm font-medium"
+            >
+              Production Sheet
+            </Link>
+            <Link
+              href={`/orders/${order.id}/costing`}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium"
+            >
+              View Costing
+            </Link>
+          </div>
         </div>
 
         <EditOrderForm order={plainOrder} tierSizes={plainTierSizes} />

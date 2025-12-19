@@ -36,13 +36,13 @@ function buildRevisionHistory(quote: any) {
   }> = []
 
   // If this is a revision, include the original
-  if (quote.originalQuote) {
+  if (quote.Quote) {
     history.push({
-      id: quote.originalQuote.id,
-      quoteNumber: quote.originalQuote.quoteNumber,
-      version: quote.originalQuote.version,
-      status: quote.originalQuote.status,
-      createdAt: quote.originalQuote.createdAt.toISOString()
+      id: quote.Quote.id,
+      quoteNumber: quote.Quote.quoteNumber,
+      version: quote.Quote.version,
+      status: quote.Quote.status,
+      createdAt: quote.Quote.createdAt.toISOString()
     })
   }
 
@@ -58,8 +58,8 @@ function buildRevisionHistory(quote: any) {
   }
 
   // Include all revisions
-  if (quote.revisions) {
-    for (const rev of quote.revisions) {
+  if (quote.other_Quote) {
+    for (const rev of quote.other_Quote) {
       // Don't add duplicates
       if (!history.some(h => h.id === rev.id)) {
         history.push({
@@ -105,26 +105,26 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const quote = await prisma.quote.findUnique({
     where: { id: quoteId },
     include: {
-      customer: true,
-      deliveryZone: true,
-      quoteTiers: {
+      Customer: true,
+      DeliveryZone: true,
+      QuoteTier: {
         include: {
-          tierSize: true,
-          batterRecipe: true,
-          fillingRecipe: true,
-          frostingRecipe: true
+          TierSize: true,
+          Recipe_QuoteTier_batterRecipeIdToRecipe: true,
+          Recipe_QuoteTier_fillingRecipeIdToRecipe: true,
+          Recipe_QuoteTier_frostingRecipeIdToRecipe: true
         },
         orderBy: {
           tierIndex: 'asc'
         }
       },
-      quoteDecorations: {
+      QuoteDecoration: {
         include: {
-          decorationTechnique: true
+          DecorationTechnique: true
         }
       },
-      convertedOrder: true,
-      originalQuote: {
+      CakeOrder: true,
+      Quote: {
         select: {
           id: true,
           quoteNumber: true,
@@ -133,7 +133,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
           createdAt: true
         }
       },
-      revisions: {
+      other_Quote: {
         select: {
           id: true,
           quoteNumber: true,
@@ -157,7 +157,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     customerId: quote.customerId,
     customerName: quote.customerName,
     eventDate: quote.eventDate,
-    tiers: quote.quoteTiers.map((tier: typeof quote.quoteTiers[0]) => ({
+    tiers: quote.QuoteTier.map((tier: typeof quote.QuoteTier[0]) => ({
       tierSizeId: tier.tierSizeId,
       tierIndex: tier.tierIndex,
       batterRecipeId: tier.batterRecipeId,
@@ -170,7 +170,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
       filling: tier.filling,
       finishType: tier.finishType
     })),
-    decorations: quote.quoteDecorations.map((dec: typeof quote.quoteDecorations[0]) => ({
+    decorations: quote.QuoteDecoration.map((dec: typeof quote.QuoteDecoration[0]) => ({
       decorationTechniqueId: dec.decorationTechniqueId,
       quantity: dec.quantity,
       unitOverride: dec.unitOverride || undefined,
@@ -225,12 +225,12 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     status: quote.status,
     customerName: quote.customerName,
     customerId: quote.customerId,
-    customer: quote.customer ? {
-      id: quote.customer.id,
-      name: quote.customer.name,
-      email: quote.customer.email,
-      phone: quote.customer.phone,
-      company: quote.customer.company
+    customer: quote.Customer ? {
+      id: quote.Customer.id,
+      name: quote.Customer.name,
+      email: quote.Customer.email,
+      phone: quote.Customer.phone,
+      company: quote.Customer.company
     } : null,
     eventDate: quote.eventDate.toISOString(),
     eventType: quote.eventType,
@@ -242,9 +242,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     budgetMin: quote.budgetMin ? Number(quote.budgetMin) : null,
     budgetMax: quote.budgetMax ? Number(quote.budgetMax) : null,
     isDelivery: quote.isDelivery,
-    deliveryZone: quote.deliveryZone ? {
-      id: quote.deliveryZone.id,
-      name: quote.deliveryZone.name
+    deliveryZone: quote.DeliveryZone ? {
+      id: quote.DeliveryZone.id,
+      name: quote.DeliveryZone.name
     } : null,
     deliveryAddress: quote.deliveryAddress,
     deliveryTime: quote.deliveryTime?.toISOString() || null,
@@ -259,30 +259,30 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     version: quote.version,
     originalQuoteId: quote.originalQuoteId,
     revisionHistory: buildRevisionHistory(quote),
-    quoteTiers: quote.quoteTiers.map((tier: typeof quote.quoteTiers[0]) => ({
+    quoteTiers: quote.QuoteTier.map((tier: typeof quote.QuoteTier[0]) => ({
       id: tier.id,
       tierIndex: tier.tierIndex,
       tierSize: {
-        id: tier.tierSize.id,
-        name: tier.tierSize.name,
-        servings: tier.tierSize.servings,
-        shape: tier.tierSize.shape
+        id: tier.TierSize.id,
+        name: tier.TierSize.name,
+        servings: tier.TierSize.servings,
+        shape: tier.TierSize.shape
       },
       flavor: tier.flavor,
       filling: tier.filling,
       finishType: tier.finishType,
-      batterRecipe: tier.batterRecipe ? { id: tier.batterRecipe.id, name: tier.batterRecipe.name } : null,
-      fillingRecipe: tier.fillingRecipe ? { id: tier.fillingRecipe.id, name: tier.fillingRecipe.name } : null,
-      frostingRecipe: tier.frostingRecipe ? { id: tier.frostingRecipe.id, name: tier.frostingRecipe.name } : null
+      batterRecipe: tier.Recipe_QuoteTier_batterRecipeIdToRecipe ? { id: tier.Recipe_QuoteTier_batterRecipeIdToRecipe.id, name: tier.Recipe_QuoteTier_batterRecipeIdToRecipe.name } : null,
+      fillingRecipe: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe ? { id: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe.id, name: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe.name } : null,
+      frostingRecipe: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe ? { id: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe.id, name: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe.name } : null
     })),
-    quoteDecorations: quote.quoteDecorations.map((dec: typeof quote.quoteDecorations[0]) => ({
+    quoteDecorations: quote.QuoteDecoration.map((dec: typeof quote.QuoteDecoration[0]) => ({
       id: dec.id,
       quantity: dec.quantity,
       notes: dec.notes,
       decorationTechnique: {
-        id: dec.decorationTechnique.id,
-        name: dec.decorationTechnique.name,
-        category: dec.decorationTechnique.category
+        id: dec.DecorationTechnique.id,
+        name: dec.DecorationTechnique.name,
+        category: dec.DecorationTechnique.category
       }
     }))
   }

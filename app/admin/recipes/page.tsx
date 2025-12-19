@@ -2,11 +2,11 @@ import Link from 'next/link'
 import { prisma } from '@/lib/db'
 
 export default async function RecipesAdmin() {
-  const recipes = await prisma.recipe.findMany({
+  const recipesRaw = await prisma.recipe.findMany({
     include: {
-      recipeIngredients: {
+      RecipeIngredient: {
         include: {
-          ingredient: true
+          Ingredient: true
         }
       }
     },
@@ -14,6 +14,15 @@ export default async function RecipesAdmin() {
       name: 'asc'
     }
   })
+
+  // Transform to expected format
+  const recipes = recipesRaw.map(recipe => ({
+    ...recipe,
+    recipeIngredients: recipe.RecipeIngredient.map(ri => ({
+      ...ri,
+      ingredient: ri.Ingredient
+    }))
+  }))
 
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">

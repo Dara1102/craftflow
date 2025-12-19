@@ -10,9 +10,9 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
   const order = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      cakeTiers: {
+      CakeTier: {
         include: {
-          tierSize: true
+          TierSize: true
         }
       }
     }
@@ -49,6 +49,12 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
             <p className="mt-1 text-sm text-gray-500">{order.customerName} &bull; {new Date(order.eventDate).toLocaleDateString()}</p>
           </div>
           <div className="flex gap-3">
+            <Link
+              href={`/orders/${order.id}/production`}
+              className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition text-sm font-medium"
+            >
+              Production Sheet
+            </Link>
             <Link
               href={`/orders/${order.id}/summary`}
               className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium"
@@ -125,6 +131,22 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                   ${costing.decorationMaterialCost.toFixed(2)}
                 </dd>
               </div>
+              {costing.productCost > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">Products</dt>
+                  <dd className="text-sm font-medium text-gray-900">
+                    ${costing.productCost.toFixed(2)}
+                  </dd>
+                </div>
+              )}
+              {costing.packagingCost > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">Packaging</dt>
+                  <dd className="text-sm font-medium text-gray-900">
+                    ${costing.packagingCost.toFixed(2)}
+                  </dd>
+                </div>
+              )}
               {costing.topperCost > 0 && (
                 <div className="flex justify-between">
                   <dt className="text-sm text-gray-500">
@@ -411,6 +433,142 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
             )}
           </div>
         </div>
+
+        {/* Products Section */}
+        {costing.products.length > 0 && (
+          <div className="bg-white shadow sm:rounded-lg mb-6">
+            <div className="px-4 py-5 sm:px-6">
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                Products
+              </h3>
+            </div>
+            <div className="border-t border-gray-200">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Product
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Qty
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit Price
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Labor
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Subtotal
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {costing.products.map((product) => (
+                    <tr key={product.menuItemId}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {product.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.productType}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.quantity}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${product.unitPrice.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.laborMinutes ? `${product.laborMinutes} min ($${product.laborCost.toFixed(2)})` : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        ${product.subtotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={5} className="px-6 py-3 text-sm font-medium text-gray-900 text-right">
+                      Total Products:
+                    </td>
+                    <td className="px-6 py-3 text-sm font-bold text-gray-900">
+                      ${costing.productCost.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Packaging Section */}
+        {costing.packaging.length > 0 && (
+          <div className="bg-white shadow sm:rounded-lg mb-6">
+            <div className="px-4 py-5 sm:px-6">
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                Packaging
+              </h3>
+            </div>
+            <div className="border-t border-gray-200">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Item
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Qty
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit Cost
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Subtotal
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {costing.packaging.map((pkg) => (
+                    <tr key={pkg.packagingId}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {pkg.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {pkg.type}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {pkg.quantity}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${pkg.unitCost.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        ${pkg.subtotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={4} className="px-6 py-3 text-sm font-medium text-gray-900 text-right">
+                      Total Packaging:
+                    </td>
+                    <td className="px-6 py-3 text-sm font-bold text-gray-900">
+                      ${costing.packagingCost.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

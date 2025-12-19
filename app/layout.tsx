@@ -40,6 +40,9 @@ export default function RootLayout({
                   <Link href="/quotes/new" className="text-gray-500 hover:text-pink-600 inline-flex items-center px-1 pt-1 text-sm font-medium">
                     + New Quote
                   </Link>
+                  <Link href="/production" className="text-gray-500 hover:text-pink-600 inline-flex items-center px-1 pt-1 text-sm font-medium">
+                    Production
+                  </Link>
 
                   {/* Admin Dropdown */}
                   <div className="relative inline-flex items-center group">
@@ -67,6 +70,16 @@ export default function RootLayout({
                         </Link>
                         <Link href="/admin/decorations" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
                           Decorations
+                        </Link>
+                        <div className="border-t border-gray-100 my-1"></div>
+                        <Link href="/admin/menu" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
+                          Menu Items
+                        </Link>
+                        <Link href="/admin/menu/packaging" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
+                          Packaging
+                        </Link>
+                        <Link href="/admin/vendors" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
+                          Vendors
                         </Link>
                         <div className="border-t border-gray-100 my-1"></div>
                         <Link href="/admin/settings" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
@@ -101,12 +114,16 @@ export default function RootLayout({
                         <Link href="/quotes" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Quotes</Link>
                         <Link href="/orders/new" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">+ New Order</Link>
                         <Link href="/quotes/new" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">+ New Quote</Link>
+                        <Link href="/production" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Production</Link>
                         <div className="border-t border-gray-100 my-1"></div>
                         <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase">Admin</div>
                         <Link href="/admin/ingredients" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Ingredients</Link>
                         <Link href="/admin/recipes" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Recipes</Link>
                         <Link href="/admin/tiers" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Tier Sizes</Link>
                         <Link href="/admin/decorations" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Decorations</Link>
+                        <Link href="/admin/menu" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Menu Items</Link>
+                        <Link href="/admin/menu/packaging" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Packaging</Link>
+                        <Link href="/admin/vendors" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Vendors</Link>
                         <Link href="/admin/settings" className="block px-4 py-2 text-sm text-gray-700 hover:bg-pink-50">Settings</Link>
                       </div>
                     </div>

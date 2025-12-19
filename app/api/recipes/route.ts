@@ -15,13 +15,13 @@ export async function GET(request: Request) {
       where.type = type
     }
 
-    const recipes = await prisma.recipe.findMany({
+    const recipesRaw = await prisma.recipe.findMany({
       where,
       include: {
-        laborRole: true,
-        recipeIngredients: {
+        LaborRole: true,
+        RecipeIngredient: {
           include: {
-            ingredient: true
+            Ingredient: true
           }
         }
       },
@@ -29,6 +29,16 @@ export async function GET(request: Request) {
         name: 'asc'
       }
     })
+
+    // Transform to expected format for frontend
+    const recipes = recipesRaw.map(recipe => ({
+      ...recipe,
+      laborRole: recipe.LaborRole,
+      recipeIngredients: recipe.RecipeIngredient.map(ri => ({
+        ...ri,
+        ingredient: ri.Ingredient
+      }))
+    }))
 
     return NextResponse.json(recipes)
   } catch (error) {

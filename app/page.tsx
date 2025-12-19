@@ -4,12 +4,12 @@ import { calculateOrderCosting } from '@/lib/costing'
 import { prisma } from '@/lib/db'
 
 export default async function Dashboard() {
-  const orders = await prisma.cakeOrder.findMany({
+  const ordersRaw = await prisma.cakeOrder.findMany({
     include: {
-      customer: true,
-      cakeTiers: {
+      Customer: true,
+      CakeTier: {
         include: {
-          tierSize: true
+          TierSize: true
         }
       }
     },
@@ -17,6 +17,16 @@ export default async function Dashboard() {
       eventDate: 'asc'
     }
   })
+
+  // Transform to expected format
+  const orders = ordersRaw.map(order => ({
+    ...order,
+    customer: order.Customer,
+    cakeTiers: order.CakeTier.map(tier => ({
+      ...tier,
+      tierSize: tier.TierSize
+    }))
+  }))
 
   const ordersWithCosting = await Promise.all(
     orders.map(async (order) => {

@@ -60,6 +60,21 @@ export interface CreateOrderData {
     decorationTechniqueId: number
     quantity: number
     notes?: string
+    unitOverride?: 'SINGLE' | 'CAKE' | 'TIER' | 'SET'
+    tierIndices?: number[]
+  }[]
+  products?: {
+    menuItemId: number
+    quantity: number
+    packagingId?: number | null
+    packagingQty?: number | null
+    packagingSelections?: { packagingId: number; quantity: number }[]
+    notes?: string | null
+  }[]
+  orderPackaging?: {
+    packagingId: number
+    quantity: number
+    notes?: string | null
   }[]
 }
 
@@ -124,6 +139,25 @@ export async function createOrder(data: CreateOrderData) {
           decorationTechniqueId: dec.decorationTechniqueId,
           quantity: dec.quantity,
           notes: dec.notes || null,
+          unitOverride: dec.unitOverride || null,
+          tierIndices: dec.tierIndices || [],
+        }))
+      },
+      orderItems: {
+        create: (data.products || []).map((product) => ({
+          itemType: 'MENU_ITEM',
+          menuItemId: product.menuItemId,
+          quantity: product.quantity,
+          packagingId: product.packagingId || null,
+          packagingQty: product.packagingQty || null,
+          notes: product.notes || null,
+        }))
+      },
+      OrderPackaging: {
+        create: (data.orderPackaging || []).map((op) => ({
+          packagingId: op.packagingId,
+          quantity: op.quantity,
+          notes: op.notes || null,
         }))
       }
     }
@@ -134,54 +168,53 @@ export async function createOrder(data: CreateOrderData) {
 }
 
 export async function updateOrder(orderId: number, data: CreateOrderData) {
-  await prisma.$transaction(async (tx) => {
-    // Update order details
-    await tx.cakeOrder.update({
-      where: { id: orderId },
-      data: {
-        customer: {
-          connect: { id: data.customerId }
-        },
-        eventDate: new Date(data.eventDate),
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Update order details
+      await tx.cakeOrder.update({
+        where: { id: orderId },
+        data: {
+          customerId: data.customerId,
+          eventDate: new Date(data.eventDate),
 
-        // Cake details
-        cakeType: data.cakeType,
-        size: data.size,
-        servingsTarget: data.servingsTarget,
+          // Cake details
+          cakeType: data.cakeType,
+          size: data.size,
+          servingsTarget: data.servingsTarget,
 
-        // Event details
-        theme: data.theme,
-        occasion: data.occasion,
-        colors: data.colors,
-        accentColors: data.accentColors,
+          // Event details
+          theme: data.theme,
+          occasion: data.occasion,
+          colors: data.colors,
+          accentColors: data.accentColors,
 
-        // Delivery details
-        isDelivery: data.isDelivery || false,
-        deliveryZone: data.deliveryZoneId ? { connect: { id: data.deliveryZoneId } } : { disconnect: true },
-        deliveryDistance: data.deliveryDistance || null,
-        deliveryContact: data.deliveryContact,
-        deliveryPhone: data.deliveryPhone,
-        deliveryTime: data.deliveryTime ? new Date(data.deliveryTime) : null,
-        deliveryAddress: data.deliveryAddress,
+          // Delivery details
+          isDelivery: data.isDelivery || false,
+          deliveryZoneId: data.deliveryZoneId || null,
+          deliveryDistance: data.deliveryDistance || null,
+          deliveryContact: data.deliveryContact,
+          deliveryPhone: data.deliveryPhone,
+          deliveryTime: data.deliveryTime ? new Date(data.deliveryTime) : null,
+          deliveryAddress: data.deliveryAddress,
 
-        // Labor & notes
-        estimatedHours: data.estimatedHours,
-        bakerHours: data.bakerHours || null,
-        assistantHours: data.assistantHours || null,
-        notes: data.notes,
-        status: data.status,
+          // Labor & notes
+          estimatedHours: data.estimatedHours,
+          bakerHours: data.bakerHours || null,
+          assistantHours: data.assistantHours || null,
+          notes: data.notes,
+          status: data.status,
 
-        // Topper
-        topperType: data.topperType || null,
-        topperText: data.topperText || null,
-        customTopperFee: data.customTopperFee || null,
+          // Topper
+          topperType: data.topperType || null,
+          topperText: data.topperText || null,
+          customTopperFee: data.customTopperFee || null,
 
-        // Discount
-        discountType: data.discountType || null,
-        discountValue: data.discountValue || null,
-        discountReason: data.discountReason || null,
-      }
-    })
+          // Discount
+          discountType: data.discountType || null,
+          discountValue: data.discountValue || null,
+          discountReason: data.discountReason || null,
+        }
+      })
 
     // Delete existing tiers
     await tx.cakeTier.deleteMany({
@@ -200,6 +233,7 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
         flavor: tier.flavor,
         filling: tier.filling,
         finishType: tier.finishType,
+        updatedAt: new Date(),
       }))
     })
 
@@ -216,14 +250,81 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
           decorationTechniqueId: dec.decorationTechniqueId,
           quantity: dec.quantity,
           notes: dec.notes || null,
+          unitOverride: dec.unitOverride || null,
+          tierIndices: dec.tierIndices || [],
+          updatedAt: new Date(),
         }))
       })
     }
-  })
 
-  revalidatePath('/')
-  revalidatePath(`/orders/${orderId}`)
-  revalidatePath(`/orders/${orderId}/costing`)
+    // Delete existing order item packaging first (due to foreign key)
+    await tx.orderItemPackaging.deleteMany({
+      where: {
+        OrderItem: {
+          cakeOrderId: orderId
+        }
+      }
+    })
+
+    // Delete existing order items (products)
+    await tx.orderItem.deleteMany({
+      where: { cakeOrderId: orderId }
+    })
+
+    // Create new order items (products) with multiple packaging
+    if (data.products && data.products.length > 0) {
+      for (const product of data.products) {
+        // Create the order item
+        const orderItem = await tx.orderItem.create({
+          data: {
+            cakeOrderId: orderId,
+            itemType: 'MENU_ITEM',
+            menuItemId: product.menuItemId,
+            quantity: product.quantity,
+            notes: product.notes || null,
+            updatedAt: new Date(),
+          }
+        })
+
+        // Create packaging selections for this item
+        if (product.packagingSelections && product.packagingSelections.length > 0) {
+          await tx.orderItemPackaging.createMany({
+            data: product.packagingSelections.map((ps: { packagingId: number; quantity: number }) => ({
+              orderItemId: orderItem.id,
+              packagingId: ps.packagingId,
+              quantity: ps.quantity
+            }))
+          })
+        }
+      }
+    }
+
+    // Delete existing order-level packaging
+    await tx.orderPackaging.deleteMany({
+      where: { cakeOrderId: orderId }
+    })
+
+    // Create new order-level packaging (standalone packaging not tied to products)
+    if (data.orderPackaging && data.orderPackaging.length > 0) {
+      await tx.orderPackaging.createMany({
+        data: data.orderPackaging.map((op) => ({
+          cakeOrderId: orderId,
+          packagingId: op.packagingId,
+          quantity: op.quantity,
+          notes: op.notes || null,
+          updatedAt: new Date(),
+        }))
+      })
+    }
+    })
+
+    revalidatePath('/')
+    revalidatePath(`/orders/${orderId}`)
+    revalidatePath(`/orders/${orderId}/costing`)
+  } catch (error) {
+    console.error('Failed to update order:', error)
+    throw error
+  }
 }
 
 export async function deleteOrder(orderId: number) {

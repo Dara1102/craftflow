@@ -52,6 +52,26 @@ export interface DiscountDetail {
   amount: number
 }
 
+export interface ProductCostDetail {
+  menuItemId: number
+  name: string
+  productType: string
+  quantity: number
+  unitPrice: number
+  subtotal: number
+  laborMinutes: number | null
+  laborCost: number
+}
+
+export interface PackagingCostDetail {
+  packagingId: number
+  name: string
+  type: string
+  quantity: number
+  unitCost: number
+  subtotal: number
+}
+
 export interface RecipeMatch {
   recipe: {
     id: number
@@ -86,6 +106,8 @@ export interface CostingResult {
   totalServings: number
   ingredients: IngredientCostDetail[]
   decorations: DecorationCostDetail[]
+  products: ProductCostDetail[]
+  packaging: PackagingCostDetail[]
   topper: TopperCostDetail | null
   delivery: DeliveryCostDetail | null
   discount: DiscountDetail | null
@@ -93,6 +115,8 @@ export interface CostingResult {
   ingredientCost: number
   decorationMaterialCost: number
   decorationLaborCost: number
+  productCost: number
+  packagingCost: number
   topperCost: number
   deliveryCost: number
   baseLaborCost: number
@@ -293,78 +317,144 @@ export async function calculateOrderCosting(
   orderId: number,
   includeFullRecipes: boolean = false
 ): Promise<CostingResult> {
-  // Get order with all related data
-  const order = await prisma.cakeOrder.findUnique({
+  // Get order with all related data - using PascalCase Prisma relation names
+  const orderRaw = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      cakeTiers: {
+      CakeTier: {
         include: {
-          tierSize: {
+          TierSize: {
             include: {
-              assemblyRole: true
+              LaborRole: true
             }
           },
           // Include explicitly set recipes (if any)
-          batterRecipe: {
+          Recipe_CakeTier_batterRecipeIdToRecipe: {
             include: {
-              recipeIngredients: {
+              RecipeIngredient: {
                 include: {
-                  ingredient: true
+                  Ingredient: true
                 }
               },
-              laborRole: true
+              LaborRole: true
             }
           },
-          fillingRecipe: {
+          Recipe_CakeTier_fillingRecipeIdToRecipe: {
             include: {
-              recipeIngredients: {
+              RecipeIngredient: {
                 include: {
-                  ingredient: true
+                  Ingredient: true
                 }
               },
-              laborRole: true
+              LaborRole: true
             }
           },
-          frostingRecipe: {
+          Recipe_CakeTier_frostingRecipeIdToRecipe: {
             include: {
-              recipeIngredients: {
+              RecipeIngredient: {
                 include: {
-                  ingredient: true
+                  Ingredient: true
                 }
               },
-              laborRole: true
+              LaborRole: true
             }
           }
         }
       },
-      orderDecorations: {
+      OrderDecoration: {
         include: {
-          decorationTechnique: {
+          DecorationTechnique: {
             include: {
-              laborRole: true
+              LaborRole: true
             }
           }
         }
       },
-      deliveryZone: true
+      OrderItem: {
+        include: {
+          MenuItem: {
+            include: {
+              ProductType: true,
+              LaborRole: true
+            }
+          },
+          Packaging: true
+        }
+      },
+      DeliveryZone: true
     }
   })
 
-  if (!order) {
+  if (!orderRaw) {
     throw new Error(`Order ${orderId} not found`)
   }
 
+  // Helper to transform recipe
+  const transformRecipeForCosting = (recipe: any) => {
+    if (!recipe) return null
+    return {
+      ...recipe,
+      laborRole: recipe.LaborRole,
+      recipeIngredients: recipe.RecipeIngredient?.map((ri: any) => ({
+        ...ri,
+        ingredient: ri.Ingredient
+      })) || []
+    }
+  }
+
+  // Transform to expected format
+  const order = {
+    ...orderRaw,
+    cakeTiers: orderRaw.CakeTier.map((tier: any) => ({
+      ...tier,
+      tierSize: tier.TierSize ? {
+        ...tier.TierSize,
+        assemblyRole: tier.TierSize.LaborRole
+      } : null,
+      batterRecipe: transformRecipeForCosting(tier.Recipe_CakeTier_batterRecipeIdToRecipe),
+      fillingRecipe: transformRecipeForCosting(tier.Recipe_CakeTier_fillingRecipeIdToRecipe),
+      frostingRecipe: transformRecipeForCosting(tier.Recipe_CakeTier_frostingRecipeIdToRecipe)
+    })),
+    orderDecorations: orderRaw.OrderDecoration.map((dec: any) => ({
+      ...dec,
+      decorationTechnique: dec.DecorationTechnique ? {
+        ...dec.DecorationTechnique,
+        laborRole: dec.DecorationTechnique.LaborRole
+      } : null
+    })),
+    orderItems: orderRaw.OrderItem.map((item: any) => ({
+      ...item,
+      menuItem: item.MenuItem ? {
+        ...item.MenuItem,
+        productType: item.MenuItem.ProductType,
+        laborRole: item.MenuItem.LaborRole
+      } : null,
+      packaging: item.Packaging
+    })),
+    deliveryZone: orderRaw.DeliveryZone
+  }
+
   // Get all recipes for auto-matching when explicit recipe not set
-  const allRecipes = await prisma.recipe.findMany({
+  const allRecipesRaw = await prisma.recipe.findMany({
     include: {
-      recipeIngredients: {
+      RecipeIngredient: {
         include: {
-          ingredient: true
+          Ingredient: true
         }
       },
-      laborRole: true
+      LaborRole: true
     }
   })
+
+  // Transform recipes to expected format
+  const allRecipes = allRecipesRaw.map(recipe => ({
+    ...recipe,
+    laborRole: recipe.LaborRole,
+    recipeIngredients: recipe.RecipeIngredient.map(ri => ({
+      ...ri,
+      ingredient: ri.Ingredient
+    }))
+  }))
 
   // Get settings
   const markupSetting = await prisma.setting.findUnique({
@@ -804,6 +894,77 @@ export async function calculateOrderCosting(
     decorationLaborCost += laborCost
   }
 
+  // Calculate product costs from order items (menu items like cupcakes, cake pops)
+  const products: ProductCostDetail[] = []
+  let productCost = 0
+  const packagingItems: PackagingCostDetail[] = []
+  let packagingCost = 0
+
+  for (const orderItem of order.orderItems) {
+    if (!orderItem.menuItem) continue
+
+    const menuItem = orderItem.menuItem
+    const quantity = orderItem.quantity
+
+    // Calculate product cost using menu price
+    const unitPrice = new Decimal(menuItem.menuPrice).toNumber()
+    const subtotal = unitPrice * quantity
+
+    // Calculate labor cost for this product
+    let laborMins = menuItem.laborMinutes ? menuItem.laborMinutes * quantity : 0
+    let laborCost = 0
+
+    if (laborMins > 0) {
+      let laborRole = 'Baker'
+      let laborRate = bakerRate
+      if (menuItem.laborRole) {
+        laborRole = menuItem.laborRole.name
+        laborRate = new Decimal(menuItem.laborRole.hourlyRate).toNumber()
+      }
+      laborCost = (laborMins / 60) * laborRate
+
+      // Track for labor breakdown
+      const existing = laborMinutesByRole.get(laborRole)
+      if (existing) {
+        existing.minutes += laborMins
+      } else {
+        laborMinutesByRole.set(laborRole, { minutes: laborMins, rate: laborRate })
+      }
+    }
+
+    products.push({
+      menuItemId: menuItem.id,
+      name: menuItem.name,
+      productType: menuItem.productType.name,
+      quantity,
+      unitPrice,
+      subtotal: Math.round(subtotal * 100) / 100,
+      laborMinutes: menuItem.laborMinutes,
+      laborCost: Math.round(laborCost * 100) / 100
+    })
+
+    productCost += subtotal
+
+    // Calculate packaging cost for this item
+    if (orderItem.packaging && orderItem.packagingQty) {
+      const packaging = orderItem.packaging
+      const packagingQty = orderItem.packagingQty
+      const packagingUnitCost = new Decimal(packaging.costPerUnit).toNumber()
+      const packagingSubtotal = packagingUnitCost * packagingQty
+
+      packagingItems.push({
+        packagingId: packaging.id,
+        name: packaging.name,
+        type: packaging.type,
+        quantity: packagingQty,
+        unitCost: packagingUnitCost,
+        subtotal: Math.round(packagingSubtotal * 100) / 100
+      })
+
+      packagingCost += packagingSubtotal
+    }
+  }
+
   // Calculate topper cost
   let topperCost = 0
   let topper: TopperCostDetail | null = null
@@ -901,7 +1062,7 @@ export async function calculateOrderCosting(
   laborBreakdown.sort((a, b) => b.cost - a.cost)
 
   // Calculate totals (delivery cost is NOT marked up - it's a pass-through cost)
-  const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost
+  const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost + productCost + packagingCost
   const suggestedPriceBeforeDelivery = totalCostBeforeDelivery * (1 + markupPercent)
   const totalCost = totalCostBeforeDelivery + deliveryCost
   const suggestedPrice = suggestedPriceBeforeDelivery
@@ -1122,6 +1283,8 @@ export async function calculateOrderCosting(
     totalServings,
     ingredients,
     decorations,
+    products,
+    packaging: packagingItems,
     topper,
     delivery,
     discount,
@@ -1129,6 +1292,8 @@ export async function calculateOrderCosting(
     ingredientCost: Math.round(ingredientCost * 100) / 100,
     decorationMaterialCost: Math.round(decorationMaterialCost * 100) / 100,
     decorationLaborCost: Math.round(decorationLaborCost * 100) / 100,
+    productCost: Math.round(productCost * 100) / 100,
+    packagingCost: Math.round(packagingCost * 100) / 100,
     topperCost: Math.round(topperCost * 100) / 100,
     deliveryCost: Math.round(deliveryCost * 100) / 100,
     baseLaborCost: Math.round(baseLaborCost * 100) / 100,
@@ -1178,7 +1343,16 @@ export interface QuoteInput {
     unitOverride?: 'SINGLE' | 'CAKE' | 'TIER' | 'SET' // Optional override of decoration's default unit
     tierIndices?: number[] // For TIER unit: which tier indices this decoration applies to (e.g., [1, 2])
   }[]
-  
+
+  // Products (cupcakes, cake pops, etc.)
+  products?: {
+    menuItemId: number
+    quantity: number
+    packagingId?: number | null
+    packagingQty?: number | null
+    notes?: string | null
+  }[]
+
   // Delivery
   isDelivery?: boolean
   deliveryZoneId?: number | null
@@ -1212,34 +1386,76 @@ export async function calculateQuoteCost(
   quoteData: QuoteInput
 ): Promise<CostingResult> {
   // Get all recipes for auto-matching when explicit recipe not set
-  const allRecipes = await prisma.recipe.findMany({
+  const allRecipesRaw = await prisma.recipe.findMany({
     include: {
-      recipeIngredients: {
+      RecipeIngredient: {
         include: {
-          ingredient: true
+          Ingredient: true
         }
       },
-      laborRole: true
+      LaborRole: true
     }
   })
+  // Transform to lowercase property names for compatibility
+  const allRecipes = allRecipesRaw.map(r => ({
+    ...r,
+    laborRole: r.LaborRole,
+    recipeIngredients: r.RecipeIngredient.map(ri => ({
+      ...ri,
+      ingredient: ri.Ingredient
+    }))
+  }))
 
   // Get all tier sizes
   const tierSizeIds = quoteData.tiers.map(t => t.tierSizeId)
-  const tierSizes = await prisma.tierSize.findMany({
+  const tierSizesRaw = await prisma.tierSize.findMany({
     where: { id: { in: tierSizeIds } },
     include: {
-      assemblyRole: true
+      LaborRole: true
     }
   })
+  const tierSizes = tierSizesRaw.map(ts => ({
+    ...ts,
+    assemblyRole: ts.LaborRole
+  }))
 
   // Get all decoration techniques
   const decorationIds = quoteData.decorations?.map(d => d.decorationTechniqueId) || []
-  const decorationTechniques = decorationIds.length > 0
+  const decorationTechniquesRaw = decorationIds.length > 0
     ? await prisma.decorationTechnique.findMany({
         where: { id: { in: decorationIds } },
         include: {
-          laborRole: true
+          LaborRole: true
         }
+      })
+    : []
+  const decorationTechniques = decorationTechniquesRaw.map(dt => ({
+    ...dt,
+    laborRole: dt.LaborRole
+  }))
+
+  // Get all menu items for products
+  const menuItemIds = quoteData.products?.map(p => p.menuItemId) || []
+  const menuItemsRaw = menuItemIds.length > 0
+    ? await prisma.menuItem.findMany({
+        where: { id: { in: menuItemIds } },
+        include: {
+          ProductType: true,
+          LaborRole: true
+        }
+      })
+    : []
+  const menuItems = menuItemsRaw.map(mi => ({
+    ...mi,
+    productType: mi.ProductType,
+    laborRole: mi.LaborRole
+  }))
+
+  // Get all packaging for products
+  const packagingIds = quoteData.products?.filter(p => p.packagingId).map(p => p.packagingId!) || []
+  const packagingList = packagingIds.length > 0
+    ? await prisma.packaging.findMany({
+        where: { id: { in: packagingIds } }
       })
     : []
 
@@ -1685,6 +1901,79 @@ export async function calculateQuoteCost(
     decorationLaborCost += laborCost
   }
 
+  // Calculate product costs from quote products (menu items like cupcakes, cake pops)
+  const products: ProductCostDetail[] = []
+  let productCost = 0
+  const packagingItems: PackagingCostDetail[] = []
+  let packagingCost = 0
+
+  for (const productInput of quoteData.products || []) {
+    const menuItem = menuItems.find(m => m.id === productInput.menuItemId)
+    if (!menuItem) continue
+
+    const quantity = productInput.quantity
+
+    // Calculate product cost using menu price
+    const unitPrice = new Decimal(menuItem.menuPrice).toNumber()
+    const subtotal = unitPrice * quantity
+
+    // Calculate labor cost for this product
+    let laborMins = menuItem.laborMinutes ? menuItem.laborMinutes * quantity : 0
+    let laborCost = 0
+
+    if (laborMins > 0) {
+      let laborRole = 'Baker'
+      let laborRate = bakerRate
+      if (menuItem.laborRole) {
+        laborRole = menuItem.laborRole.name
+        laborRate = new Decimal(menuItem.laborRole.hourlyRate).toNumber()
+      }
+      laborCost = (laborMins / 60) * laborRate
+
+      // Track for labor breakdown
+      const existing = laborMinutesByRole.get(laborRole)
+      if (existing) {
+        existing.minutes += laborMins
+      } else {
+        laborMinutesByRole.set(laborRole, { minutes: laborMins, rate: laborRate })
+      }
+    }
+
+    products.push({
+      menuItemId: menuItem.id,
+      name: menuItem.name,
+      productType: menuItem.productType.name,
+      quantity,
+      unitPrice,
+      subtotal: Math.round(subtotal * 100) / 100,
+      laborMinutes: menuItem.laborMinutes,
+      laborCost: Math.round(laborCost * 100) / 100
+    })
+
+    productCost += subtotal
+
+    // Calculate packaging cost for this item
+    if (productInput.packagingId && productInput.packagingQty) {
+      const packaging = packagingList.find(p => p.id === productInput.packagingId)
+      if (packaging) {
+        const packagingQty = productInput.packagingQty
+        const packagingUnitCost = new Decimal(packaging.costPerUnit).toNumber()
+        const packagingSubtotal = packagingUnitCost * packagingQty
+
+        packagingItems.push({
+          packagingId: packaging.id,
+          name: packaging.name,
+          type: packaging.type,
+          quantity: packagingQty,
+          unitCost: packagingUnitCost,
+          subtotal: Math.round(packagingSubtotal * 100) / 100
+        })
+
+        packagingCost += packagingSubtotal
+      }
+    }
+  }
+
   // Calculate topper cost
   let topperCost = 0
   let topper: TopperCostDetail | null = null
@@ -1775,7 +2064,7 @@ export async function calculateQuoteCost(
   laborBreakdown.sort((a, b) => b.cost - a.cost)
 
   // Calculate totals
-  const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost
+  const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost + productCost + packagingCost
   const suggestedPriceBeforeDelivery = totalCostBeforeDelivery * (1 + markupPercent)
   const totalCost = totalCostBeforeDelivery + deliveryCost
   const suggestedPrice = suggestedPriceBeforeDelivery
@@ -1810,6 +2099,8 @@ export async function calculateQuoteCost(
     totalServings,
     ingredients,
     decorations,
+    products,
+    packaging: packagingItems,
     topper,
     delivery,
     discount,
@@ -1817,6 +2108,8 @@ export async function calculateQuoteCost(
     ingredientCost: Math.round(ingredientCost * 100) / 100,
     decorationMaterialCost: Math.round(decorationMaterialCost * 100) / 100,
     decorationLaborCost: Math.round(decorationLaborCost * 100) / 100,
+    productCost: Math.round(productCost * 100) / 100,
+    packagingCost: Math.round(packagingCost * 100) / 100,
     topperCost: Math.round(topperCost * 100) / 100,
     deliveryCost: Math.round(deliveryCost * 100) / 100,
     baseLaborCost: Math.round(baseLaborCost * 100) / 100,

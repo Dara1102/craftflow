@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createOrder } from '@/app/actions/orders'
 import { OrderStatus, CakeType, DiscountType } from '@prisma/client'
 import useSWR from 'swr'
+import ProductSelector from '@/app/components/ProductSelector'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
@@ -85,6 +86,13 @@ interface Settings {
   [key: string]: string
 }
 
+interface Recipe {
+  id: number
+  name: string
+  type: string
+  yieldDescription: string | null
+}
+
 export default function NewOrder() {
   // Customer state
   const [customerId, setCustomerId] = useState<number | null>(null)
@@ -139,12 +147,21 @@ export default function NewOrder() {
 
   // Tiers
   const [tiers, setTiers] = useState([
-    { tierSizeId: 0, flavor: '', filling: '', finishType: '' }
+    { tierSizeId: 0, batterRecipeId: null as number | null, fillingRecipeId: null as number | null, frostingRecipeId: null as number | null, flavor: '', filling: '', finishType: '' }
   ])
 
   // Decorations
   const [selectedDecorations, setSelectedDecorations] = useState<SelectedDecoration[]>([])
   const [decorationSearch, setDecorationSearch] = useState('')
+
+  // Products (menu items like cupcakes, cake pops)
+  const [selectedProducts, setSelectedProducts] = useState<Array<{
+    menuItemId: number
+    quantity: number
+    packagingId?: number
+    packagingQty?: number
+    notes?: string
+  }>>([])
 
   // Topper
   const [topperType, setTopperType] = useState('')
@@ -171,6 +188,9 @@ export default function NewOrder() {
   const { data: deliveryZones } = useSWR<DeliveryZone[]>('/api/delivery-zones', fetcher)
   const { data: deliveryStartPoints } = useSWR<DeliveryStartPoint[]>('/api/delivery-start-points', fetcher)
   const { data: settings } = useSWR<Settings>('/api/settings', fetcher)
+  const { data: batterRecipes } = useSWR<Recipe[]>('/api/recipes?type=BATTER', fetcher)
+  const { data: fillingRecipes } = useSWR<Recipe[]>('/api/recipes?type=FILLING', fetcher)
+  const { data: frostingRecipes } = useSWR<Recipe[]>('/api/recipes?type=FROSTING', fetcher)
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -370,14 +390,14 @@ export default function NewOrder() {
   }
 
   const addTier = () => {
-    setTiers([...tiers, { tierSizeId: 0, flavor: '', filling: '', finishType: '' }])
+    setTiers([...tiers, { tierSizeId: 0, batterRecipeId: null, fillingRecipeId: null, frostingRecipeId: null, flavor: '', filling: '', finishType: '' }])
   }
 
   const removeTier = (index: number) => {
     setTiers(tiers.filter((_, i) => i !== index))
   }
 
-  const updateTier = (index: number, field: string, value: string | number) => {
+  const updateTier = (index: number, field: string, value: string | number | null) => {
     const newTiers = [...tiers]
     newTiers[index] = { ...newTiers[index], [field]: value }
     setTiers(newTiers)
@@ -417,9 +437,17 @@ export default function NewOrder() {
       return
     }
 
-    const validTiers = tiers.filter(t => t.tierSizeId > 0 && t.flavor && t.filling && t.finishType)
-    if (validTiers.length === 0) {
-      alert('Please add at least one complete tier')
+    // Valid tiers have either recipe IDs or legacy fields filled
+    const validTiers = tiers.filter(t =>
+      t.tierSizeId > 0 &&
+      (t.batterRecipeId || t.flavor) &&
+      (t.fillingRecipeId || t.filling) &&
+      (t.frostingRecipeId || t.finishType)
+    )
+
+    // Require at least a tier or a product
+    if (validTiers.length === 0 && selectedProducts.length === 0) {
+      alert('Please add at least one tier or product to the order')
       return
     }
 
@@ -450,10 +478,22 @@ export default function NewOrder() {
       notes,
       status,
       tiers: validTiers.map(t => ({
-        ...t,
-        tierSizeId: parseInt(t.tierSizeId.toString())
+        tierSizeId: parseInt(t.tierSizeId.toString()),
+        batterRecipeId: t.batterRecipeId || null,
+        fillingRecipeId: t.fillingRecipeId || null,
+        frostingRecipeId: t.frostingRecipeId || null,
+        flavor: t.flavor || null,
+        filling: t.filling || null,
+        finishType: t.finishType || null
       })),
-      decorations: selectedDecorations
+      decorations: selectedDecorations,
+      products: selectedProducts.map(p => ({
+        menuItemId: p.menuItemId,
+        quantity: p.quantity,
+        packagingId: p.packagingId || null,
+        packagingQty: p.packagingQty || null,
+        notes: p.notes || null
+      }))
     })
   }
 
@@ -1272,7 +1312,7 @@ export default function NewOrder() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-700">Tier Size</label>
+                        <label className="block text-xs font-medium text-gray-700">Tier Size *</label>
                         <select
                           value={tier.tierSizeId}
                           onChange={(e) => updateTier(index, 'tierSizeId', parseInt(e.target.value))}
@@ -1288,46 +1328,79 @@ export default function NewOrder() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700">Flavor</label>
+                        <label className="block text-xs font-medium text-gray-700">Batter Recipe</label>
                         <select
-                          value={tier.flavor}
-                          onChange={(e) => updateTier(index, 'flavor', e.target.value)}
+                          value={tier.batterRecipeId || ''}
+                          onChange={(e) => updateTier(index, 'batterRecipeId', e.target.value ? parseInt(e.target.value) : null)}
                           className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                          required
                         >
-                          <option value="">Select flavor...</option>
-                          {fieldOptions?.flavor?.map(opt => (
-                            <option key={opt.id} value={opt.name}>{opt.name}</option>
+                          <option value="">Select recipe...</option>
+                          {batterRecipes?.map(recipe => (
+                            <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
                           ))}
                         </select>
+                        {!tier.batterRecipeId && (
+                          <select
+                            value={tier.flavor}
+                            onChange={(e) => updateTier(index, 'flavor', e.target.value)}
+                            className="mt-2 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                          >
+                            <option value="">Or select flavor...</option>
+                            {fieldOptions?.flavor?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700">Filling</label>
+                        <label className="block text-xs font-medium text-gray-700">Filling Recipe</label>
                         <select
-                          value={tier.filling}
-                          onChange={(e) => updateTier(index, 'filling', e.target.value)}
+                          value={tier.fillingRecipeId || ''}
+                          onChange={(e) => updateTier(index, 'fillingRecipeId', e.target.value ? parseInt(e.target.value) : null)}
                           className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                          required
                         >
-                          <option value="">Select filling...</option>
-                          {fieldOptions?.filling?.map(opt => (
-                            <option key={opt.id} value={opt.name}>{opt.name}</option>
+                          <option value="">Select recipe...</option>
+                          {fillingRecipes?.map(recipe => (
+                            <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
                           ))}
                         </select>
+                        {!tier.fillingRecipeId && (
+                          <select
+                            value={tier.filling}
+                            onChange={(e) => updateTier(index, 'filling', e.target.value)}
+                            className="mt-2 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                          >
+                            <option value="">Or select filling...</option>
+                            {fieldOptions?.filling?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700">Finish Type</label>
+                        <label className="block text-xs font-medium text-gray-700">Frosting Recipe</label>
                         <select
-                          value={tier.finishType}
-                          onChange={(e) => updateTier(index, 'finishType', e.target.value)}
+                          value={tier.frostingRecipeId || ''}
+                          onChange={(e) => updateTier(index, 'frostingRecipeId', e.target.value ? parseInt(e.target.value) : null)}
                           className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-                          required
                         >
-                          <option value="">Select finish...</option>
-                          {fieldOptions?.cakeSurface?.map(opt => (
-                            <option key={opt.id} value={opt.name}>{opt.name}</option>
+                          <option value="">Select recipe...</option>
+                          {frostingRecipes?.map(recipe => (
+                            <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
                           ))}
                         </select>
+                        {!tier.frostingRecipeId && (
+                          <select
+                            value={tier.finishType}
+                            onChange={(e) => updateTier(index, 'finishType', e.target.value)}
+                            className="mt-2 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                          >
+                            <option value="">Or select finish...</option>
+                            {fieldOptions?.cakeSurface?.map(opt => (
+                              <option key={opt.id} value={opt.name}>{opt.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1339,6 +1412,13 @@ export default function NewOrder() {
                 >
                   Add Tier
                 </button>
+
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-800">
+                    <strong>Tip:</strong> Selecting recipes ensures accurate ingredient and labor costing.
+                    If a recipe isn&apos;t available, use the flavor/filling/finish dropdowns as fallback.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1439,6 +1519,25 @@ export default function NewOrder() {
                     </p>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+
+          {/* Products (Cupcakes, Cake Pops, etc.) */}
+          <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+            <div className="md:grid md:grid-cols-3 md:gap-6">
+              <div className="md:col-span-1">
+                <h3 className="text-lg font-medium leading-6 text-gray-900">Additional Products</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  Add cupcakes, cake pops, cookies, and other products to this order.
+                </p>
+              </div>
+              <div className="mt-5 md:mt-0 md:col-span-2">
+                <ProductSelector
+                  selectedProducts={selectedProducts}
+                  onProductsChange={setSelectedProducts}
+                  showPackaging={true}
+                />
               </div>
             </div>
           </div>

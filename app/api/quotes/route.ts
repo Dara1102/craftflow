@@ -20,22 +20,32 @@ export async function GET(request: NextRequest) {
       where.customerId = parseInt(customerId)
     }
 
-    const quotes = await prisma.quote.findMany({
+    const quotesRaw = await prisma.quote.findMany({
       where,
       include: {
-        customer: true,
-        deliveryZone: true,
-        quoteTiers: {
+        Customer: true,
+        DeliveryZone: true,
+        QuoteTier: {
           include: {
-            tierSize: true,
-            batterRecipe: true,
-            fillingRecipe: true,
-            frostingRecipe: true
+            TierSize: true,
+            Recipe_QuoteTier_batterRecipeIdToRecipe: true,
+            Recipe_QuoteTier_fillingRecipeIdToRecipe: true,
+            Recipe_QuoteTier_frostingRecipeIdToRecipe: true
           }
         },
-        quoteDecorations: {
+        QuoteDecoration: {
           include: {
-            decorationTechnique: true
+            DecorationTechnique: true
+          }
+        },
+        QuoteItem: {
+          include: {
+            MenuItem: {
+              include: {
+                ProductType: true
+              }
+            },
+            Packaging: true
           }
         }
       },
@@ -43,6 +53,32 @@ export async function GET(request: NextRequest) {
         createdAt: 'desc'
       }
     })
+
+    // Transform to expected format for frontend
+    const quotes = quotesRaw.map(quote => ({
+      ...quote,
+      customer: quote.Customer,
+      deliveryZone: quote.DeliveryZone,
+      quoteTiers: quote.QuoteTier.map(tier => ({
+        ...tier,
+        tierSize: tier.TierSize,
+        batterRecipe: tier.Recipe_QuoteTier_batterRecipeIdToRecipe,
+        fillingRecipe: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe,
+        frostingRecipe: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe
+      })),
+      quoteDecorations: quote.QuoteDecoration.map(dec => ({
+        ...dec,
+        decorationTechnique: dec.DecorationTechnique
+      })),
+      quoteItems: quote.QuoteItem.map(item => ({
+        ...item,
+        menuItem: item.MenuItem ? {
+          ...item.MenuItem,
+          productType: item.MenuItem.ProductType
+        } : null,
+        packaging: item.Packaging
+      }))
+    }))
 
     return NextResponse.json(quotes)
   } catch (error) {
@@ -292,6 +328,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Prepare products (QuoteItems) data
+    const productsToCreate = (body.products || [])
+      .filter((product: any) => product.menuItemId && product.menuItemId > 0)
+      .map((product: any) => ({
+        itemType: 'MENU_ITEM' as const,
+        menuItemId: parseInt(product.menuItemId.toString()),
+        quantity: product.quantity ? Math.max(1, parseInt(product.quantity.toString())) : 1,
+        packagingId: product.packagingId ? parseInt(product.packagingId.toString()) : null,
+        packagingQty: product.packagingQty ? parseInt(product.packagingQty.toString()) : null,
+        notes: product.notes || null
+      }))
+
     // Log data being sent in development
     if (process.env.NODE_ENV === 'development') {
       console.log('Quote data to create:', {
@@ -359,26 +407,65 @@ export async function POST(request: NextRequest) {
         },
         quoteDecorations: {
           create: decorationsToCreate
+        },
+        quoteItems: {
+          create: productsToCreate
         }
       },
       include: {
-        customer: true,
-        deliveryZone: true,
-        quoteTiers: {
+        Customer: true,
+        DeliveryZone: true,
+        QuoteTier: {
           include: {
-            tierSize: true,
-            batterRecipe: true,
-            fillingRecipe: true,
-            frostingRecipe: true
+            TierSize: true,
+            Recipe_QuoteTier_batterRecipeIdToRecipe: true,
+            Recipe_QuoteTier_fillingRecipeIdToRecipe: true,
+            Recipe_QuoteTier_frostingRecipeIdToRecipe: true
           }
         },
-        quoteDecorations: {
+        QuoteDecoration: {
           include: {
-            decorationTechnique: true
+            DecorationTechnique: true
+          }
+        },
+        QuoteItem: {
+          include: {
+            MenuItem: {
+              include: {
+                ProductType: true
+              }
+            },
+            Packaging: true
           }
         }
       }
     })
+
+    // Transform to expected format for frontend
+    quote = {
+      ...quote,
+      customer: quote.Customer,
+      deliveryZone: quote.DeliveryZone,
+      quoteTiers: quote.QuoteTier.map((tier: any) => ({
+        ...tier,
+        tierSize: tier.TierSize,
+        batterRecipe: tier.Recipe_QuoteTier_batterRecipeIdToRecipe,
+        fillingRecipe: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe,
+        frostingRecipe: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe
+      })),
+      quoteDecorations: quote.QuoteDecoration.map((dec: any) => ({
+        ...dec,
+        decorationTechnique: dec.DecorationTechnique
+      })),
+      quoteItems: quote.QuoteItem.map((item: any) => ({
+        ...item,
+        menuItem: item.MenuItem ? {
+          ...item.MenuItem,
+          productType: item.MenuItem.ProductType
+        } : null,
+        packaging: item.Packaging
+      }))
+    } as any
     } catch (createError) {
       // Log the specific Prisma create error with full details
       console.error('Prisma create error details:', {

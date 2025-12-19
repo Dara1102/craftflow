@@ -7,6 +7,11 @@ export interface TierInfo {
   shape: string
   servings: number
   volumeMl: number | null
+  // Dimensions for decoration size scaling
+  diameterCm: number | null
+  lengthCm: number | null
+  widthCm: number | null
+  heightCm: number | null
   // Assembly labor data (this is tied to tier size)
   assemblyMinutes: number
   assemblyRole: string | null
@@ -19,7 +24,7 @@ export async function GET() {
   try {
     const tierSizes = await prisma.tierSize.findMany({
       include: {
-        assemblyRole: true
+        LaborRole: true
       },
       orderBy: {
         diameterCm: 'asc'
@@ -30,9 +35,9 @@ export async function GET() {
 
     const tierInfo: TierInfo[] = tierSizes.map(ts => {
       const assemblyMinutes = ts.assemblyMinutes || 0
-      const assemblyRole = ts.assemblyRole?.name || null
-      const assemblyRate = ts.assemblyRole
-        ? Number(ts.assemblyRole.hourlyRate)
+      const assemblyRole = ts.LaborRole?.name || null
+      const assemblyRate = ts.LaborRole
+        ? Number(ts.LaborRole.hourlyRate)
         : null
 
       const assemblyLaborCost = (assemblyMinutes / 60) * (assemblyRate || defaultRate)
@@ -43,6 +48,10 @@ export async function GET() {
         shape: ts.shape,
         servings: ts.servings,
         volumeMl: ts.volumeMl,
+        diameterCm: ts.diameterCm ? Number(ts.diameterCm) : null,
+        lengthCm: ts.lengthCm ? Number(ts.lengthCm) : null,
+        widthCm: ts.widthCm ? Number(ts.widthCm) : null,
+        heightCm: ts.heightCm ? Number(ts.heightCm) : null,
         assemblyMinutes,
         assemblyRole,
         assemblyRate,

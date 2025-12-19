@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import useSWR from 'swr'
+import ProductSelector from '@/app/components/ProductSelector'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
@@ -144,6 +145,15 @@ export default function NewQuote() {
     finishType?: string
   }>>([{ tierIndex: 1, tierSizeId: 0 }])
   
+  // Products (menu items like cupcakes, cake pops)
+  const [selectedProducts, setSelectedProducts] = useState<Array<{
+    menuItemId: number
+    quantity: number
+    packagingId?: number
+    packagingQty?: number
+    notes?: string
+  }>>([])
+
   // Decorations
   const [selectedDecorations, setSelectedDecorations] = useState<Array<{
     decorationTechniqueId: number
@@ -641,6 +651,13 @@ export default function NewQuote() {
                           customDepositPercent / 100,
           discountType: discountType || null,
           discountValue: discountValue ? parseFloat(discountValue) : null,
+          products: selectedProducts.map(p => ({
+            menuItemId: p.menuItemId,
+            quantity: p.quantity,
+            packagingId: p.packagingId || null,
+            packagingQty: p.packagingQty || null,
+            notes: p.notes || null
+          })),
           status: 'DRAFT'
         })
       })
@@ -1285,7 +1302,20 @@ export default function NewQuote() {
                 </p>
               </div>
             </div>
-            
+
+            {/* Products Section - Cupcakes, Cake Pops, etc. */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-2">Additional Products</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Add cupcakes, cake pops, cookies, and other menu items to this order.
+              </p>
+              <ProductSelector
+                selectedProducts={selectedProducts}
+                onProductsChange={setSelectedProducts}
+                showPackaging={true}
+              />
+            </div>
+
             {/* Decorations Section */}
             <div className="bg-white shadow rounded-lg p-6">
               <div className="flex justify-between items-center mb-4">

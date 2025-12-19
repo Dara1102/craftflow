@@ -16,6 +16,7 @@ export async function GET() {
       subcategory: true,
       defaultCostPerUnit: true,
       unit: true,
+      baseCakeSize: true,
       imageReference: true
     }
   })

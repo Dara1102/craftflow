@@ -4,10 +4,10 @@ import { prisma } from '@/lib/db'
 export default async function QuotesPage() {
   const quotes = await prisma.quote.findMany({
     include: {
-      customer: true,
-      quoteTiers: {
+      Customer: true,
+      QuoteTier: {
         include: {
-          tierSize: true
+          TierSize: true
         }
       }
     },
@@ -18,7 +18,7 @@ export default async function QuotesPage() {
   })
 
   const getTotalServings = (quote: typeof quotes[0]) => {
-    return quote.quoteTiers.reduce((sum, tier) => sum + tier.tierSize.servings, 0)
+    return quote.QuoteTier.reduce((sum, tier) => sum + tier.TierSize.servings, 0)
   }
 
   const getStatusColor = (status: string) => {
@@ -79,9 +79,9 @@ export default async function QuotesPage() {
                           <p className="ml-4 text-sm text-gray-900">
                             {quote.customerName}
                           </p>
-                          {quote.customer?.company && (
+                          {quote.Customer?.company && (
                             <p className="ml-2 text-sm text-gray-500">
-                              ({quote.customer.company})
+                              ({quote.Customer.company})
                             </p>
                           )}
                         </div>
@@ -102,7 +102,7 @@ export default async function QuotesPage() {
                             Servings: {getTotalServings(quote)}
                           </p>
                           <p className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0 sm:ml-6">
-                            Tiers: {quote.quoteTiers.length}
+                            Tiers: {quote.QuoteTier.length}
                           </p>
                         </div>
                         <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
