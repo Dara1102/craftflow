@@ -42,6 +42,10 @@ model CakeOrder {
   desiredServings  Int?
   markupPercent    Decimal?          @db.Decimal(10, 4)
   pickupTime       DateTime?
+  imageUrl         String?           // Customer's cake design/inspiration photo
+  isBulkOrder      Boolean           @default(false)
+  bulkQuantity     Int?              // For bulk orders (e.g., 500 cupcakes)
+  productionDays   Int?              // Number of days needed for production
   Customer         Customer?         @relation(fields: [customerId], references: [id])
   DeliveryZone     DeliveryZone?     @relation(fields: [deliveryZoneId], references: [id])
   CakeTier              CakeTier[]
@@ -351,7 +355,28 @@ model MenuItem {
   ProductType                              ProductType @relation(fields: [productTypeId], references: [id])
   OrderItem                                OrderItem[]
   QuoteItem                                QuoteItem[]
+  VolumeBreakpoint                         VolumeBreakpoint[]
 
+  @@index([productTypeId])
+}
+
+// Volume-based pricing for bulk orders
+model VolumeBreakpoint {
+  id              Int       @id @default(autoincrement())
+  menuItemId      Int?      // For specific menu item
+  productTypeId   Int?      // OR for entire product category
+  minQuantity     Int       // Minimum quantity for this tier
+  maxQuantity     Int?      // Max quantity (null = unlimited)
+  discountPercent Decimal   @db.Decimal(5, 2) // e.g., 10.00 = 10%
+  pricePerUnit    Decimal?  @db.Decimal(10, 2) // OR fixed per-unit price
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  MenuItem        MenuItem?    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ProductType     ProductType? @relation(fields: [productTypeId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
   @@index([productTypeId])
 }
 
@@ -461,10 +486,11 @@ model ProductType {
   sortOrder       Int         @default(0)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime
-  MenuItem        MenuItem[]
-  OrderItem       OrderItem[]
-  Recipe          Recipe?     @relation(fields: [defaultRecipeId], references: [id])
-  QuoteItem       QuoteItem[]
+  MenuItem         MenuItem[]
+  OrderItem        OrderItem[]
+  Recipe           Recipe?     @relation(fields: [defaultRecipeId], references: [id])
+  QuoteItem        QuoteItem[]
+  VolumeBreakpoint VolumeBreakpoint[]
 }
 
 model ProductionTask {

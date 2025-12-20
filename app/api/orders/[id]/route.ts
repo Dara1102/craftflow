@@ -11,15 +11,35 @@ export async function GET(
   const orderRaw = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
+      Customer: true,
       CakeTier: {
         include: {
-          TierSize: true
-        }
+          TierSize: true,
+          Recipe_CakeTier_batterRecipeIdToRecipe: { select: { name: true } },
+          Recipe_CakeTier_fillingRecipeIdToRecipe: { select: { name: true } },
+          Recipe_CakeTier_frostingRecipeIdToRecipe: { select: { name: true } },
+          CakeboardType: { select: { name: true } }
+        },
+        orderBy: { tierIndex: 'asc' }
       },
       OrderDecoration: {
         include: {
           DecorationTechnique: true
         }
+      },
+      OrderItem: {
+        include: {
+          ProductType: true,
+          MenuItem: true
+        }
+      },
+      OrderAssignment: {
+        include: {
+          Staff: { select: { id: true, name: true } }
+        }
+      },
+      ProductionTask: {
+        orderBy: { scheduledDate: 'asc' }
       }
     }
   })
@@ -28,7 +48,7 @@ export async function GET(
     return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   }
 
-  // Transform to expected format for frontend
+  // Transform to expected format for frontend (backwards compatible)
   const order = {
     ...orderRaw,
     cakeTiers: orderRaw.CakeTier.map(tier => ({
