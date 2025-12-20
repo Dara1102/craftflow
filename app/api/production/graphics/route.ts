@@ -80,6 +80,7 @@ export async function GET(request: Request) {
       customerName: string
       eventDate: string
       eventTime: string | null
+      isDelivery: boolean
       decorations: {
         id: number
         techniqueName: string
@@ -135,11 +136,20 @@ export async function GET(request: Request) {
         .map(t => t.color)
         .filter((c): c is string => !!c)
 
+      // Get appropriate time based on delivery/pickup
+      let eventTime: string | null = null
+      if (order.isDelivery && order.deliveryTime) {
+        eventTime = new Date(order.deliveryTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      } else if (!order.isDelivery && order.pickupTime) {
+        eventTime = new Date(order.pickupTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      }
+
       orderGraphics.push({
         orderId: order.id,
         customerName: order.customer?.name || 'Unknown Customer',
         eventDate: order.eventDate.toISOString(),
-        eventTime: order.eventTime || null,
+        eventTime,
+        isDelivery: order.isDelivery,
         decorations,
         topper,
         cakeStyle: order.cakeStyle || null,

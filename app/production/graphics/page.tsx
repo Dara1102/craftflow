@@ -24,6 +24,7 @@ interface OrderGraphics {
   customerName: string
   eventDate: string
   eventTime: string | null
+  isDelivery: boolean
   decorations: Decoration[]
   topper: Topper | null
   cakeStyle: string | null
@@ -198,12 +199,21 @@ export default function GraphicsReportPage() {
                 {/* Order Header */}
                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                   <div>
-                    <Link
-                      href={`/orders/${order.orderId}`}
-                      className="text-lg font-medium text-pink-600 hover:text-pink-800 print:text-gray-900 print:no-underline"
-                    >
-                      {order.customerName}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        order.isDelivery
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {order.isDelivery ? 'D' : 'P'}
+                      </span>
+                      <Link
+                        href={`/orders/${order.orderId}`}
+                        className="text-lg font-medium text-pink-600 hover:text-pink-800 print:text-gray-900 print:no-underline"
+                      >
+                        {order.customerName}
+                      </Link>
+                    </div>
                     <p className="text-sm text-gray-500">
                       {new Date(order.eventDate).toLocaleDateString('en-US', {
                         weekday: 'short',

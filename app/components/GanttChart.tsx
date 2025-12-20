@@ -27,17 +27,20 @@ interface DateGroup {
 interface GanttChartProps {
   tasksByDate: DateGroup[]
   onTaskStatusChange?: (taskId: number, status: string) => void
+  onTaskReschedule?: (taskId: number, newDate: string) => void
 }
 
 const TASK_TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  PREP: { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-800' },
+  PREP: { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800' },
   BAKE: { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-800' },
   COOL: { bg: 'bg-cyan-100', border: 'border-cyan-300', text: 'text-cyan-800' },
+  FILL: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800' },
   FROST: { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800' },
   DECORATE: { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-800' },
-  ASSEMBLE: { bg: 'bg-indigo-100', border: 'border-indigo-300', text: 'text-indigo-800' },
+  STACK: { bg: 'bg-indigo-100', border: 'border-indigo-300', text: 'text-indigo-800' },
+  FINAL: { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-800' },
   PACKAGE: { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800' },
-  DELIVERY: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800' }
+  DELIVERY: { bg: 'bg-rose-100', border: 'border-rose-300', text: 'text-rose-800' }
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -48,10 +51,12 @@ const STATUS_COLORS: Record<string, string> = {
   SKIPPED: 'bg-gray-400'
 }
 
-export default function GanttChart({ tasksByDate, onTaskStatusChange }: GanttChartProps) {
+export default function GanttChart({ tasksByDate, onTaskStatusChange, onTaskReschedule }: GanttChartProps) {
   const [expandedDates, setExpandedDates] = useState<Set<string>>(
     new Set(tasksByDate.map(d => d.date))
   )
+  const [rescheduleTask, setRescheduleTask] = useState<Task | null>(null)
+  const [newDate, setNewDate] = useState('')
 
   const toggleDate = (date: string) => {
     const newExpanded = new Set(expandedDates)
@@ -75,6 +80,19 @@ export default function GanttChart({ tasksByDate, onTaskStatusChange }: GanttCha
 
   // Calculate timeline hours (6am to 8pm)
   const timelineHours = Array.from({ length: 15 }, (_, i) => i + 6)
+
+  const openReschedule = (task: Task) => {
+    setRescheduleTask(task)
+    setNewDate(task.scheduledDate.split('T')[0])
+  }
+
+  const handleReschedule = () => {
+    if (rescheduleTask && newDate && onTaskReschedule) {
+      onTaskReschedule(rescheduleTask.id, newDate)
+      setRescheduleTask(null)
+      setNewDate('')
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -145,12 +163,12 @@ export default function GanttChart({ tasksByDate, onTaskStatusChange }: GanttCha
                     const statusColor = STATUS_COLORS[task.status] || STATUS_COLORS.PENDING
                     const duration = task.durationMinutes || 30
 
-                    // Calculate bar position (simplified - based on task type order)
-                    const taskTypeOrder = ['PREP', 'BAKE', 'COOL', 'FROST', 'DECORATE', 'ASSEMBLE', 'PACKAGE', 'DELIVERY']
-                    const typeIndex = taskTypeOrder.indexOf(task.taskType)
-                    const startHour = 6 + typeIndex * 1.5
+                    // Calculate bar position (based on task type order in production flow)
+                    const taskTypeOrder = ['BAKE', 'COOL', 'FILL', 'FROST', 'DECORATE', 'STACK', 'FINAL', 'PACKAGE', 'DELIVERY']
+                    const typeIndex = Math.max(0, taskTypeOrder.indexOf(task.taskType))
+                    const startHour = 6 + typeIndex * 1.3
                     const barLeft = ((startHour - 6) / 14) * 100
-                    const barWidth = Math.max((duration / 60 / 14) * 100, 5)
+                    const barWidth = Math.max((duration / 60 / 14) * 100, 6)
 
                     return (
                       <div key={task.id} className="flex items-center hover:bg-gray-50">
@@ -171,15 +189,17 @@ export default function GanttChart({ tasksByDate, onTaskStatusChange }: GanttCha
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             <Link
                               href={`/orders/${task.orderId}`}
-                              className="text-pink-600 hover:text-pink-800"
+                              className="text-pink-600 hover:text-pink-800 font-medium"
                             >
-                              #{task.orderId}
+                              #{task.orderId} {task.customerName && `- ${task.customerName}`}
                             </Link>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                             {task.durationMinutes && (
                               <span>{formatDuration(task.durationMinutes)}</span>
                             )}
                             {task.assignedTo && (
-                              <span className="bg-gray-100 px-1 rounded">{task.assignedTo}</span>
+                              <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{task.assignedTo}</span>
                             )}
                           </div>
                         </div>
@@ -201,7 +221,16 @@ export default function GanttChart({ tasksByDate, onTaskStatusChange }: GanttCha
                         </div>
 
                         {/* Quick Actions */}
-                        <div className="flex-shrink-0 px-3 print:hidden">
+                        <div className="flex-shrink-0 px-3 print:hidden flex items-center gap-2">
+                          {onTaskReschedule && task.status !== 'COMPLETED' && (
+                            <button
+                              onClick={() => openReschedule(task)}
+                              className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200"
+                              title="Reschedule"
+                            >
+                              📅
+                            </button>
+                          )}
                           {task.status === 'PENDING' && onTaskStatusChange && (
                             <button
                               onClick={() => onTaskStatusChange(task.id, 'IN_PROGRESS')}
@@ -253,6 +282,44 @@ export default function GanttChart({ tasksByDate, onTaskStatusChange }: GanttCha
           ))}
         </div>
       </div>
+
+      {/* Reschedule Modal */}
+      {rescheduleTask && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Reschedule Task</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {rescheduleTask.taskName}
+              <span className="text-gray-400 ml-2">#{rescheduleTask.orderId}</span>
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                New Date
+              </label>
+              <input
+                type="date"
+                value={newDate}
+                onChange={(e) => setNewDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-pink-500 focus:border-pink-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setRescheduleTask(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReschedule}
+                className="px-4 py-2 text-sm bg-pink-600 text-white rounded-md hover:bg-pink-700"
+              >
+                Reschedule
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

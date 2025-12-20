@@ -91,12 +91,37 @@ const reportTypes = [
     icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
     color: 'teal',
     href: '/production/checklist'
+  },
+  {
+    id: 'prep',
+    name: 'Production Prep',
+    description: 'Assign staff, confirm cakeboards, manager sign-off',
+    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+    color: 'violet',
+    href: '/production/prep'
+  },
+  {
+    id: 'my-tasks',
+    name: 'My Tasks',
+    description: 'View and manage your production assignments',
+    icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
+    color: 'pink',
+    href: '/production/my-tasks'
+  },
+  {
+    id: 'stock',
+    name: 'Stock Production',
+    description: 'Pre-make inventory items (cakes, cupcakes, cookies)',
+    icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4',
+    color: 'amber',
+    href: '/production/stock'
   }
 ]
 
 const colorClasses: { [key: string]: { bg: string, text: string, border: string, hover: string } } = {
   pink: { bg: 'bg-pink-50', text: 'text-pink-600', border: 'border-pink-200', hover: 'hover:bg-pink-100' },
   purple: { bg: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-200', hover: 'hover:bg-purple-100' },
+  violet: { bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200', hover: 'hover:bg-violet-100' },
   yellow: { bg: 'bg-yellow-50', text: 'text-yellow-600', border: 'border-yellow-200', hover: 'hover:bg-yellow-100' },
   orange: { bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-200', hover: 'hover:bg-orange-100' },
   green: { bg: 'bg-green-50', text: 'text-green-600', border: 'border-green-200', hover: 'hover:bg-green-100' },
@@ -105,6 +130,7 @@ const colorClasses: { [key: string]: { bg: string, text: string, border: string,
   emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', hover: 'hover:bg-emerald-100' },
   cyan: { bg: 'bg-cyan-50', text: 'text-cyan-600', border: 'border-cyan-200', hover: 'hover:bg-cyan-100' },
   teal: { bg: 'bg-teal-50', text: 'text-teal-600', border: 'border-teal-200', hover: 'hover:bg-teal-100' },
+  amber: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', hover: 'hover:bg-amber-100' },
 }
 
 export default function ProductionReportsHub() {
@@ -197,6 +223,19 @@ export default function ProductionReportsHub() {
           <p className="mt-1 text-sm text-gray-500">
             Generate reports for back-of-house production staff
           </p>
+
+          {/* How to Use Instructions */}
+          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="font-semibold text-blue-800 mb-2">How to Create a Report:</h3>
+            <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
+              <li><strong>Select orders</strong> - Use the date range picker OR switch to manual selection to choose specific orders</li>
+              <li><strong>Choose a report type</strong> - Click any report card below (Cake Stacking, Delivery Schedule, etc.)</li>
+              <li><strong>View & Print</strong> - The report will open with your selected orders. Use browser print (Ctrl+P / Cmd+P) for printing</li>
+            </ol>
+            <p className="text-xs text-blue-600 mt-2 italic">
+              Tip: For testing, extend the date range to include future dates (orders are dated Dec 26, 2025 - Mar 14, 2026)
+            </p>
+          </div>
         </div>
 
         {/* Date Range / Order Selection */}

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 interface TierInfo {
+  tierId: number
   tierIndex: number
   size: string
   shape: string
@@ -16,6 +17,25 @@ interface TierInfo {
   drumSize: string | null
   color: string | null
   notes: string | null
+  // Cakeboard fields
+  cakeboardTypeId: number | null
+  cakeboardTypeName: string | null
+  cakeboardShape: string | null
+  cakeboardSizeInches: number | null
+  cakeboardNotes: string | null
+}
+
+interface PrepSignoff {
+  status: string
+  signedAt: string | null
+  signedByName: string | null
+  lockedAt: string | null
+}
+
+interface StaffAssignment {
+  staffId: number
+  staffName: string
+  assignedAt: string
 }
 
 interface CakeInfo {
@@ -23,12 +43,15 @@ interface CakeInfo {
   customerName: string
   eventDate: string
   eventTime: string | null
+  isDelivery: boolean
   tierCount: number
   tiers: TierInfo[]
   cakeStyle: string | null
-  cakeTheme: string | null
+  cakeColors: string | null
   servings: number | null
   notes: string | null
+  prepSignoff: PrepSignoff | null
+  assignment: StaffAssignment | null
 }
 
 interface DateGroup {
@@ -38,11 +61,19 @@ interface DateGroup {
   cakes: CakeInfo[]
 }
 
+interface CakeboardType {
+  id: number
+  name: string
+  availableShapes: string | null
+  availableSizes: string | null
+}
+
 interface StackingResult {
   orderIds: number[]
   orderCount: number
   generatedAt: string
   cakesByDate: DateGroup[]
+  cakeboardTypes: CakeboardType[]
 }
 
 export default function StackingReportPage() {
@@ -51,6 +82,8 @@ export default function StackingReportPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set())
+  const [editingTierId, setEditingTierId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadStackingReport()
@@ -103,6 +136,52 @@ export default function StackingReportPage() {
     window.print()
   }
 
+  const updateCakeboard = async (
+    tierId: number,
+    updates: {
+      cakeboardTypeId?: number | null
+      cakeboardShape?: string | null
+      cakeboardSizeInches?: number | null
+      cakeboardNotes?: string | null
+    }
+  ) => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/production/tiers/${tierId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      })
+
+      if (!res.ok) throw new Error('Failed to update cakeboard')
+
+      const result = await res.json()
+
+      // Update local state
+      if (data) {
+        const newData = { ...data }
+        for (const dateGroup of newData.cakesByDate) {
+          for (const cake of dateGroup.cakes) {
+            for (const tier of cake.tiers) {
+              if (tier.tierId === tierId) {
+                tier.cakeboardTypeId = result.tier.cakeboardTypeId
+                tier.cakeboardTypeName = result.tier.cakeboardTypeName
+                tier.cakeboardShape = result.tier.cakeboardShape
+                tier.cakeboardSizeInches = result.tier.cakeboardSizeInches
+                tier.cakeboardNotes = result.tier.cakeboardNotes
+              }
+            }
+          }
+        }
+        setData(newData)
+      }
+    } catch (err) {
+      console.error('Failed to update cakeboard:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -142,6 +221,8 @@ export default function StackingReportPage() {
     0
   )
 
+  const cakeboardTypes = data.cakeboardTypes || []
+
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
@@ -156,27 +237,44 @@ export default function StackingReportPage() {
               {data.orderCount} order{data.orderCount !== 1 ? 's' : ''} | {totalTiers} tier{totalTiers !== 1 ? 's' : ''} | Generated {new Date(data.generatedAt).toLocaleString()}
             </p>
           </div>
-          <button
-            onClick={handlePrint}
-            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition print:hidden"
-          >
-            Print
-          </button>
+          <div className="flex gap-2 print:hidden">
+            <Link
+              href="/production/cakeboards"
+              className="bg-blue-100 text-blue-700 px-4 py-2 rounded-md hover:bg-blue-200 transition"
+            >
+              Cakeboard Assignment
+            </Link>
+            <button
+              onClick={handlePrint}
+              className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition"
+            >
+              Print
+            </button>
+          </div>
         </div>
 
         {/* Legend */}
         <div className="bg-white shadow sm:rounded-lg mb-6 print:shadow-none print:border print:mb-4">
           <div className="px-4 py-3 sm:px-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Flavor Abbreviations</h3>
-            <div className="flex flex-wrap gap-2 text-xs text-gray-600">
-              <span className="bg-gray-100 px-2 py-1 rounded">van = vanilla</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">choc = chocolate</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">rv = red velvet</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">cc = carrot cake</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">lem = lemon</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">straw = strawberry</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">marb = marble</span>
-              <span className="bg-gray-100 px-2 py-1 rounded">fun = funfetti</span>
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Legend</h3>
+            <div className="flex flex-wrap gap-4 text-xs text-gray-600">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">✓</span>
+                <span>= Approved</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">...</span>
+                <span>= In Review</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">-</span>
+                <span>= Pending</span>
+              </div>
+              <span className="border-l border-gray-300 pl-4">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mr-1">D</span>= Delivery
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 mx-1 ml-3">P</span>= Pickup
+              </span>
+              <span className="border-l border-gray-300 pl-4">van=vanilla, choc=chocolate, rv=red velvet, cc=carrot cake</span>
             </div>
           </div>
         </div>
@@ -206,20 +304,23 @@ export default function StackingReportPage() {
                 </div>
 
                 {/* Cakes Table */}
-                <div className="bg-white shadow sm:rounded-b-lg overflow-hidden border border-gray-200 print:shadow-none">
+                <div className="bg-white shadow sm:rounded-b-lg overflow-x-auto border border-gray-200 print:shadow-none">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8 print:hidden">✓</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Flavor</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Frosting</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Board</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Drum</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Color/Style</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-12">Done</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8 print:hidden">✓</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase w-16">Status</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Flavor</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Frosting</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cakeboard</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Colors</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Style</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase w-12">Done</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -228,13 +329,14 @@ export default function StackingReportPage() {
                           const key = `${cake.orderId}-${tier.tierIndex}`
                           const isChecked = checkedItems.has(key)
                           const isFirstTier = tierIdx === 0
+                          const isEditing = editingTierId === tier.tierId
 
                           return (
                             <tr
                               key={key}
                               className={`hover:bg-gray-50 ${isChecked ? 'bg-green-50' : ''} ${!isFirstTier ? 'border-t-0' : ''}`}
                             >
-                              <td className="px-3 py-2 print:hidden">
+                              <td className="px-2 py-2 print:hidden">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
@@ -242,7 +344,46 @@ export default function StackingReportPage() {
                                   className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300 rounded"
                                 />
                               </td>
-                              <td className="px-3 py-2 whitespace-nowrap">
+                              {/* Approval Status */}
+                              <td className="px-2 py-2 text-center">
+                                {isFirstTier && (
+                                  cake.prepSignoff?.status === 'SIGNED_OFF' ? (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800"
+                                      title={`Approved by ${cake.prepSignoff.signedByName || 'Manager'} on ${cake.prepSignoff.signedAt ? new Date(cake.prepSignoff.signedAt).toLocaleDateString() : ''}`}
+                                    >
+                                      ✓
+                                    </span>
+                                  ) : cake.prepSignoff?.status === 'IN_REVIEW' ? (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"
+                                      title="In review"
+                                    >
+                                      ...
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500"
+                                      title="Not yet reviewed"
+                                    >
+                                      -
+                                    </span>
+                                  )
+                                )}
+                              </td>
+                              {/* Delivery/Pickup Indicator */}
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                {isFirstTier && (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                    cake.isDelivery
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {cake.isDelivery ? 'D' : 'P'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
                                 <span className="text-sm font-medium text-gray-900" title={tier.flavor}>
                                   {tier.flavorAbbrev}
                                 </span>
@@ -250,30 +391,108 @@ export default function StackingReportPage() {
                                   <span className="text-xs text-gray-500 ml-1">/{tier.filling.slice(0, 4)}</span>
                                 )}
                               </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                              <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-900">
                                 {tier.frosting.slice(0, 10)}
                               </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                              <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-900">
                                 {tier.size}
                               </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                                {tier.boardSize || '-'}
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                                {tier.drumSize || '-'}
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
-                                {isFirstTier ? (
-                                  <span>
-                                    {tier.color && <span className="mr-1">{tier.color}</span>}
-                                    {cake.cakeStyle && <span className="text-gray-500">{cake.cakeStyle}</span>}
-                                    {!tier.color && !cake.cakeStyle && '-'}
-                                  </span>
+                              {/* Cakeboard Column - Inline Edit */}
+                              <td className="px-2 py-2 text-sm">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-1">
+                                    <select
+                                      className="text-xs border rounded px-1 py-0.5 w-20"
+                                      value={tier.cakeboardTypeId || ''}
+                                      onChange={(e) => {
+                                        const typeId = e.target.value ? parseInt(e.target.value) : null
+                                        updateCakeboard(tier.tierId, { cakeboardTypeId: typeId })
+                                      }}
+                                      disabled={saving}
+                                    >
+                                      <option value="">Type</option>
+                                      {cakeboardTypes.map(t => (
+                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                      ))}
+                                    </select>
+                                    <select
+                                      className="text-xs border rounded px-1 py-0.5 w-16"
+                                      value={tier.cakeboardShape || 'round'}
+                                      onChange={(e) => {
+                                        updateCakeboard(tier.tierId, { cakeboardShape: e.target.value })
+                                      }}
+                                      disabled={saving}
+                                    >
+                                      <option value="round">Round</option>
+                                      <option value="square">Square</option>
+                                      <option value="rectangle">Rect</option>
+                                    </select>
+                                    <input
+                                      type="number"
+                                      className="text-xs border rounded px-1 py-0.5 w-12"
+                                      value={tier.cakeboardSizeInches || ''}
+                                      placeholder="Size"
+                                      onChange={(e) => {
+                                        const size = e.target.value ? parseInt(e.target.value) : null
+                                        updateCakeboard(tier.tierId, { cakeboardSizeInches: size })
+                                      }}
+                                      disabled={saving}
+                                    />
+                                    <span className="text-xs text-gray-400">&quot;</span>
+                                    <button
+                                      onClick={() => setEditingTierId(null)}
+                                      className="text-xs text-gray-500 hover:text-gray-700 ml-1"
+                                    >
+                                      ✓
+                                    </button>
+                                  </div>
                                 ) : (
-                                  tier.color || '-'
+                                  <button
+                                    onClick={() => setEditingTierId(tier.tierId)}
+                                    className="text-left hover:bg-gray-100 px-1 rounded w-full print:hover:bg-transparent"
+                                    title="Click to edit cakeboard"
+                                  >
+                                    {tier.cakeboardTypeName ? (
+                                      <span className="text-gray-900">
+                                        {tier.cakeboardTypeName} {tier.cakeboardShape} {tier.cakeboardSizeInches}&quot;
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400 text-xs">
+                                        {tierIdx === cake.tiers.length - 1 ? `Drum ${tier.drumSize}` : tier.boardSize || 'Set board'}
+                                      </span>
+                                    )}
+                                  </button>
                                 )}
                               </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm">
+                              {/* Colors */}
+                              <td className="px-2 py-2 text-sm">
+                                {isFirstTier ? (
+                                  <div className="max-w-[100px] truncate">
+                                    {cake.cakeColors ? (
+                                      <span className="text-pink-600 font-medium">{cake.cakeColors}</span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400">↳</span>
+                                )}
+                              </td>
+                              {/* Style (Theme) */}
+                              <td className="px-2 py-2 text-sm">
+                                {isFirstTier ? (
+                                  <div className="max-w-[100px] truncate">
+                                    {cake.cakeStyle ? (
+                                      <span className="text-gray-900">{cake.cakeStyle}</span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400">↳</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap text-sm">
                                 {isFirstTier ? (
                                   <Link
                                     href={`/orders/${cake.orderId}`}
@@ -285,10 +504,22 @@ export default function StackingReportPage() {
                                   <span className="text-gray-400">↳</span>
                                 )}
                               </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
+                              {/* Assigned Staff */}
+                              <td className="px-2 py-2 whitespace-nowrap text-sm">
+                                {isFirstTier && (
+                                  cake.assignment ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                                      {cake.assignment.staffName}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                )}
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-500">
                                 {isFirstTier && cake.eventTime ? cake.eventTime : ''}
                               </td>
-                              <td className="px-3 py-2 text-center">
+                              <td className="px-2 py-2 text-center">
                                 <div className={`w-5 h-5 mx-auto border-2 rounded ${isChecked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
                                   {isChecked && (
                                     <svg className="w-full h-full text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -332,8 +563,8 @@ export default function StackingReportPage() {
             }
             .print\\:hidden { display: none !important; }
             .print\\:block { display: block !important; }
-            table { font-size: 11px; }
-            th, td { padding: 4px 6px !important; }
+            table { font-size: 10px; }
+            th, td { padding: 3px 4px !important; }
           }
         `}</style>
       </div>

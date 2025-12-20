@@ -41,14 +41,18 @@ model CakeOrder {
   accentColors     String?
   desiredServings  Int?
   markupPercent    Decimal?          @db.Decimal(10, 4)
+  pickupTime       DateTime?
   Customer         Customer?         @relation(fields: [customerId], references: [id])
   DeliveryZone     DeliveryZone?     @relation(fields: [deliveryZoneId], references: [id])
-  CakeTier         CakeTier[]
-  OrderDecoration  OrderDecoration[]
-  OrderItem        OrderItem[]
-  OrderPackaging   OrderPackaging[]
-  ProductionTask   ProductionTask[]
-  Quote            Quote?
+  CakeTier              CakeTier[]
+  OrderDecoration       OrderDecoration[]
+  OrderItem             OrderItem[]
+  OrderPackaging        OrderPackaging[]
+  ProductionTask        ProductionTask[]
+  Quote                 Quote?
+  OrderAssignment       OrderAssignment?
+  ProductionPrepSignoff ProductionPrepSignoff?
+  InventoryReservation  InventoryReservation[]
 
   @@index([customerId])
   @@index([eventDate])
@@ -56,28 +60,50 @@ model CakeOrder {
 }
 
 model CakeTier {
-  id                                       Int       @id @default(autoincrement())
+  id                                       Int            @id @default(autoincrement())
   cakeOrderId                              Int
   tierIndex                                Int
   tierSizeId                               Int
   flavor                                   String?
   filling                                  String?
   finishType                               String?
-  createdAt                                DateTime  @default(now())
+  createdAt                                DateTime       @default(now())
   updatedAt                                DateTime
-  batterMultiplier                         Decimal?  @db.Decimal(10, 3)
+  batterMultiplier                         Decimal?       @db.Decimal(10, 3)
   batterRecipeId                           Int?
-  fillingMultiplier                        Decimal?  @db.Decimal(10, 3)
+  fillingMultiplier                        Decimal?       @db.Decimal(10, 3)
   fillingRecipeId                          Int?
-  frostingMultiplier                       Decimal?  @db.Decimal(10, 3)
+  frostingMultiplier                       Decimal?       @db.Decimal(10, 3)
   frostingRecipeId                         Int?
-  Recipe_CakeTier_batterRecipeIdToRecipe   Recipe?   @relation("CakeTier_batterRecipeIdToRecipe", fields: [batterRecipeId], references: [id])
-  CakeOrder                                CakeOrder @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
-  Recipe_CakeTier_fillingRecipeIdToRecipe  Recipe?   @relation("CakeTier_fillingRecipeIdToRecipe", fields: [fillingRecipeId], references: [id])
-  Recipe_CakeTier_frostingRecipeIdToRecipe Recipe?   @relation("CakeTier_frostingRecipeIdToRecipe", fields: [frostingRecipeId], references: [id])
-  TierSize                                 TierSize  @relation(fields: [tierSizeId], references: [id])
+  cakeboardNotes                           String?
+  cakeboardShape                           String?
+  cakeboardSizeInches                      Int?
+  cakeboardTypeId                          Int?
+  Recipe_CakeTier_batterRecipeIdToRecipe   Recipe?        @relation("CakeTier_batterRecipeIdToRecipe", fields: [batterRecipeId], references: [id])
+  CakeOrder                                CakeOrder      @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+  CakeboardType                            CakeboardType? @relation(fields: [cakeboardTypeId], references: [id])
+  Recipe_CakeTier_fillingRecipeIdToRecipe  Recipe?        @relation("CakeTier_fillingRecipeIdToRecipe", fields: [fillingRecipeId], references: [id])
+  Recipe_CakeTier_frostingRecipeIdToRecipe Recipe?        @relation("CakeTier_frostingRecipeIdToRecipe", fields: [frostingRecipeId], references: [id])
+  TierSize                                 TierSize       @relation(fields: [tierSizeId], references: [id])
 
   @@unique([cakeOrderId, tierIndex])
+}
+
+model CakeboardType {
+  id              Int        @id @default(autoincrement())
+  name            String     @unique
+  description     String?
+  vendorId        Int?
+  availableSizes  String?
+  availableShapes String?
+  costPerUnit     Decimal?   @db.Decimal(10, 2)
+  notes           String?
+  isActive        Boolean    @default(true)
+  sortOrder       Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  CakeTier        CakeTier[]
+  Vendor          Vendor?    @relation(fields: [vendorId], references: [id])
 }
 
 model Customer {
@@ -210,11 +236,92 @@ model LaborRole {
   sortOrder           Int                   @default(0)
   isActive            Boolean               @default(true)
   createdAt           DateTime              @default(now())
-  updatedAt           DateTime
+  updatedAt           DateTime              @updatedAt
   DecorationTechnique DecorationTechnique[]
   MenuItem            MenuItem[]
   Recipe              Recipe[]
   TierSize            TierSize[]
+  StaffRole           StaffRole[]
+}
+
+model Staff {
+  id              Int              @id @default(autoincrement())
+  name            String           @unique
+  email           String?          @unique
+  phone           String?
+  isActive        Boolean          @default(true)
+  isManager       Boolean          @default(false)
+  hireDate        DateTime?
+  notes           String?
+  sortOrder       Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  StaffRole                    StaffRole[]
+  OrderAssignment              OrderAssignment[]
+  ProductionTask_assigned      ProductionTask[]          @relation("StaffAssigned")
+  ProductionTask_completed     ProductionTask[]          @relation("StaffCompleted")
+  TaskSignoff                  TaskSignoff[]
+  ProductionPrepSignoff        ProductionPrepSignoff[]
+  StockProductionTask          StockProductionTask[]     @relation("StaffStockAssigned")
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model StaffRole {
+  id          Int       @id @default(autoincrement())
+  staffId     Int
+  laborRoleId Int
+  isPrimary   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  Staff       Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  LaborRole   LaborRole @relation(fields: [laborRoleId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, laborRoleId])
+  @@index([staffId])
+  @@index([laborRoleId])
+}
+
+model OrderAssignment {
+  id          Int       @id @default(autoincrement())
+  orderId     Int       @unique
+  staffId     Int
+  assignedAt  DateTime  @default(now())
+  assignedBy  String?
+  notes       String?
+
+  CakeOrder   CakeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  Staff       Staff     @relation(fields: [staffId], references: [id])
+
+  @@index([orderId])
+  @@index([staffId])
+}
+
+model ProductionPrepSignoff {
+  id              Int                    @id @default(autoincrement())
+  orderId         Int                    @unique
+  status          PrepSignoffStatus      @default(NOT_STARTED)
+  checklistItems  Json                   @default("{}")
+  signedById      Int?
+  signedAt        DateTime?
+  managerNotes    String?
+  lockedAt        DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  CakeOrder       CakeOrder              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  SignedBy        Staff?                 @relation(fields: [signedById], references: [id])
+
+  @@index([orderId])
+  @@index([status])
+}
+
+enum PrepSignoffStatus {
+  NOT_STARTED
+  IN_REVIEW
+  SIGNED_OFF
 }
 
 model MenuItem {
@@ -254,10 +361,10 @@ model OrderDecoration {
   decorationTechniqueId Int
   quantity              Int                 @default(1)
   notes                 String?
-  unitOverride          DecorationUnit?
-  tierIndices           Int[]               @default([])
   createdAt             DateTime            @default(now())
   updatedAt             DateTime
+  tierIndices           Int[]               @default([])
+  unitOverride          DecorationUnit?
   CakeOrder             CakeOrder           @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
   DecorationTechnique   DecorationTechnique @relation(fields: [decorationTechniqueId], references: [id])
 
@@ -265,23 +372,23 @@ model OrderDecoration {
 }
 
 model OrderItem {
-  id            Int           @id @default(autoincrement())
-  cakeOrderId   Int
-  itemType      OrderItemType
-  menuItemId    Int?
-  productTypeId Int?
-  quantity      Int           @default(1)
-  unitPrice     Decimal?      @db.Decimal(10, 2)
-  itemName      String?
-  notes         String?
-  packagingId   Int?          // Legacy single packaging (kept for backwards compatibility)
-  packagingQty  Int?          // Legacy packaging qty
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime
-  CakeOrder     CakeOrder     @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
-  MenuItem      MenuItem?     @relation(fields: [menuItemId], references: [id])
-  Packaging     Packaging?    @relation(fields: [packagingId], references: [id])
-  ProductType   ProductType?  @relation(fields: [productTypeId], references: [id])
+  id                 Int                  @id @default(autoincrement())
+  cakeOrderId        Int
+  itemType           OrderItemType
+  menuItemId         Int?
+  productTypeId      Int?
+  quantity           Int                  @default(1)
+  unitPrice          Decimal?             @db.Decimal(10, 2)
+  itemName           String?
+  notes              String?
+  packagingId        Int?
+  packagingQty       Int?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime
+  CakeOrder          CakeOrder            @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
+  MenuItem           MenuItem?            @relation(fields: [menuItemId], references: [id])
+  Packaging          Packaging?           @relation(fields: [packagingId], references: [id])
+  ProductType        ProductType?         @relation(fields: [productTypeId], references: [id])
   OrderItemPackaging OrderItemPackaging[]
 
   @@index([cakeOrderId])
@@ -319,26 +426,26 @@ model OrderPackaging {
 }
 
 model Packaging {
-  id             Int              @id @default(autoincrement())
-  name           String           @unique
-  type           PackagingType
-  description    String?
-  capacity       Int?
-  sizeFit        String?
-  costPerUnit    Decimal          @db.Decimal(10, 4)
-  vendor         String?
-  sku            String?
-  reorderUrl     String?
-  isActive       Boolean          @default(true)
-  sortOrder      Int              @default(0)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime
-  MenuItem       MenuItem[]
-  OrderItem      OrderItem[]
+  id                 Int                  @id @default(autoincrement())
+  name               String               @unique
+  type               PackagingType
+  description        String?
+  capacity           Int?
+  sizeFit            String?
+  costPerUnit        Decimal              @db.Decimal(10, 4)
+  vendor             String?
+  sku                String?
+  reorderUrl         String?
+  isActive           Boolean              @default(true)
+  sortOrder          Int                  @default(0)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime
+  MenuItem           MenuItem[]
+  OrderItem          OrderItem[]
   OrderItemPackaging OrderItemPackaging[]
-  OrderPackaging OrderPackaging[]
-  QuoteItem      QuoteItem[]
-  QuotePackaging QuotePackaging[]
+  OrderPackaging     OrderPackaging[]
+  QuoteItem          QuoteItem[]
+  QuotePackaging     QuotePackaging[]
 
   @@index([type])
 }
@@ -373,9 +480,11 @@ model ProductionTask {
   durationMinutes      Int?
   status               TaskStatus       @default(PENDING)
   assignedTo           String?
+  assignedToId         Int?
   startedAt            DateTime?
   completedAt          DateTime?
   completedBy          String?
+  completedById        Int?
   dependsOnId          Int?
   notes                String?
   createdAt            DateTime         @default(now())
@@ -384,10 +493,13 @@ model ProductionTask {
   other_ProductionTask ProductionTask[] @relation("ProductionTaskToProductionTask")
   CakeOrder            CakeOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   TaskSignoff          TaskSignoff[]
+  AssignedToStaff      Staff?           @relation("StaffAssigned", fields: [assignedToId], references: [id])
+  CompletedByStaff     Staff?           @relation("StaffCompleted", fields: [completedById], references: [id])
 
   @@index([orderId])
   @@index([scheduledDate])
   @@index([status])
+  @@index([assignedToId])
 }
 
 model Quote {
@@ -553,6 +665,7 @@ model Recipe {
   QuoteTier_QuoteTier_frostingRecipeIdToRecipe QuoteTier[]        @relation("QuoteTier_frostingRecipeIdToRecipe")
   LaborRole                                    LaborRole?         @relation(fields: [laborRoleId], references: [id])
   RecipeIngredient                             RecipeIngredient[]
+  InventoryItem                                InventoryItem[]
 }
 
 model RecipeIngredient {
@@ -581,30 +694,34 @@ model TaskSignoff {
   taskId         Int
   signoffType    String
   signedBy       String
+  signedById     Int?
   signedAt       DateTime       @default(now())
   notes          String?
   ProductionTask ProductionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  SignedByStaff  Staff?         @relation(fields: [signedById], references: [id])
 
   @@index([taskId])
+  @@index([signedById])
 }
 
 model TierSize {
-  id              Int         @id @default(autoincrement())
-  name            String      @unique
-  diameterCm      Decimal     @db.Decimal(10, 2)
-  heightCm        Decimal     @db.Decimal(10, 2)
+  id              Int             @id @default(autoincrement())
+  name            String          @unique
+  diameterCm      Decimal         @db.Decimal(10, 2)
+  heightCm        Decimal         @db.Decimal(10, 2)
   servings        Int
-  createdAt       DateTime    @default(now())
+  createdAt       DateTime        @default(now())
   updatedAt       DateTime
-  shape           String      @default("Round")
-  lengthCm        Decimal?    @db.Decimal(10, 2)
+  shape           String          @default("Round")
+  lengthCm        Decimal?        @db.Decimal(10, 2)
   assemblyMinutes Int?
   assemblyRoleId  Int?
   volumeMl        Int?
-  widthCm         Decimal?    @db.Decimal(10, 2)
+  widthCm         Decimal?        @db.Decimal(10, 2)
   CakeTier        CakeTier[]
   QuoteTier       QuoteTier[]
-  LaborRole       LaborRole?  @relation(fields: [assemblyRoleId], references: [id])
+  LaborRole       LaborRole?      @relation(fields: [assemblyRoleId], references: [id])
+  InventoryItem   InventoryItem[]
 }
 
 model Vendor {
@@ -618,6 +735,7 @@ model Vendor {
   isActive         Boolean            @default(true)
   createdAt        DateTime           @default(now())
   updatedAt        DateTime
+  CakeboardType    CakeboardType[]
   IngredientVendor IngredientVendor[]
 }
 
@@ -699,4 +817,135 @@ enum TaskStatus {
   COMPLETED
   BLOCKED
   SKIPPED
+}
+
+// ============================================
+// INVENTORY & STOCK PRODUCTION MODELS
+// ============================================
+
+// Types of stock items that can be pre-made
+enum StockProductType {
+  CAKE_TIER       // Pre-baked/stacked cake tiers
+  CUPCAKE         // Pre-made cupcakes
+  COOKIE          // Pre-made cookies
+  CAKE_POP        // Pre-made cake pops
+  FROSTING        // Pre-made frosting batches
+  FILLING         // Pre-made filling batches
+  FONDANT         // Pre-made fondant
+  OTHER           // Other stock items
+}
+
+// Status for stock production tasks
+enum StockTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Represents a type of inventory item (e.g., "6-inch vanilla cake tier")
+model InventoryItem {
+  id              Int              @id @default(autoincrement())
+  sku             String           @unique
+  name            String           // e.g., "6-inch Vanilla Cake Tier"
+  productType     StockProductType
+  tierSizeId      Int?             // For cake tiers, links to size
+  recipeId        Int?             // The recipe used to make this
+  flavor          String?          // e.g., "vanilla", "chocolate"
+  description     String?
+  unit            String           @default("each") // each, dozen, batch
+  currentStock    Int              @default(0)
+  minStock        Int              @default(0)      // Reorder point
+  maxStock        Int?                              // Target level
+  shelfLifeDays   Int?                              // How long it lasts
+  storageLocation String?                           // Where it's stored
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  TierSize               TierSize?               @relation(fields: [tierSizeId], references: [id])
+  Recipe                 Recipe?                 @relation(fields: [recipeId], references: [id])
+  InventoryLot           InventoryLot[]
+  StockProductionTask    StockProductionTask[]
+  InventoryReservation   InventoryReservation[]
+
+  @@index([productType])
+  @@index([flavor])
+  @@index([tierSizeId])
+}
+
+// Individual lots/batches for FIFO tracking
+model InventoryLot {
+  id              Int           @id @default(autoincrement())
+  inventoryItemId Int
+  quantity        Int           // Current quantity in this lot
+  originalQty     Int           // Original quantity produced
+  producedAt      DateTime      @default(now())
+  expiresAt       DateTime?     // Calculated from shelfLifeDays
+  producedByTaskId Int?         // Which stock task made this
+  lotNumber       String?       // Optional lot tracking number
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  InventoryItem       InventoryItem        @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  StockProductionTask StockProductionTask? @relation(fields: [producedByTaskId], references: [id])
+  InventoryReservation InventoryReservation[]
+
+  @@index([inventoryItemId])
+  @@index([expiresAt])
+  @@index([producedAt])
+}
+
+// Production tasks for making stock (not tied to orders)
+model StockProductionTask {
+  id               Int             @id @default(autoincrement())
+  inventoryItemId  Int
+  taskType         String          // BAKE, STACK, DECORATE, etc.
+  taskName         String          // e.g., "Bake 10x 6-inch Vanilla Tiers"
+  targetQuantity   Int             // How many to make
+  completedQuantity Int            @default(0) // Progress tracking for bulk
+  scheduledDate    DateTime
+  scheduledStart   DateTime?
+  scheduledEnd     DateTime?
+  durationMinutes  Int?
+  status           StockTaskStatus @default(PENDING)
+  assignedTo       String?
+  assignedToId     Int?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  priority         Int             @default(0) // Higher = more urgent
+  isAutoGenerated  Boolean         @default(false) // True if auto-replenishment
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  InventoryItem    InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  AssignedToStaff  Staff?          @relation("StaffStockAssigned", fields: [assignedToId], references: [id])
+  InventoryLot     InventoryLot[]  // Lots produced by this task
+
+  @@index([inventoryItemId])
+  @@index([scheduledDate])
+  @@index([status])
+  @@index([assignedToId])
+}
+
+// Tracks when an order reserves stock (FIFO allocation)
+model InventoryReservation {
+  id              Int       @id @default(autoincrement())
+  orderId         Int
+  inventoryItemId Int
+  inventoryLotId  Int?      // Specific lot reserved (FIFO)
+  quantity        Int
+  reservedAt      DateTime  @default(now())
+  usedAt          DateTime? // When actually used for order
+  status          String    @default("RESERVED") // RESERVED, USED, CANCELLED
+
+  CakeOrder       CakeOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  InventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  InventoryLot    InventoryLot? @relation(fields: [inventoryLotId], references: [id])
+
+  @@index([orderId])
+  @@index([inventoryItemId])
+  @@index([status])
 }

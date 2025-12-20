@@ -84,11 +84,12 @@ export async function GET(request: Request) {
         orderIds: [],
         orderCount: 0,
         generatedAt: new Date().toISOString(),
-        cakesByDate: []
+        cakesByDate: [],
+        cakeboardTypes: []
       })
     }
 
-    // Fetch orders with cake tier details
+    // Fetch orders with cake tier details and prep signoff status
     const ordersRaw = await prisma.cakeOrder.findMany({
       where: { id: { in: orderIds } },
       include: {
@@ -98,9 +99,24 @@ export async function GET(request: Request) {
             TierSize: true,
             Recipe_CakeTier_batterRecipeIdToRecipe: true,
             Recipe_CakeTier_frostingRecipeIdToRecipe: true,
-            Recipe_CakeTier_fillingRecipeIdToRecipe: true
+            Recipe_CakeTier_fillingRecipeIdToRecipe: true,
+            CakeboardType: true
           },
           orderBy: { tierIndex: 'asc' }
+        },
+        ProductionPrepSignoff: {
+          include: {
+            SignedBy: {
+              select: { id: true, name: true }
+            }
+          }
+        },
+        OrderAssignment: {
+          include: {
+            Staff: {
+              select: { id: true, name: true }
+            }
+          }
         }
       },
       orderBy: { eventDate: 'asc' }
@@ -115,8 +131,20 @@ export async function GET(request: Request) {
         tierSize: tier.TierSize,
         batterRecipe: tier.Recipe_CakeTier_batterRecipeIdToRecipe,
         frostingRecipe: tier.Recipe_CakeTier_frostingRecipeIdToRecipe,
-        fillingRecipe: tier.Recipe_CakeTier_fillingRecipeIdToRecipe
-      }))
+        fillingRecipe: tier.Recipe_CakeTier_fillingRecipeIdToRecipe,
+        cakeboardType: tier.CakeboardType
+      })),
+      prepSignoff: order.ProductionPrepSignoff ? {
+        status: order.ProductionPrepSignoff.status,
+        signedAt: order.ProductionPrepSignoff.signedAt,
+        signedByName: order.ProductionPrepSignoff.SignedBy?.name || null,
+        lockedAt: order.ProductionPrepSignoff.lockedAt
+      } : null,
+      assignment: order.OrderAssignment ? {
+        staffId: order.OrderAssignment.Staff.id,
+        staffName: order.OrderAssignment.Staff.name,
+        assignedAt: order.OrderAssignment.assignedAt
+      } : null
     }))
 
     // Group cakes by event date
@@ -129,8 +157,10 @@ export async function GET(request: Request) {
         customerName: string
         eventDate: string
         eventTime: string | null
+        isDelivery: boolean
         tierCount: number
         tiers: {
+          tierId: number
           tierIndex: number
           size: string
           shape: string
@@ -142,11 +172,28 @@ export async function GET(request: Request) {
           drumSize: string | null
           color: string | null
           notes: string | null
+          // Cakeboard fields
+          cakeboardTypeId: number | null
+          cakeboardTypeName: string | null
+          cakeboardShape: string | null
+          cakeboardSizeInches: number | null
+          cakeboardNotes: string | null
         }[]
         cakeStyle: string | null
-        cakeTheme: string | null
+        cakeColors: string | null
         servings: number | null
         notes: string | null
+        prepSignoff: {
+          status: string
+          signedAt: Date | null
+          signedByName: string | null
+          lockedAt: Date | null
+        } | null
+        assignment: {
+          staffId: number
+          staffName: string
+          assignedAt: Date
+        } | null
       }[]
     }[] = []
 
@@ -170,31 +217,59 @@ export async function GET(request: Request) {
 
       const dateGroup = dateMap.get(dateKey)!
 
-      const tiers = order.cakeTiers.map(tier => ({
-        tierIndex: tier.tierIndex,
-        size: tier.tierSize?.name || `${tier.tierSize?.diameter}" ${tier.tierSize?.shape}`,
-        shape: tier.tierSize?.shape || 'round',
-        flavor: tier.batterRecipe?.name || 'Unknown',
-        flavorAbbrev: abbreviateFlavor(tier.batterRecipe?.name || 'Unknown'),
-        frosting: tier.frostingRecipe?.name || 'Unknown',
-        filling: tier.fillingRecipe?.name || null,
-        boardSize: tier.tierSize ? `${tier.tierSize.diameter}"` : null,
-        drumSize: tier.tierIndex === 0 && tier.tierSize ? `${Number(tier.tierSize.diameter) + 2}"` : null,
-        color: tier.color || null,
-        notes: tier.notes || null
-      }))
+      const tiers = order.cakeTiers.map((tier, idx) => {
+        // Get diameter in inches (convert from cm)
+        const diameterCm = tier.tierSize?.diameterCm ? Number(tier.tierSize.diameterCm) : null
+        const diameterInches = diameterCm ? Math.round(diameterCm / 2.54) : null
+
+        // Default cakeboard size: same as tier for boards, +2" for bottom tier drum
+        const isBottomTier = idx === order.cakeTiers.length - 1
+        const defaultBoardSize = diameterInches
+        const defaultDrumSize = isBottomTier && diameterInches ? diameterInches + 2 : null
+
+        return {
+          tierId: tier.id,
+          tierIndex: tier.tierIndex,
+          size: tier.tierSize?.name || 'Unknown',
+          shape: tier.tierSize?.shape || 'round',
+          // Use tier's flavor field first, fallback to batter recipe name
+          flavor: tier.flavor || tier.batterRecipe?.name || 'Unknown',
+          flavorAbbrev: abbreviateFlavor(tier.flavor || tier.batterRecipe?.name || 'Unknown'),
+          // Use tier's finishType first, fallback to frosting recipe name
+          frosting: tier.finishType || tier.frostingRecipe?.name || 'Unknown',
+          // Use tier's filling field first, fallback to filling recipe name
+          filling: tier.filling || tier.fillingRecipe?.name || null,
+          // Board is same size as tier (for display reference)
+          boardSize: defaultBoardSize ? `${defaultBoardSize}"` : null,
+          // Drum is typically 2" larger than bottom tier only (for display reference)
+          drumSize: defaultDrumSize ? `${defaultDrumSize}"` : null,
+          notes: null,
+          // Cakeboard fields (editable by BOH)
+          cakeboardTypeId: tier.cakeboardTypeId || null,
+          cakeboardTypeName: tier.cakeboardType?.name || null,
+          cakeboardShape: tier.cakeboardShape || tier.tierSize?.shape || 'round',
+          cakeboardSizeInches: tier.cakeboardSizeInches || (isBottomTier ? defaultDrumSize : defaultBoardSize),
+          cakeboardNotes: tier.cakeboardNotes || null
+        }
+      })
 
       dateGroup.cakes.push({
         orderId: order.id,
-        customerName: order.customer?.name || 'Unknown Customer',
+        customerName: order.customer?.name || order.customerName || 'Unknown Customer',
         eventDate: order.eventDate.toISOString(),
-        eventTime: order.eventTime || null,
+        eventTime: order.isDelivery
+          ? (order.deliveryTime ? new Date(order.deliveryTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null)
+          : (order.pickupTime ? new Date(order.pickupTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null),
+        isDelivery: order.isDelivery,
         tierCount: order.cakeTiers.length,
         tiers,
-        cakeStyle: order.cakeStyle || null,
-        cakeTheme: order.cakeTheme || null,
-        servings: order.servings || null,
-        notes: order.notes || null
+        // Use order's colors and theme for style display
+        cakeStyle: order.theme || null,
+        cakeColors: order.colors || null,
+        servings: order.servingsTarget || order.desiredServings || null,
+        notes: order.notes || null,
+        prepSignoff: order.prepSignoff,
+        assignment: order.assignment
       })
     }
 
@@ -203,11 +278,24 @@ export async function GET(request: Request) {
       new Date(a.date).getTime() - new Date(b.date).getTime()
     )
 
+    // Fetch cakeboard types for inline editing
+    const cakeboardTypes = await prisma.cakeboardType.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        availableShapes: true,
+        availableSizes: true
+      }
+    })
+
     return NextResponse.json({
       orderIds,
       orderCount: orders.length,
       generatedAt: new Date().toISOString(),
-      cakesByDate: sortedCakes
+      cakesByDate: sortedCakes,
+      cakeboardTypes
     })
   } catch (error) {
     console.error('Failed to generate stacking report:', error)

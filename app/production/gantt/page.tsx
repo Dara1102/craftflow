@@ -30,7 +30,6 @@ export default function GanttPage() {
   const [tasksByDate, setTasksByDate] = useState<DateGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
     loadTasks()
@@ -62,33 +61,6 @@ export default function GanttPage() {
     }
   }
 
-  const generateTasks = async () => {
-    const orderIdsParam = searchParams.get('orderIds')
-    if (!orderIdsParam) {
-      setError('Please select orders first')
-      return
-    }
-
-    setGenerating(true)
-    try {
-      const orderIds = orderIdsParam.split(',').map(id => parseInt(id))
-
-      const res = await fetch('/api/production/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderIds })
-      })
-
-      if (!res.ok) throw new Error('Failed to generate tasks')
-
-      await loadTasks()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate tasks')
-    } finally {
-      setGenerating(false)
-    }
-  }
-
   const handleTaskStatusChange = async (taskId: number, status: string) => {
     try {
       const res = await fetch(`/api/production/tasks/${taskId}`, {
@@ -115,6 +87,23 @@ export default function GanttPage() {
 
   const handlePrint = () => {
     window.print()
+  }
+
+  const handleTaskReschedule = async (taskId: number, newDate: string) => {
+    try {
+      const res = await fetch(`/api/production/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduledDate: newDate })
+      })
+
+      if (!res.ok) throw new Error('Failed to reschedule task')
+
+      // Reload tasks to get updated grouping
+      await loadTasks()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reschedule task')
+    }
   }
 
   if (loading) {
@@ -154,21 +143,12 @@ export default function GanttPage() {
               {totalTasks} task{totalTasks !== 1 ? 's' : ''} | {completedTasks} completed
             </p>
           </div>
-          <div className="flex gap-2 print:hidden">
-            <button
-              onClick={generateTasks}
-              disabled={generating}
-              className="bg-pink-600 text-white px-4 py-2 rounded-md hover:bg-pink-700 transition disabled:opacity-50"
-            >
-              {generating ? 'Generating...' : 'Generate Tasks'}
-            </button>
-            <button
-              onClick={handlePrint}
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition"
-            >
-              Print
-            </button>
-          </div>
+          <button
+            onClick={handlePrint}
+            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition print:hidden"
+          >
+            Print
+          </button>
         </div>
 
         {error && (
@@ -204,19 +184,13 @@ export default function GanttPage() {
         {/* Gantt Chart */}
         {tasksByDate.length === 0 ? (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-            <p className="text-gray-500 mb-4">No tasks found. Generate tasks for the selected orders.</p>
-            <button
-              onClick={generateTasks}
-              disabled={generating}
-              className="bg-pink-600 text-white px-4 py-2 rounded-md hover:bg-pink-700 transition disabled:opacity-50"
-            >
-              {generating ? 'Generating...' : 'Generate Tasks'}
-            </button>
+            <p className="text-gray-500">No tasks found. Tasks are generated during the order prep workflow.</p>
           </div>
         ) : (
           <GanttChart
             tasksByDate={tasksByDate}
             onTaskStatusChange={handleTaskStatusChange}
+            onTaskReschedule={handleTaskReschedule}
           />
         )}
 

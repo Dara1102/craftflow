@@ -1,129 +1,142 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { TaskStatus } from '@prisma/client'
 
-// GET - Get single task
+// GET /api/production/tasks/[id] - Get a single task
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const taskId = parseInt(id)
+
+  if (isNaN(taskId)) {
+    return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
+  }
 
   try {
-    const taskRaw = await prisma.productionTask.findUnique({
-      where: { id: parseInt(id) },
+    const task = await prisma.productionTask.findUnique({
+      where: { id: taskId },
       include: {
-        CakeOrder: {
-          include: { Customer: true }
+        AssignedToStaff: {
+          select: { id: true, name: true }
         },
-        ProductionTask: true,
-        other_ProductionTask: true,
-        TaskSignoff: true
+        CompletedByStaff: {
+          select: { id: true, name: true }
+        }
       }
     })
 
-    // Transform to expected format
-    const task = taskRaw ? {
-      ...taskRaw,
-      order: taskRaw.CakeOrder ? {
-        ...taskRaw.CakeOrder,
-        customer: taskRaw.CakeOrder.Customer
-      } : null,
-      dependsOn: taskRaw.ProductionTask,
-      blockedTasks: taskRaw.other_ProductionTask,
-      signoffs: taskRaw.TaskSignoff
-    } : null
-
     if (!task) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
     return NextResponse.json(task)
   } catch (error) {
-    console.error('Failed to get task:', error)
+    console.error('Failed to fetch task:', error)
     return NextResponse.json(
-      { error: 'Failed to get task' },
+      { error: 'Failed to fetch task' },
       { status: 500 }
     )
   }
 }
 
-// PATCH - Update task
+// PATCH /api/production/tasks/[id] - Update a task
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const taskId = parseInt(id)
+
+  if (isNaN(taskId)) {
+    return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
+  }
 
   try {
     const body = await request.json()
-    const { status, assignedTo, notes, scheduledStart, scheduledEnd } = body
+    const {
+      taskName,
+      scheduledDate,
+      scheduledStart,
+      scheduledEnd,
+      durationMinutes,
+      status,
+      assignedToId,
+      notes,
+      // For marking complete
+      completedById,
+      startedAt,
+      completedAt
+    } = body
 
-    const updateData: Record<string, unknown> = {}
+    // Build update data
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date()
+    }
 
-    if (status !== undefined) {
-      updateData.status = status
+    if (taskName !== undefined) updateData.taskName = taskName
+    if (scheduledDate !== undefined) updateData.scheduledDate = new Date(scheduledDate)
+    if (scheduledStart !== undefined) updateData.scheduledStart = scheduledStart ? new Date(scheduledStart) : null
+    if (scheduledEnd !== undefined) updateData.scheduledEnd = scheduledEnd ? new Date(scheduledEnd) : null
+    if (durationMinutes !== undefined) updateData.durationMinutes = durationMinutes
+    if (status !== undefined) updateData.status = status as TaskStatus
+    if (notes !== undefined) updateData.notes = notes
 
-      // Set timestamps based on status
-      if (status === 'IN_PROGRESS') {
-        updateData.startedAt = new Date()
-      } else if (status === 'COMPLETED') {
-        updateData.completedAt = new Date()
-        if (body.completedBy) {
-          updateData.completedBy = body.completedBy
-        }
+    // Handle assignment
+    if (assignedToId !== undefined) {
+      updateData.assignedToId = assignedToId || null
+      if (assignedToId) {
+        const staff = await prisma.staff.findUnique({
+          where: { id: assignedToId },
+          select: { name: true }
+        })
+        updateData.assignedTo = staff?.name || null
+      } else {
+        updateData.assignedTo = null
       }
     }
 
-    if (assignedTo !== undefined) {
-      updateData.assignedTo = assignedTo
+    // Handle start
+    if (startedAt !== undefined) {
+      updateData.startedAt = startedAt ? new Date(startedAt) : null
+      if (startedAt && status === undefined) {
+        updateData.status = 'IN_PROGRESS'
+      }
     }
 
-    if (notes !== undefined) {
-      updateData.notes = notes
+    // Handle completion
+    if (completedAt !== undefined) {
+      updateData.completedAt = completedAt ? new Date(completedAt) : null
+      if (completedAt && status === undefined) {
+        updateData.status = 'COMPLETED'
+      }
+    }
+    if (completedById !== undefined) {
+      updateData.completedById = completedById || null
+      if (completedById) {
+        const staff = await prisma.staff.findUnique({
+          where: { id: completedById },
+          select: { name: true }
+        })
+        updateData.completedBy = staff?.name || null
+      } else {
+        updateData.completedBy = null
+      }
     }
 
-    if (scheduledStart !== undefined) {
-      updateData.scheduledStart = scheduledStart ? new Date(scheduledStart) : null
-    }
-
-    if (scheduledEnd !== undefined) {
-      updateData.scheduledEnd = scheduledEnd ? new Date(scheduledEnd) : null
-    }
-
-    const taskRaw2 = await prisma.productionTask.update({
-      where: { id: parseInt(id) },
+    const task = await prisma.productionTask.update({
+      where: { id: taskId },
       data: updateData,
       include: {
-        CakeOrder: {
-          include: { Customer: true }
+        AssignedToStaff: {
+          select: { id: true, name: true }
+        },
+        CompletedByStaff: {
+          select: { id: true, name: true }
         }
       }
     })
-
-    // Transform to expected format
-    const task = {
-      ...taskRaw2,
-      order: taskRaw2.CakeOrder ? {
-        ...taskRaw2.CakeOrder,
-        customer: taskRaw2.CakeOrder.Customer
-      } : null
-    }
-
-    // If task is completed, check if any blocked tasks can now start
-    if (status === 'COMPLETED') {
-      await prisma.productionTask.updateMany({
-        where: {
-          dependsOnId: parseInt(id),
-          status: 'BLOCKED'
-        },
-        data: {
-          status: 'PENDING'
-        }
-      })
-    }
 
     return NextResponse.json(task)
   } catch (error) {
@@ -135,16 +148,21 @@ export async function PATCH(
   }
 }
 
-// DELETE - Delete task
+// DELETE /api/production/tasks/[id] - Delete a task
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const taskId = parseInt(id)
+
+  if (isNaN(taskId)) {
+    return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
+  }
 
   try {
     await prisma.productionTask.delete({
-      where: { id: parseInt(id) }
+      where: { id: taskId }
     })
 
     return NextResponse.json({ success: true })
