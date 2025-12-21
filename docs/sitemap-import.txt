@@ -1,0 +1,67 @@
+Home
+    Orders
+        Orders List
+        New Order
+        Order Details
+            Costing
+            Decorations
+            Production
+            Summary
+    Quotes
+        Quotes List
+        New Quote
+        Quote Details
+            Edit Quote
+    Production
+        Production Dashboard
+        Prep Review
+            Prep Order Detail
+        Batch Planner
+        Gantt Chart
+        Assignments
+            Assignment Detail
+        My Tasks
+        Shopping List
+        Checklist
+        Delivery Schedule
+        Stock Tasks
+        Product Lines
+            Cupcakes
+            Cookies
+            Macarons
+            Cake Pops
+            Cakeboards
+            Graphics
+            Stacking
+    Admin
+        Catalog
+            Recipes
+                New Recipe
+                Recipe Detail
+            Ingredients
+            Decorations
+                New Decoration
+                Decoration Detail
+            Tier Sizes
+                New Tier
+                Tier Detail
+            Cakeboards
+        Menu
+            Menu Items
+                New Menu Item
+                Menu Item Detail
+            Packaging
+        People
+            Customers
+                New Customer
+                Customer Detail
+            Staff
+                Staff Detail
+            Vendors
+                New Vendor
+                Vendor Detail
+        Configuration
+            Settings
+            Labor Roles
+            Delivery Zones
+            Volume Breakpoints

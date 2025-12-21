@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://craftflow.app/</loc><priority>1.0</priority></url>
+
+  <!-- Orders -->
+  <url><loc>https://craftflow.app/orders</loc><priority>0.9</priority></url>
+  <url><loc>https://craftflow.app/orders/new</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/orders/1</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/orders/1/costing</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/orders/1/decorations</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/orders/1/production</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/orders/1/summary</loc><priority>0.7</priority></url>
+
+  <!-- Quotes -->
+  <url><loc>https://craftflow.app/quotes</loc><priority>0.9</priority></url>
+  <url><loc>https://craftflow.app/quotes/new</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/quotes/1</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/quotes/1/edit</loc><priority>0.7</priority></url>
+
+  <!-- Production -->
+  <url><loc>https://craftflow.app/production</loc><priority>0.9</priority></url>
+  <url><loc>https://craftflow.app/production/prep</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/production/prep/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/production/batch-planner</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/production/gantt</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/production/assignments</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/production/assignments/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/production/my-tasks</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/production/shopping-list</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/production/checklist</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/production/delivery</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/production/stock</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/production/cupcakes</loc><priority>0.6</priority></url>
+  <url><loc>https://craftflow.app/production/cookies</loc><priority>0.6</priority></url>
+  <url><loc>https://craftflow.app/production/macarons</loc><priority>0.6</priority></url>
+  <url><loc>https://craftflow.app/production/cake-pops</loc><priority>0.6</priority></url>
+  <url><loc>https://craftflow.app/production/cakeboards</loc><priority>0.6</priority></url>
+  <url><loc>https://craftflow.app/production/graphics</loc><priority>0.6</priority></url>
+  <url><loc>https://craftflow.app/production/stacking</loc><priority>0.6</priority></url>
+
+  <!-- Admin - Catalog -->
+  <url><loc>https://craftflow.app/admin/recipes</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/recipes/new</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/recipes/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/ingredients</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/decorations</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/decorations/new</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/decorations/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/tiers</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/tiers/new</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/tiers/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/cakeboards</loc><priority>0.7</priority></url>
+
+  <!-- Admin - Menu -->
+  <url><loc>https://craftflow.app/admin/menu</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/menu/new</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/menu/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/menu/packaging</loc><priority>0.7</priority></url>
+
+  <!-- Admin - People -->
+  <url><loc>https://craftflow.app/admin/customers</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/customers/new</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/customers/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/staff</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/staff/1</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/vendors</loc><priority>0.8</priority></url>
+  <url><loc>https://craftflow.app/admin/vendors/new</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/vendors/1</loc><priority>0.7</priority></url>
+
+  <!-- Admin - Configuration -->
+  <url><loc>https://craftflow.app/admin/settings</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/labor-roles</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/delivery-zones</loc><priority>0.7</priority></url>
+  <url><loc>https://craftflow.app/admin/volume-breakpoints</loc><priority>0.7</priority></url>
+</urlset>
