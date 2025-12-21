@@ -63,3 +63,42 @@ export async function GET(
 
   return NextResponse.json(order)
 }
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const orderId = parseInt(id)
+
+  try {
+    const body = await request.json()
+
+    // Only allow certain fields to be updated
+    const allowedFields = [
+      'imageUrl', 'status', 'notes', 'isBulkOrder', 'bulkQuantity', 'productionDays',
+      'customerName', 'eventDate', 'occasion', 'theme', 'colors', 'accentColors',
+      'topperType', 'topperText', 'isDelivery', 'deliveryAddress', 'deliveryTime', 'pickupTime'
+    ]
+
+    const updateData: Record<string, unknown> = {}
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field]
+      }
+    }
+
+    const order = await prisma.cakeOrder.update({
+      where: { id: orderId },
+      data: updateData
+    })
+
+    return NextResponse.json(order)
+  } catch (error) {
+    console.error('Failed to update order:', error)
+    return NextResponse.json(
+      { error: 'Failed to update order' },
+      { status: 500 }
+    )
+  }
+}

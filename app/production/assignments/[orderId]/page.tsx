@@ -130,6 +130,21 @@ export default function OrderAssignmentDetailPage() {
     }
   }
 
+  // Task type colors matching the production workflow
+  const TASK_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
+    BAKE: { bg: 'bg-orange-100', text: 'text-orange-800' },
+    PREP: { bg: 'bg-amber-100', text: 'text-amber-800' },
+    STACK: { bg: 'bg-indigo-100', text: 'text-indigo-800' },
+    COOL: { bg: 'bg-cyan-100', text: 'text-cyan-800' },
+    FROST: { bg: 'bg-purple-100', text: 'text-purple-800' },
+    FINAL: { bg: 'bg-teal-100', text: 'text-teal-800' },
+    PACKAGE: { bg: 'bg-green-100', text: 'text-green-800' },
+  }
+
+  const getTaskTypeColor = (taskType: string) => {
+    return TASK_TYPE_COLORS[taskType] || { bg: 'bg-gray-100', text: 'text-gray-800' }
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -390,21 +405,32 @@ export default function OrderAssignmentDetailPage() {
         <div className="bg-white shadow rounded-lg p-4 mt-6 print:shadow-none print:border print:mt-4">
           <h3 className="font-semibold text-gray-900 mb-4">Production Tasks</h3>
           <div className="space-y-2">
-            {order.ProductionTask.map(task => (
-              <div key={task.id} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${getTaskStatusColor(task.status)}`}>
-                  {task.status}
-                </span>
-                <span className="font-medium">{task.taskType}</span>
-                <span className="text-gray-600">{task.taskName}</span>
-                <span className="text-sm text-gray-400 ml-auto">
-                  {new Date(task.scheduledDate).toLocaleDateString()}
-                </span>
-                {task.assignedTo && (
-                  <span className="text-sm text-pink-600">{task.assignedTo}</span>
-                )}
-              </div>
-            ))}
+            {/* Sort by task sequence: BAKE → PREP → STACK → COOL → FROST → FINAL → PACKAGE */}
+            {[...order.ProductionTask]
+              .sort((a, b) => {
+                const taskOrder = ['BAKE', 'PREP', 'STACK', 'COOL', 'FROST', 'FINAL', 'PACKAGE']
+                return taskOrder.indexOf(a.taskType) - taskOrder.indexOf(b.taskType)
+              })
+              .map(task => {
+                const typeColors = getTaskTypeColor(task.taskType)
+                return (
+                  <div key={task.id} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${typeColors.bg} ${typeColors.text}`}>
+                      {task.taskType}
+                    </span>
+                    <span className="text-gray-700 flex-1">{task.taskName}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${getTaskStatusColor(task.status)}`}>
+                      {task.status === 'COMPLETED' ? '✓' : task.status === 'IN_PROGRESS' ? '...' : '○'}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      {new Date(task.scheduledDate).toLocaleDateString()}
+                    </span>
+                    {task.assignedTo && (
+                      <span className="text-sm text-pink-600">{task.assignedTo}</span>
+                    )}
+                  </div>
+                )
+              })}
           </div>
         </div>
       )}

@@ -2,16 +2,16 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
 // Standard task templates for cake orders with default scheduling
+// Sequence: BAKE → PREP (frosting) → STACK (fill & crumb) → COOL → FROST (top coat) → FINAL → PACKAGE
 // daysBefore: how many days before the event this task should be scheduled
 const TASK_TEMPLATES = [
-  { taskType: 'BAKE', taskName: 'Bake Cake Layers', durationMinutes: 60, order: 1, daysBefore: 2 },
-  { taskType: 'COOL', taskName: 'Cool & Level Cakes', durationMinutes: 30, order: 2, daysBefore: 2 },
-  { taskType: 'FILL', taskName: 'Fill & Crumb Coat', durationMinutes: 45, order: 3, daysBefore: 1 },
-  { taskType: 'FROST', taskName: 'Final Frosting', durationMinutes: 60, order: 4, daysBefore: 1 },
-  { taskType: 'DECORATE', taskName: 'Decorations', durationMinutes: 90, order: 5, daysBefore: 1 },
-  { taskType: 'STACK', taskName: 'Stack & Assemble', durationMinutes: 30, order: 6, daysBefore: 0 },
-  { taskType: 'FINAL', taskName: 'Final Touches', durationMinutes: 20, order: 7, daysBefore: 0 },
-  { taskType: 'PACKAGE', taskName: 'Package for Pickup/Delivery', durationMinutes: 15, order: 8, daysBefore: 0 },
+  { taskType: 'BAKE', taskName: 'Bake Cakes', durationMinutes: 60, order: 1, daysBefore: 2 },
+  { taskType: 'PREP', taskName: 'Make Frosting', durationMinutes: 45, order: 2, daysBefore: 2 },
+  { taskType: 'STACK', taskName: 'Fill & Crumb Coat', durationMinutes: 45, order: 3, daysBefore: 1 },
+  { taskType: 'COOL', taskName: 'Cool & Level Cakes', durationMinutes: 30, order: 4, daysBefore: 1 },
+  { taskType: 'FROST', taskName: 'Final Frosting (Top Coat)', durationMinutes: 60, order: 5, daysBefore: 1 },
+  { taskType: 'FINAL', taskName: 'Cool & Final Touches', durationMinutes: 30, order: 6, daysBefore: 0 },
+  { taskType: 'PACKAGE', taskName: 'Package for Pickup/Delivery', durationMinutes: 15, order: 7, daysBefore: 0 },
 ]
 
 // POST /api/production/tasks/generate - Generate standard tasks for an order

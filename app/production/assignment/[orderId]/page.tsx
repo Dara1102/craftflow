@@ -427,6 +427,7 @@ export default function AssignmentSpecPage() {
             <div className="bg-white rounded-lg shadow p-4">
               <h3 className="font-semibold text-gray-900 mb-3">All Order Tasks</h3>
               <div className="space-y-1">
+                {/* Note: Tasks should come pre-sorted from API by proper sequence */}
                 {data.allTasks.map((task) => (
                   <div
                     key={task.id}

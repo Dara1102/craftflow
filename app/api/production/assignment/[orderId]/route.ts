@@ -108,12 +108,19 @@ export async function GET(
         status: task.status,
         notes: task.notes
       })),
-      allTasks: order.ProductionTask.map(task => ({
-        id: task.id,
-        taskName: task.taskName,
-        status: task.status,
-        assignedToName: task.AssignedToStaff?.name || task.assignedTo || null
-      })),
+      allTasks: [...order.ProductionTask]
+        .sort((a, b) => {
+          // Sort by task type sequence: BAKE → PREP → STACK → COOL → FROST → FINAL → PACKAGE
+          const taskOrder = ['BAKE', 'PREP', 'STACK', 'COOL', 'FROST', 'FINAL', 'PACKAGE']
+          return taskOrder.indexOf(a.taskType) - taskOrder.indexOf(b.taskType)
+        })
+        .map(task => ({
+          id: task.id,
+          taskType: task.taskType,
+          taskName: task.taskName,
+          status: task.status,
+          assignedToName: task.AssignedToStaff?.name || task.assignedTo || null
+        })),
       recipes: order.CakeTier.flatMap(tier => {
         const recipes = []
         if (tier.Recipe_CakeTier_batterRecipeIdToRecipe) {

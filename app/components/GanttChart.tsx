@@ -30,14 +30,13 @@ interface GanttChartProps {
   onTaskReschedule?: (taskId: number, newDate: string) => void
 }
 
+// Task sequence: BAKE → PREP → STACK → COOL → FROST → FINAL → PACKAGE
 const TASK_TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  PREP: { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800' },
   BAKE: { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-800' },
-  COOL: { bg: 'bg-cyan-100', border: 'border-cyan-300', text: 'text-cyan-800' },
-  FILL: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800' },
-  FROST: { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800' },
-  DECORATE: { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-800' },
+  PREP: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800' },
   STACK: { bg: 'bg-indigo-100', border: 'border-indigo-300', text: 'text-indigo-800' },
+  COOL: { bg: 'bg-cyan-100', border: 'border-cyan-300', text: 'text-cyan-800' },
+  FROST: { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800' },
   FINAL: { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-800' },
   PACKAGE: { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800' },
   DELIVERY: { bg: 'bg-rose-100', border: 'border-rose-300', text: 'text-rose-800' }
@@ -164,7 +163,7 @@ export default function GanttChart({ tasksByDate, onTaskStatusChange, onTaskResc
                     const duration = task.durationMinutes || 30
 
                     // Calculate bar position (based on task type order in production flow)
-                    const taskTypeOrder = ['BAKE', 'COOL', 'FILL', 'FROST', 'DECORATE', 'STACK', 'FINAL', 'PACKAGE', 'DELIVERY']
+                    const taskTypeOrder = ['BAKE', 'PREP', 'STACK', 'COOL', 'FROST', 'FINAL', 'PACKAGE', 'DELIVERY']
                     const typeIndex = Math.max(0, taskTypeOrder.indexOf(task.taskType))
                     const startHour = 6 + typeIndex * 1.3
                     const barLeft = ((startHour - 6) / 14) * 100

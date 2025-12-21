@@ -44,7 +44,26 @@ export async function GET(request: Request) {
           select: {
             id: true,
             customerName: true,
-            Customer: { select: { name: true } }
+            eventDate: true,
+            deliveryTime: true,
+            pickupTime: true,
+            isDelivery: true,
+            size: true,
+            isBulkOrder: true,
+            bulkQuantity: true,
+            Customer: { select: { name: true } },
+            _count: { select: { CakeTier: true } },
+            CakeTier: {
+              select: {
+                tierIndex: true,
+                flavor: true,
+                filling: true,
+                Recipe_CakeTier_batterRecipeIdToRecipe: { select: { name: true } },
+                Recipe_CakeTier_fillingRecipeIdToRecipe: { select: { name: true } },
+                Recipe_CakeTier_frostingRecipeIdToRecipe: { select: { name: true } }
+              },
+              orderBy: { tierIndex: 'asc' }
+            }
           }
         }
       },
@@ -88,7 +107,37 @@ export async function GET(request: Request) {
           durationMinutes: t.durationMinutes,
           assignedTo: t.AssignedToStaff?.name || t.assignedTo,
           dependsOnId: t.dependsOnId,
-          customerName: t.CakeOrder?.Customer?.name || t.CakeOrder?.customerName || 'Unknown'
+          customerName: t.CakeOrder?.Customer?.name || t.CakeOrder?.customerName || 'Unknown',
+          // Order details for batch planner
+          eventDate: t.CakeOrder?.eventDate?.toISOString() || null,
+          eventTime: t.CakeOrder?.isDelivery
+            ? t.CakeOrder?.deliveryTime?.toISOString() || null
+            : t.CakeOrder?.pickupTime?.toISOString() || null,
+          isDelivery: t.CakeOrder?.isDelivery || false,
+          cakeSize: t.CakeOrder?.size || null,
+          tierCount: t.CakeOrder?._count?.CakeTier || 0,
+          isBulkOrder: t.CakeOrder?.isBulkOrder || false,
+          bulkQuantity: t.CakeOrder?.bulkQuantity || null,
+          // Tier flavor details - aggregate unique flavors across tiers
+          flavors: (() => {
+            const tiers = t.CakeOrder?.CakeTier || []
+            const batters = new Set<string>()
+            const fillings = new Set<string>()
+            const frostings = new Set<string>()
+            for (const tier of tiers) {
+              const batter = tier.flavor || tier.Recipe_CakeTier_batterRecipeIdToRecipe?.name
+              const filling = tier.filling || tier.Recipe_CakeTier_fillingRecipeIdToRecipe?.name
+              const frosting = tier.Recipe_CakeTier_frostingRecipeIdToRecipe?.name
+              if (batter) batters.add(batter)
+              if (filling) fillings.add(filling)
+              if (frosting) frostings.add(frosting)
+            }
+            return {
+              batters: Array.from(batters),
+              fillings: Array.from(fillings),
+              frostings: Array.from(frostings)
+            }
+          })()
         }))
       }))
 
@@ -174,13 +223,13 @@ export async function POST(request: Request) {
 }
 
 // Standard task templates for cake orders
+// Sequence: BAKE → PREP → STACK → COOL → FROST → FINAL → PACKAGE
 export const TASK_TEMPLATES = [
-  { taskType: 'BAKE', taskName: 'Bake Cake Layers', durationMinutes: 60 },
+  { taskType: 'BAKE', taskName: 'Bake Cakes', durationMinutes: 60 },
+  { taskType: 'PREP', taskName: 'Make Frosting', durationMinutes: 45 },
+  { taskType: 'STACK', taskName: 'Fill & Crumb Coat', durationMinutes: 45 },
   { taskType: 'COOL', taskName: 'Cool & Level Cakes', durationMinutes: 30 },
-  { taskType: 'FILL', taskName: 'Fill & Crumb Coat', durationMinutes: 45 },
-  { taskType: 'FROST', taskName: 'Final Frosting', durationMinutes: 60 },
-  { taskType: 'DECORATE', taskName: 'Decorations', durationMinutes: 90 },
-  { taskType: 'STACK', taskName: 'Stack & Assemble', durationMinutes: 30 },
-  { taskType: 'FINAL', taskName: 'Final Touches', durationMinutes: 20 },
-  { taskType: 'PACKAGE', taskName: 'Package for Delivery', durationMinutes: 15 },
+  { taskType: 'FROST', taskName: 'Final Frosting (Top Coat)', durationMinutes: 60 },
+  { taskType: 'FINAL', taskName: 'Cool & Final Touches', durationMinutes: 30 },
+  { taskType: 'PACKAGE', taskName: 'Package for Pickup/Delivery', durationMinutes: 15 },
 ]
