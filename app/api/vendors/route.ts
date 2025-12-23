@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       orderBy: { name: 'asc' },
       include: {
         _count: {
-          select: { ingredientVendors: true },
+          select: { IngredientVendor: true },
         },
       },
     })

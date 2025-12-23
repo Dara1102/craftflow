@@ -11,9 +11,9 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
     prisma.recipe.findUnique({
       where: { id: recipeId },
       include: {
-        recipeIngredients: {
+        RecipeIngredient: {
           include: {
-            ingredient: true
+            Ingredient: true
           }
         }
       }
@@ -40,12 +40,12 @@ export default async function EditRecipe({ params }: { params: Promise<{ id: str
     coolMinutes: recipe.coolMinutes,
     laborMinutes: recipe.laborMinutes,
     laborRoleId: recipe.laborRoleId,
-    recipeIngredients: recipe.recipeIngredients.map(ri => ({
+    recipeIngredients: recipe.RecipeIngredient.map(ri => ({
       ...ri,
       quantity: Number(ri.quantity),
       ingredient: {
-        ...ri.ingredient,
-        costPerUnit: Number(ri.ingredient.costPerUnit)
+        ...ri.Ingredient,
+        costPerUnit: Number(ri.Ingredient.costPerUnit)
       }
     }))
   }

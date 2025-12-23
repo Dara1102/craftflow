@@ -78,3 +78,4 @@ if (technique.unit === 'TIER' && technique.baseCakeSize && quoteData.tiers.lengt
 - **SET** = Whole cake, no scaling (like CAKE, but semantically means "a set")
 
 The main difference between CAKE and SET is semantic - SET implies a complete matching set of decorations, while CAKE is a single decoration type. From a costing perspective, they're identical.
+

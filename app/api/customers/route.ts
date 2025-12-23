@@ -21,7 +21,7 @@ export async function GET(request: Request) {
       orderBy: { name: 'asc' },
       include: {
         _count: {
-          select: { orders: true },
+          select: { CakeOrder: true },
         },
       },
     })

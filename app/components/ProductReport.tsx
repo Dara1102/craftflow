@@ -10,6 +10,7 @@ interface ProductItem {
   customerName: string
   eventDate: string
   eventTime: string | null
+  isDelivery: boolean
   productTypeName: string
   menuItemName: string | null
   quantity: number
@@ -19,6 +20,8 @@ interface ProductItem {
   packaging: string | null
   packagingQty: number | null
   notes: string | null
+  style: string | null
+  decorations: string | null
 }
 
 interface DateGroup {
@@ -223,6 +226,7 @@ export default function ProductReport({ productType, title, icon, accentColor = 
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8 print:hidden">✓</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">Type</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Qty</th>
@@ -230,6 +234,7 @@ export default function ProductReport({ productType, title, icon, accentColor = 
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Flavor</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Frosting</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Packaging</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Style</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-12">Done</th>
                       </tr>
@@ -250,6 +255,15 @@ export default function ProductReport({ productType, title, icon, accentColor = 
                                 onChange={() => toggleChecked(item.orderItemId)}
                                 className={`h-4 w-4 ${colors.text} focus:ring-pink-500 border-gray-300 rounded`}
                               />
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                item.isDelivery
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {item.isDelivery ? 'D' : 'P'}
+                              </span>
                             </td>
                             <td className="px-3 py-2 whitespace-nowrap text-sm">
                               <Link
@@ -281,6 +295,14 @@ export default function ProductReport({ productType, title, icon, accentColor = 
                                   {item.packaging}
                                   {item.packagingQty && item.packagingQty > 1 && ` (×${item.packagingQty})`}
                                 </span>
+                              ) : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-sm text-gray-900 max-w-xs">
+                              {item.style || item.decorations ? (
+                                <div>
+                                  {item.style && <div className="font-medium">{item.style}</div>}
+                                  {item.decorations && <div className="text-gray-500 text-xs">{item.decorations}</div>}
+                                </div>
                               ) : '-'}
                             </td>
                             <td className="px-3 py-2 text-sm text-gray-500 max-w-xs truncate" title={item.notes || ''}>

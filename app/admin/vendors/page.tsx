@@ -5,7 +5,7 @@ export default async function VendorsAdmin() {
   const vendors = await prisma.vendor.findMany({
     include: {
       _count: {
-        select: { ingredientVendors: true }
+        select: { IngredientVendor: true }
       }
     },
     orderBy: { name: 'asc' }
@@ -112,7 +112,7 @@ export default async function VendorsAdmin() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {vendor._count.ingredientVendors} ingredient{vendor._count.ingredientVendors !== 1 ? 's' : ''}
+                        {vendor._count.IngredientVendor} ingredient{vendor._count.IngredientVendor !== 1 ? 's' : ''}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

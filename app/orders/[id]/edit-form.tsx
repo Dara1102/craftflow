@@ -182,6 +182,7 @@ interface Order {
   colors: string | null
   accentColors: string | null
   isDelivery: boolean
+  pickupTime: Date | null
   deliveryZoneId: number | null
   deliveryDistance: number | null
   deliveryContact: string | null
@@ -289,8 +290,11 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const [accentColors, setAccentColors] = useState(order.accentColors || '')
   const [showAccentColorDropdown, setShowAccentColorDropdown] = useState(false)
 
-  // Delivery details
+  // Delivery/Pickup details
   const [isDelivery, setIsDelivery] = useState(order.isDelivery)
+  const [pickupTime, setPickupTime] = useState(
+    order.pickupTime ? new Date(order.pickupTime).toISOString().slice(0, 16) : ''
+  )
   const [deliveryZoneId, setDeliveryZoneId] = useState<number | null>(order.deliveryZoneId)
   const [deliveryDistance, setDeliveryDistance] = useState(order.deliveryDistance?.toString() || '')
   const [deliveryContact, setDeliveryContact] = useState(order.deliveryContact || '')
@@ -894,7 +898,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!selectedCustomer || selectedCustomer.id === 0) {
+    if (!selectedCustomer) {
       alert('Please select a customer')
       return
     }
@@ -915,7 +919,9 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
 
     try {
       await updateOrder(order.id, {
-        customerId: selectedCustomer.id,
+        // If customer has id 0, it's a legacy text-only name - pass as customerName
+        customerId: selectedCustomer.id > 0 ? selectedCustomer.id : undefined,
+        customerName: selectedCustomer.id === 0 ? selectedCustomer.name : undefined,
         eventDate,
         cakeType: cakeType || undefined,
         size,
@@ -925,6 +931,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         colors: colors || undefined,
         accentColors: accentColors || undefined,
         isDelivery,
+        pickupTime: !isDelivery && pickupTime ? pickupTime : undefined,
         deliveryZoneId: isDelivery ? deliveryZoneId : null,
         deliveryDistance: isDelivery && deliveryDistance ? parseFloat(deliveryDistance) : null,
         deliveryContact: isDelivery ? deliveryContact : undefined,
@@ -1353,29 +1360,64 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         </div>
       </div>
 
-      {/* Delivery Section */}
+      {/* Delivery/Pickup Section */}
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div className="md:grid md:grid-cols-3 md:gap-6">
           <div className="md:col-span-1">
-            <h3 className="text-lg font-medium leading-6 text-gray-900">Delivery</h3>
-            <p className="mt-1 text-sm text-gray-600">Delivery information if applicable.</p>
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Delivery / Pickup</h3>
+            <p className="mt-1 text-sm text-gray-600">Choose delivery or customer pickup.</p>
           </div>
           <div className="mt-5 md:mt-0 md:col-span-2">
             <div className="space-y-4">
-              <div className="flex items-center">
-                <input
-                  id="isDelivery"
-                  name="isDelivery"
-                  type="checkbox"
-                  checked={isDelivery}
-                  onChange={(e) => setIsDelivery(e.target.checked)}
-                  className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300 rounded"
-                />
-                <label htmlFor="isDelivery" className="ml-2 block text-sm text-gray-900">
-                  This order requires delivery
+              {/* Delivery/Pickup Toggle */}
+              <div className="flex items-center gap-6">
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    name="deliveryType"
+                    checked={!isDelivery}
+                    onChange={() => setIsDelivery(false)}
+                    className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-900">Pickup</span>
+                </label>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    name="deliveryType"
+                    checked={isDelivery}
+                    onChange={() => setIsDelivery(true)}
+                    className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-900">Delivery</span>
                 </label>
               </div>
 
+              {/* Pickup Details */}
+              {!isDelivery && (
+                <div className="grid grid-cols-6 gap-4 pt-4 border-t border-gray-200">
+                  <div className="col-span-6 sm:col-span-3">
+                    <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700">
+                      Pickup Date & Time
+                    </label>
+                    <input
+                      type="datetime-local"
+                      id="pickupTime"
+                      name="pickupTime"
+                      value={pickupTime}
+                      onChange={(e) => setPickupTime(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                  </div>
+                  <div className="col-span-6">
+                    <p className="text-sm text-gray-500">
+                      Customer will pick up the order at your bakery location.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Delivery Details */}
               {isDelivery && (
                 <div className="grid grid-cols-6 gap-4 pt-4 border-t border-gray-200">
                   {/* Delivery Zone */}
@@ -2028,6 +2070,12 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                         <span className="text-sm font-medium text-pink-600">
                           = ${calculateDecorationScaledCost(sd, dec).toFixed(2)}
                         </span>
+                        <span className="relative group">
+                          <span className="text-xs text-gray-400 cursor-help underline decoration-dotted">(materials)</span>
+                          <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-800 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                            Material cost = base cost × qty × size multiplier
+                          </span>
+                        </span>
                       </div>
                       {/* Tier selection for TIER unit */}
                       {effectiveUnit === 'TIER' && tiers.length > 0 && (
@@ -2072,6 +2120,23 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                   </span>
                   <span className="text-xs text-gray-400 ml-1">(size-scaled)</span>
                 </p>
+
+                {/* How Decoration Costs Work */}
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-800 font-medium mb-2">
+                    <strong>How Decoration Costs Work:</strong>
+                  </p>
+                  <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                    <li><strong>SINGLE:</strong> Per-item cost (sugar flowers, toppers) - no size scaling</li>
+                    <li><strong>CAKE:</strong> Whole cake surface (fondant quilt) - scales by total surface area vs base cake size</li>
+                    <li><strong>TIER:</strong> Per-tier design (ombre effect) - scales by tier size vs base cake size</li>
+                    <li><strong>SET:</strong> Matching set of items (unicorn kit) - no size scaling</li>
+                  </ul>
+                  <p className="text-xs text-blue-700 mt-2 italic">
+                    The material cost shown is calculated from the base cost/unit × quantity × size multiplier (for CAKE/TIER units).
+                    Labor costs are calculated separately based on decoration skill level.
+                  </p>
+                </div>
               </div>
             )}
           </div>

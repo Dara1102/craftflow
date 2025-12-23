@@ -97,3 +97,4 @@ All docs now explain:
 - Existing quotes without `tierIndices` will use all tiers (default behavior)
 - Unit override is optional (defaults to decoration's unit)
 - Documentation reflects the actual code implementation
+

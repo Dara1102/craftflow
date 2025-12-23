@@ -117,3 +117,4 @@ When creating a decoration, you **must** assign a Unit Type. This determines how
 2. **TIER decorations require `baseCakeSize`** to be set for proper scaling
 3. **Quantity field meaning changes** based on unit type
 4. **When in doubt:** Use SINGLE for individual items, TIER for size-scaled decorations
+

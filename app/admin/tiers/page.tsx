@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db'
 export default async function TierSizesAdmin() {
   const tierSizes = await prisma.tierSize.findMany({
     include: {
-      assemblyRole: true
+      LaborRole: true
     },
     orderBy: {
       diameterCm: 'asc'
@@ -103,7 +103,7 @@ export default async function TierSizesAdmin() {
                         <div>
                           <span>{tier.assemblyMinutes} min</span>
                           <span className="text-xs text-gray-400 block">
-                            {tier.assemblyRole?.name || 'Baker'}
+                            {tier.LaborRole?.name || 'Baker'}
                           </span>
                         </div>
                       ) : (

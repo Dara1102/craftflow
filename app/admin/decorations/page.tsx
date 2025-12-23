@@ -24,7 +24,7 @@ export default async function DecorationsAdmin() {
       { name: 'asc' },
     ],
     include: {
-      laborRole: true,
+      LaborRole: true,
     },
   })
 
@@ -160,8 +160,8 @@ export default async function DecorationsAdmin() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="text-sm text-gray-500">{dec.laborMinutes} min</div>
                       <div className="text-xs text-gray-400">
-                        {dec.laborRole ? (
-                          <span className="text-blue-600">{dec.laborRole.name}</span>
+                        {dec.LaborRole ? (
+                          <span className="text-blue-600">{dec.LaborRole.name}</span>
                         ) : (
                           <span className="text-gray-400">Decorator</span>
                         )}

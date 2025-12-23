@@ -13,6 +13,37 @@ interface InventoryItem {
   minStock: number
 }
 
+interface FondantTier {
+  orderId: number
+  customerName: string
+  tierIndex: number
+  tierSize: string
+  diameterInches: number
+  surfaceAreaSqIn: number
+  fondantOunces: number
+  finishType: string
+  dueDate: string
+  isDelivery: boolean
+}
+
+interface FondantSummary {
+  finishType: string
+  totalTiers: number
+  totalSurfaceArea: number
+  totalFondantOunces: number
+  tiers: FondantTier[]
+}
+
+interface FondantNeeds {
+  fondantNeeds: FondantSummary[]
+  grandTotal: {
+    totalTiers: number
+    totalSurfaceArea: number
+    totalFondantOunces: number
+    totalPounds: number
+  }
+}
+
 interface StockTask {
   id: number
   inventoryItemId: number
@@ -45,10 +76,12 @@ export default function StockProductionPage() {
   const [tasksByDate, setTasksByDate] = useState<DateGroup[]>([])
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
+  const [fondantNeeds, setFondantNeeds] = useState<FondantNeeds | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'pending' | 'in_progress'>('pending')
   const [showNewTaskModal, setShowNewTaskModal] = useState(false)
+  const [expandedFondant, setExpandedFondant] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -58,10 +91,11 @@ export default function StockProductionPage() {
     setLoading(true)
     try {
       const statusParam = filter !== 'all' ? `&status=${filter.toUpperCase()}` : ''
-      const [tasksRes, inventoryRes, staffRes] = await Promise.all([
+      const [tasksRes, inventoryRes, staffRes, fondantRes] = await Promise.all([
         fetch(`/api/stock-tasks?groupByDate=true${statusParam}`),
         fetch('/api/inventory?lowStock=true'),
-        fetch('/api/staff?isActive=true')
+        fetch('/api/staff?isActive=true'),
+        fetch('/api/production/fondant-needs')
       ])
 
       if (!tasksRes.ok) throw new Error('Failed to load tasks')
@@ -77,6 +111,11 @@ export default function StockProductionPage() {
       if (staffRes.ok) {
         const staffData = await staffRes.json()
         setStaff(staffData)
+      }
+
+      if (fondantRes.ok) {
+        const fondantData = await fondantRes.json()
+        setFondantNeeds(fondantData)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -170,6 +209,88 @@ export default function StockProductionPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
             <p className="text-red-600">{error}</p>
+          </div>
+        )}
+
+        {/* Fondant Requirements */}
+        {fondantNeeds && fondantNeeds.fondantNeeds.length > 0 && (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h3 className="font-medium text-purple-800">Fondant Requirements</h3>
+                <p className="text-sm text-purple-600">
+                  {fondantNeeds.grandTotal.totalTiers} tier{fondantNeeds.grandTotal.totalTiers !== 1 ? 's' : ''} need fondant •{' '}
+                  {fondantNeeds.grandTotal.totalPounds} lbs total ({fondantNeeds.grandTotal.totalFondantOunces} oz)
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {fondantNeeds.fondantNeeds.map(summary => (
+                <div key={summary.finishType} className="bg-white rounded-lg border border-purple-100">
+                  <button
+                    onClick={() => setExpandedFondant(expandedFondant === summary.finishType ? null : summary.finishType)}
+                    className="w-full px-4 py-3 flex justify-between items-center hover:bg-purple-50 transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg">🎨</span>
+                      <div className="text-left">
+                        <span className="font-medium text-gray-900">{summary.finishType}</span>
+                        <span className="text-sm text-gray-500 ml-2">
+                          {summary.totalTiers} tier{summary.totalTiers !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <span className="font-semibold text-purple-700">{summary.totalFondantOunces} oz</span>
+                        <span className="text-xs text-gray-500 ml-1">
+                          ({Math.round(summary.totalFondantOunces / 16 * 10) / 10} lbs)
+                        </span>
+                      </div>
+                      <span className="text-gray-400">
+                        {expandedFondant === summary.finishType ? '▼' : '▶'}
+                      </span>
+                    </div>
+                  </button>
+                  {expandedFondant === summary.finishType && (
+                    <div className="px-4 pb-3 border-t border-purple-100">
+                      <table className="w-full text-sm mt-2">
+                        <thead>
+                          <tr className="text-left text-gray-500">
+                            <th className="py-1">Order</th>
+                            <th className="py-1">Customer</th>
+                            <th className="py-1">Tier</th>
+                            <th className="py-1">Size</th>
+                            <th className="py-1 text-right">Area</th>
+                            <th className="py-1 text-right">Fondant</th>
+                            <th className="py-1 text-right">Due</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {summary.tiers.map((tier, idx) => (
+                            <tr key={`${tier.orderId}-${tier.tierIndex}-${idx}`} className="border-t border-gray-100">
+                              <td className="py-2">
+                                <Link href={`/orders/${tier.orderId}`} className="text-pink-600 hover:text-pink-800 font-medium">
+                                  #{tier.orderId}
+                                </Link>
+                              </td>
+                              <td className="py-2 text-gray-700">{tier.customerName}</td>
+                              <td className="py-2 text-gray-600">Tier {tier.tierIndex + 1}</td>
+                              <td className="py-2 text-gray-600">{tier.tierSize}</td>
+                              <td className="py-2 text-right text-gray-600">{tier.surfaceAreaSqIn} sq in</td>
+                              <td className="py-2 text-right font-medium text-purple-700">{tier.fondantOunces} oz</td>
+                              <td className="py-2 text-right text-gray-500">
+                                {new Date(tier.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

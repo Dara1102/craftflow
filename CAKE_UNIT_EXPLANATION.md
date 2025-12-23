@@ -53,3 +53,4 @@ But the **CAKE decoration itself** doesn't need tier information.
 ❌ **CAKE unit does NOT use tier information**
 
 The system requires tiers for the overall quote, but CAKE decorations themselves are independent of tier selection.
+

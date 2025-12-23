@@ -1037,3 +1037,4 @@ describe('PricingEngine', () => {
 6. Add PDF generation for quotes
 7. Create admin interface for pricing rules
 
+

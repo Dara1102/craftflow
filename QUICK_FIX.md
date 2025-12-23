@@ -49,3 +49,4 @@
 
 ## Summary
 Everything is fixed on the code side. You just need ONE server running. The Quote model exists in Prisma, so it should work now!
+

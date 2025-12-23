@@ -242,3 +242,4 @@ model QuoteDecoration {
 ## Summary
 
 Successfully implemented tier selection for TIER unit decorations, unit type override feature, and enhanced error handling. The quote builder now provides more granular control over decoration application and more accurate costing based on selected tiers.
+

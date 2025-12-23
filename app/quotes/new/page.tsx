@@ -172,8 +172,9 @@ export default function NewQuote() {
   const accentColorDropdownRef = useRef<HTMLDivElement>(null)
   const venueDropdownRef = useRef<HTMLDivElement>(null)
 
-  // Delivery
+  // Delivery/Pickup
   const [isDelivery, setIsDelivery] = useState(false)
+  const [pickupTime, setPickupTime] = useState('')
   const [deliveryZoneId, setDeliveryZoneId] = useState<number | null>(null)
   const [deliveryDistance, setDeliveryDistance] = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState('')
@@ -1397,6 +1398,16 @@ export default function NewQuote() {
                               </button>
                             )}
                           </label>
+                          <span className="text-sm text-gray-500">${Number(technique.defaultCostPerUnit).toFixed(2)}/unit</span>
+                          <span className="text-sm font-medium text-pink-600">
+                            = ${(Number(technique.defaultCostPerUnit) * dec.quantity).toFixed(2)}
+                          </span>
+                          <span className="relative group">
+                            <span className="text-xs text-gray-400 cursor-help underline decoration-dotted">(materials)</span>
+                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-800 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                              Material cost = base cost × qty × size multiplier
+                            </span>
+                          </span>
                         </div>
                         {(dec.unitOverride || technique.unit) === 'TIER' && (
                           <div className="mt-3 pt-3 border-t border-gray-200">
@@ -1464,39 +1475,90 @@ export default function NewQuote() {
               )}
               
               {selectedDecorations.length === 0 && customDecorations.length === 0 && (
-                <p className="text-gray-500 text-sm">No decorations added yet. Click "Browse All Decorations" to add.</p>
+                <p className="text-gray-500 text-sm">No decorations added yet. Click &quot;Browse All Decorations&quot; to add.</p>
               )}
-              
+
+              {/* Est. Decoration Materials Total */}
+              {selectedDecorations.length > 0 && (
+                <p className="text-sm text-gray-600 text-right mt-4">
+                  Est. Decoration Materials: <span className="font-medium text-pink-600">
+                    ${selectedDecorations.reduce((sum, dec) => {
+                      const technique = allDecorations?.find(d => d.id === dec.decorationTechniqueId)
+                      if (!technique) return sum
+                      return sum + (Number(technique.defaultCostPerUnit) * dec.quantity)
+                    }, 0).toFixed(2)}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-1">(base cost, final may vary with size)</span>
+                </p>
+              )}
+
+              {/* How Decoration Costs Work */}
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
                 <p className="text-sm text-blue-800 font-medium mb-2">
                   <strong>How Decoration Costs Work:</strong>
                 </p>
                 <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
-                  <li><strong>SINGLE:</strong> Per-item (sugar flowers, toppers) - quantity = number of items, no scaling</li>
-                  <li><strong>CAKE:</strong> Whole cake surface design (fondant quilt) - covers all tiers, scales by total surface area</li>
-                  <li><strong>TIER:</strong> Per-tier design (ombre on specific tiers) - quantity = number of tiers, scales by average tier size</li>
-                  <li><strong>SET:</strong> Matching set (unicorn cake set) - quantity = number of sets, no scaling</li>
+                  <li><strong>SINGLE:</strong> Per-item cost (sugar flowers, toppers) - no size scaling</li>
+                  <li><strong>CAKE:</strong> Whole cake surface (fondant quilt) - scales by total surface area vs base cake size</li>
+                  <li><strong>TIER:</strong> Per-tier design (ombre effect) - scales by tier size vs base cake size</li>
+                  <li><strong>SET:</strong> Matching set of items (unicorn kit) - no size scaling</li>
                 </ul>
                 <p className="text-xs text-blue-700 mt-2 italic">
-                  Note: CAKE and TIER units require tiers to be selected for accurate costing.
+                  The material cost shown is calculated from the base cost/unit × quantity × size multiplier (for CAKE/TIER units).
+                  Labor costs are calculated separately based on decoration skill level.
                 </p>
               </div>
             </div>
             
-            {/* Delivery Section */}
+            {/* Delivery/Pickup Section */}
             <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Delivery</h2>
+              <h2 className="text-xl font-semibold mb-4">Delivery / Pickup</h2>
               <div className="space-y-4">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={isDelivery}
-                    onChange={(e) => setIsDelivery(e.target.checked)}
-                    className="mr-2"
-                  />
-                  <span>This order requires delivery</span>
-                </label>
+                {/* Delivery/Pickup Toggle */}
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deliveryType"
+                      checked={!isDelivery}
+                      onChange={() => setIsDelivery(false)}
+                      className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                    />
+                    <span className="ml-2 text-sm text-gray-900">Pickup</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deliveryType"
+                      checked={isDelivery}
+                      onChange={() => setIsDelivery(true)}
+                      className="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                    />
+                    <span className="ml-2 text-sm text-gray-900">Delivery</span>
+                  </label>
+                </div>
 
+                {/* Pickup Details */}
+                {!isDelivery && (
+                  <div className="pt-4 border-t border-gray-200">
+                    <div className="max-w-xs">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Pickup Date & Time
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={pickupTime}
+                        onChange={(e) => setPickupTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-pink-500 focus:border-pink-500"
+                      />
+                    </div>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Customer will pick up the order at your bakery location.
+                    </p>
+                  </div>
+                )}
+
+                {/* Delivery Details */}
                 {isDelivery && (
                   <>
                     <div className="grid grid-cols-2 gap-4">

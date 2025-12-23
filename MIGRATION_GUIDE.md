@@ -57,3 +57,4 @@ npm run db:studio
 - **I'll handle migrations** when I make schema changes
 - **You can use** `npm run db:migrate` if you make changes manually
 - **All migrations are tracked** in `prisma/migrations/` folder
+

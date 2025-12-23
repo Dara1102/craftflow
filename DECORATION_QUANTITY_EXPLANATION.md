@@ -50,3 +50,4 @@ if (unit === 'TIER' && baseCakeSize) {
 ```
 
 Now quantity=2 means "2 instances" on the whole cake, scaled by tier sizes if applicable.
+

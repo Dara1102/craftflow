@@ -113,3 +113,4 @@ Cost: $15 × 3 tiers × 1.85 = $83.25
 ✅ **Customer System**: Same as orders, shared customer records
 ✅ **Cost Locking**: Costs locked when quote accepted
 ✅ **Real-Time**: Updates as you make changes
+

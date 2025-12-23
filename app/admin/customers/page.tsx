@@ -5,9 +5,9 @@ export default async function CustomersAdmin() {
   const customers = await prisma.customer.findMany({
     include: {
       _count: {
-        select: { orders: true }
+        select: { CakeOrder: true }
       },
-      orders: {
+      CakeOrder: {
         orderBy: { eventDate: 'desc' },
         take: 1,
         select: {
@@ -87,7 +87,7 @@ export default async function CustomersAdmin() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {customers.map((customer) => {
-                  const lastOrder = customer.orders[0]
+                  const lastOrder = customer.CakeOrder[0]
                   return (
                     <tr key={customer.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -115,7 +115,7 @@ export default async function CustomersAdmin() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {customer._count.orders} order{customer._count.orders !== 1 ? 's' : ''}
+                          {customer._count.CakeOrder} order{customer._count.CakeOrder !== 1 ? 's' : ''}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

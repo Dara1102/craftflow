@@ -29,6 +29,11 @@ export async function GET(request: Request) {
       include: {
         TierSize: { select: { id: true, name: true, shape: true } },
         Recipe: { select: { id: true, name: true, type: true } },
+        InventoryItemRecipe: {
+          include: {
+            Recipe: { select: { id: true, name: true, type: true } }
+          }
+        },
         InventoryLot: {
           where: { quantity: { gt: 0 } },
           orderBy: { producedAt: 'asc' }, // FIFO order

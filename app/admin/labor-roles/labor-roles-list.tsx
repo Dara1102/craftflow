@@ -100,66 +100,52 @@ export default function LaborRolesList({ initialRoles }: { initialRoles: LaborRo
 
   const renderFormRow = (form: FormData, setForm: (f: FormData) => void, onSave: () => void, onCancel: () => void) => (
     <tr className="bg-pink-50">
-      <td className="px-6 py-4">
+      <td className="px-3 py-2">
         <input
           type="text"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-          placeholder="Role name (e.g., Decorator)"
+          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 text-sm"
+          placeholder="Role name"
         />
       </td>
-      <td className="px-6 py-4">
+      <td className="px-3 py-2">
         <input
           type="text"
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
-          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-          placeholder="Description (optional)"
+          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 text-sm"
+          placeholder="Description"
         />
       </td>
-      <td className="px-6 py-4">
-        <div className="flex items-center gap-1">
-          <span className="text-gray-500">$</span>
-          <input
-            type="number"
-            step="0.01"
-            value={form.hourlyRate}
-            onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
-            className="block w-24 border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
-            placeholder="0.00"
-          />
-          <span className="text-gray-500 text-sm">/hr</span>
-        </div>
+      <td className="px-3 py-2">
+        <input
+          type="number"
+          step="0.01"
+          value={form.hourlyRate}
+          onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
+          className="block w-14 border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 text-sm"
+          placeholder="$/hr"
+        />
       </td>
-      <td className="px-6 py-4">
+      <td className="px-3 py-2">
         <input
           type="number"
           value={form.sortOrder}
           onChange={(e) => setForm({ ...form, sortOrder: e.target.value })}
-          className="block w-16 border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+          className="block w-10 border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 text-sm"
         />
       </td>
-      <td className="px-6 py-4 text-sm text-gray-500">-</td>
-      <td className="px-6 py-4 text-sm font-medium">
-        <button
-          onClick={onSave}
-          className="text-green-600 hover:text-green-900 mr-3"
-        >
-          Save
-        </button>
-        <button
-          onClick={onCancel}
-          className="text-gray-600 hover:text-gray-900"
-        >
-          Cancel
-        </button>
+      <td className="px-3 py-2 text-sm text-gray-500">-</td>
+      <td className="px-3 py-2 text-sm">
+        <button onClick={onSave} className="text-green-600 hover:text-green-900 mr-2">Save</button>
+        <button onClick={onCancel} className="text-gray-600 hover:text-gray-900">Cancel</button>
       </td>
     </tr>
   )
 
   return (
-    <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+    <div className="bg-white shadow sm:rounded-lg overflow-hidden max-w-full">
       {error && (
         <div className="px-4 py-3 bg-red-50 border-b border-red-200">
           <p className="text-sm text-red-700">{error}</p>
@@ -177,26 +163,26 @@ export default function LaborRolesList({ initialRoles }: { initialRoles: LaborRo
           </button>
         )}
       </div>
-      <div className="border-t border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
+      <div className="border-t border-gray-200 overflow-x-auto">
+        <table className="w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Role Name
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Role
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                 Description
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Hourly Rate
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
+                Rate
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Sort Order
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                #
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Techniques
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Tech
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                 Actions
               </th>
             </tr>
@@ -220,33 +206,31 @@ export default function LaborRolesList({ initialRoles }: { initialRoles: LaborRo
                 </tr>
               ) : (
                 <tr key={role.id} className={!role.isActive ? 'bg-gray-50 opacity-60' : ''}>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 py-2 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{role.name}</div>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-500 max-w-xs truncate">
+                  <td className="px-3 py-2">
+                    <div className="text-sm text-gray-500 max-w-[200px] truncate">
                       {role.description || '-'}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
-                    ${role.hourlyRate.toFixed(2)}/hr
+                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                    ${role.hourlyRate.toFixed(0)}/hr
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
                     {role.sortOrder}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
                     {role.techniqueCount > 0 ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {role.techniqueCount} technique{role.techniqueCount !== 1 ? 's' : ''}
-                      </span>
+                      <span className="text-blue-600">{role.techniqueCount}</span>
                     ) : (
-                      <span className="text-gray-400">None</span>
+                      <span className="text-gray-400">-</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <td className="px-3 py-2 whitespace-nowrap text-sm">
                     <button
                       onClick={() => startEdit(role)}
-                      className="text-pink-600 hover:text-pink-900 mr-3"
+                      className="text-pink-600 hover:text-pink-900 mr-2"
                     >
                       Edit
                     </button>
@@ -254,7 +238,7 @@ export default function LaborRolesList({ initialRoles }: { initialRoles: LaborRo
                       onClick={() => handleDelete(role.id, role.name, role.techniqueCount)}
                       className="text-red-600 hover:text-red-900"
                     >
-                      Delete
+                      Del
                     </button>
                   </td>
                 </tr>
@@ -272,26 +256,24 @@ export default function LaborRolesList({ initialRoles }: { initialRoles: LaborRo
       </div>
 
       {/* How it works explanation */}
-      <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+      <div className="px-4 py-4 bg-gray-50 border-t border-gray-200">
         <h4 className="text-sm font-medium text-gray-800 mb-2">How labor roles work:</h4>
         <p className="text-sm text-gray-600 mb-3">
           Each decoration technique can be assigned a labor role. When calculating costs, the technique&apos;s labor minutes are multiplied by the role&apos;s hourly rate.
         </p>
         <div className="text-sm text-gray-600 bg-white rounded p-3 border border-gray-200">
-          <p className="font-medium mb-1">Example calculation:</p>
-          <p>Technique: Fondant Roses (45 minutes labor, assigned to Decorator role)</p>
-          <p>Decorator rate: $30/hr</p>
-          <p className="mt-1">= (45 min / 60) x $30 = <strong>$22.50 labor cost</strong></p>
+          <p className="font-medium mb-1">Example:</p>
+          <p>Fondant Roses (45 min) x Decorator ($30/hr) = <strong>$22.50</strong></p>
         </div>
       </div>
 
       {/* Suggested roles helper */}
-      <div className="px-6 py-4 bg-blue-50 border-t border-blue-100">
-        <h4 className="text-sm font-medium text-blue-800 mb-2">Suggested role structure:</h4>
+      <div className="px-4 py-4 bg-blue-50 border-t border-blue-100">
+        <h4 className="text-sm font-medium text-blue-800 mb-2">Suggested roles:</h4>
         <ul className="text-sm text-blue-700 space-y-1">
-          <li><strong>Decorator</strong> ($25-35/hr) - Fondant, piping, sugar flowers, hand-painting</li>
-          <li><strong>Baker</strong> ($20-22/hr) - Batter prep, baking, basic assembly, frosting</li>
-          <li><strong>Bakery Assistant</strong> ($17-19/hr) - Cupcake decorating, stacking, packaging</li>
+          <li><strong>Decorator</strong> ($25-35/hr) - Fondant, piping, sugar flowers</li>
+          <li><strong>Baker</strong> ($20-22/hr) - Batter prep, baking, frosting</li>
+          <li><strong>Assistant</strong> ($17-19/hr) - Cupcakes, stacking, packaging</li>
         </ul>
       </div>
     </div>

@@ -296,3 +296,4 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     />
   )
 }
+

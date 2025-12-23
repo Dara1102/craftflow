@@ -147,7 +147,7 @@ export default function NewOrder() {
 
   // Tiers
   const [tiers, setTiers] = useState([
-    { tierSizeId: 0, batterRecipeId: null as number | null, fillingRecipeId: null as number | null, frostingRecipeId: null as number | null, flavor: '', filling: '', finishType: '' }
+    { tierSizeId: 0, batterRecipeId: null as number | null, fillingRecipeId: null as number | null, frostingRecipeId: null as number | null, flavor: '', filling: '', finishType: '', frostingComplexity: 2 }
   ])
 
   // Decorations
@@ -390,7 +390,7 @@ export default function NewOrder() {
   }
 
   const addTier = () => {
-    setTiers([...tiers, { tierSizeId: 0, batterRecipeId: null, fillingRecipeId: null, frostingRecipeId: null, flavor: '', filling: '', finishType: '' }])
+    setTiers([...tiers, { tierSizeId: 0, batterRecipeId: null, fillingRecipeId: null, frostingRecipeId: null, flavor: '', filling: '', finishType: '', frostingComplexity: 2 }])
   }
 
   const removeTier = (index: number) => {
@@ -484,7 +484,8 @@ export default function NewOrder() {
         frostingRecipeId: t.frostingRecipeId || null,
         flavor: t.flavor || null,
         filling: t.filling || null,
-        finishType: t.finishType || null
+        finishType: t.finishType || null,
+        frostingComplexity: t.frostingComplexity || 2
       })),
       decorations: selectedDecorations,
       products: selectedProducts.map(p => ({
@@ -1401,6 +1402,19 @@ export default function NewOrder() {
                             ))}
                           </select>
                         )}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700">Frosting Thickness</label>
+                        <select
+                          value={tier.frostingComplexity}
+                          onChange={(e) => updateTier(index, 'frostingComplexity', parseInt(e.target.value))}
+                          className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                        >
+                          <option value={1}>Light (thin coat)</option>
+                          <option value={2}>Medium (standard)</option>
+                          <option value={3}>Heavy (rosettes, thick texture)</option>
+                        </select>
+                        <p className="mt-1 text-xs text-gray-500">Affects buttercream quantity for batch planning</p>
                       </div>
                     </div>
                   </div>

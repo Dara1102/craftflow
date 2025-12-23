@@ -140,3 +140,4 @@ The unit type determines:
 **The key distinction:**
 - **CAKE** = "This design covers the entire cake as designed"
 - **TIER** = "This design applies to X specific tiers"
+

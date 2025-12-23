@@ -79,6 +79,7 @@ model CakeTier {
   fillingRecipeId                          Int?
   frostingMultiplier                       Decimal?       @db.Decimal(10, 3)
   frostingRecipeId                         Int?
+  frostingComplexity                       Int            @default(2) // 1=light, 2=medium, 3=heavy (rosettes, etc.)
   cakeboardNotes                           String?
   cakeboardShape                           String?
   cakeboardSizeInches                      Int?
@@ -89,6 +90,7 @@ model CakeTier {
   Recipe_CakeTier_fillingRecipeIdToRecipe  Recipe?        @relation("CakeTier_fillingRecipeIdToRecipe", fields: [fillingRecipeId], references: [id])
   Recipe_CakeTier_frostingRecipeIdToRecipe Recipe?        @relation("CakeTier_frostingRecipeIdToRecipe", fields: [frostingRecipeId], references: [id])
   TierSize                                 TierSize       @relation(fields: [tierSizeId], references: [id])
+  ProductionBatchTier                      ProductionBatchTier[]
 
   @@unique([cakeOrderId, tierIndex])
 }
@@ -692,6 +694,7 @@ model Recipe {
   LaborRole                                    LaborRole?         @relation(fields: [laborRoleId], references: [id])
   RecipeIngredient                             RecipeIngredient[]
   InventoryItem                                InventoryItem[]
+  InventoryItemRecipe                          InventoryItemRecipe[]
 }
 
 model RecipeIngredient {
@@ -894,10 +897,31 @@ model InventoryItem {
   InventoryLot           InventoryLot[]
   StockProductionTask    StockProductionTask[]
   InventoryReservation   InventoryReservation[]
+  InventoryItemRecipe    InventoryItemRecipe[]
 
   @@index([productType])
   @@index([flavor])
   @@index([tierSizeId])
+}
+
+// Links inventory items to multiple recipes with quantities
+// e.g., Vanilla Cupcake needs both Vanilla Batter (0.5oz) and Vanilla Buttercream (0.5oz)
+model InventoryItemRecipe {
+  id               Int           @id @default(autoincrement())
+  inventoryItemId  Int
+  recipeId         Int
+  recipeType       String        // BATTER, FILLING, FROSTING - what role this recipe plays
+  quantityPerUnit  Decimal       @db.Decimal(10, 2) // How much recipe per item (oz)
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  InventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  Recipe           Recipe        @relation(fields: [recipeId], references: [id])
+
+  @@unique([inventoryItemId, recipeId])
+  @@index([inventoryItemId])
+  @@index([recipeId])
 }
 
 // Individual lots/batches for FIFO tracking
@@ -927,6 +951,7 @@ model InventoryLot {
 model StockProductionTask {
   id               Int             @id @default(autoincrement())
   inventoryItemId  Int
+  productionBatchId Int?           // Link to production batch when assigned
   taskType         String          // BAKE, STACK, DECORATE, etc.
   taskName         String          // e.g., "Bake 10x 6-inch Vanilla Tiers"
   targetQuantity   Int             // How many to make
@@ -946,11 +971,13 @@ model StockProductionTask {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  InventoryItem    InventoryItem   @relation(fields: [inventoryItemId], references: [id])
-  AssignedToStaff  Staff?          @relation("StaffStockAssigned", fields: [assignedToId], references: [id])
-  InventoryLot     InventoryLot[]  // Lots produced by this task
+  InventoryItem    InventoryItem    @relation(fields: [inventoryItemId], references: [id])
+  ProductionBatch  ProductionBatch? @relation(fields: [productionBatchId], references: [id])
+  AssignedToStaff  Staff?           @relation("StaffStockAssigned", fields: [assignedToId], references: [id])
+  InventoryLot     InventoryLot[]   // Lots produced by this task
 
   @@index([inventoryItemId])
+  @@index([productionBatchId])
   @@index([scheduledDate])
   @@index([status])
   @@index([assignedToId])
@@ -974,4 +1001,76 @@ model InventoryReservation {
   @@index([orderId])
   @@index([inventoryItemId])
   @@index([status])
+}
+
+// ============================================
+// PRODUCTION BATCH MODELS
+// ============================================
+
+// Status for production batches
+enum ProductionBatchStatus {
+  DRAFT           // Being assembled, not finalized
+  SCHEDULED       // Assigned to a date
+  IN_PROGRESS     // Currently being worked on
+  COMPLETED       // Finished
+}
+
+// Batch type determines what kind of work this batch represents
+enum ProductionBatchType {
+  BAKE            // Baking cake batter
+  PREP            // Making frosting/filling
+  FROST           // Applying frosting to cakes
+  STACK           // Stacking/assembling tiers
+  DECORATE        // Decoration work
+}
+
+// A production batch groups multiple tiers that share the same recipe/task
+// Managers manually associate tiers with batches for weekly planning
+model ProductionBatch {
+  id               Int                     @id @default(autoincrement())
+  name             String                  // e.g., "Vanilla Buttercream - Week of Dec 23"
+  batchType        ProductionBatchType
+  recipeId         Int?                    // Optional: the recipe this batch is for
+  recipeName       String?                 // Denormalized recipe name for display
+  scheduledDate    DateTime?               // When the batch is scheduled
+  status           ProductionBatchStatus   @default(DRAFT)
+  assignedToId     Int?
+  assignedTo       String?                 // Denormalized staff name
+  notes            String?
+
+  // Computed/cached values (updated when tiers change)
+  totalTiers       Int                     @default(0)
+  totalServings    Int                     @default(0)
+  totalSurfaceArea Int                     @default(0)  // sq inches
+  totalButtercream Decimal                 @default(0)  @db.Decimal(10, 2) // oz
+
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  ProductionBatchTier  ProductionBatchTier[]
+  StockProductionTask  StockProductionTask[]  // Stock items linked to this batch
+
+  @@index([batchType])
+  @@index([scheduledDate])
+  @@index([status])
+}
+
+// Junction table linking tiers to batches
+// A tier can be in multiple batches (one for BAKE, one for PREP, one for FROST)
+model ProductionBatchTier {
+  id          Int             @id @default(autoincrement())
+  batchId     Int
+  tierId      Int
+  addedAt     DateTime        @default(now())
+  addedBy     String?         // Who added this tier to the batch
+  notes       String?
+
+  ProductionBatch ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  CakeTier        CakeTier        @relation(fields: [tierId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, tierId])
+  @@index([batchId])
+  @@index([tierId])
 }

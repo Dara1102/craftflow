@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import EditOrderForm from './edit-form'
+import TaskManager from '@/app/components/TaskManager'
 import { prisma } from '@/lib/db'
 
 export default async function EditOrder({ params }: { params: Promise<{ id: string }> }) {
@@ -220,6 +221,14 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
         </div>
 
         <EditOrderForm order={plainOrder} tierSizes={plainTierSizes} />
+
+        {/* Production Tasks Section */}
+        <div className="mt-8">
+          <TaskManager
+            orderId={order.id}
+            eventDate={order.eventDate.toISOString()}
+          />
+        </div>
       </div>
     </div>
   )

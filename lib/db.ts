@@ -4,10 +4,10 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-// Check if cached instance has Quote model, if not, create fresh instance
+// Check if cached instance has required models, if not, create fresh instance
 let prismaInstance = globalForPrisma.prisma
-if (prismaInstance && typeof prismaInstance.quote === 'undefined') {
-  console.warn('⚠️  Cached Prisma client missing Quote model. Creating fresh instance...')
+if (prismaInstance && (typeof prismaInstance.quote === 'undefined' || typeof prismaInstance.staff === 'undefined')) {
+  console.warn('⚠️  Cached Prisma client missing required models. Creating fresh instance...')
   // Disconnect old instance and create new one
   prismaInstance.$disconnect().catch(() => {})
   prismaInstance = undefined
@@ -16,10 +16,10 @@ if (prismaInstance && typeof prismaInstance.quote === 'undefined') {
 
 export const prisma = prismaInstance ?? new PrismaClient()
 
-// Final safety check: if quote model still doesn't exist, warn user
+// Final safety check: if required models still don't exist, warn user
 // Don't throw here as it prevents the app from starting - let API routes handle it gracefully
-if (typeof prisma.quote === 'undefined') {
-  console.error('❌ Prisma client missing Quote model. Please run: npx prisma generate && restart dev server')
+if (typeof prisma.quote === 'undefined' || typeof prisma.staff === 'undefined') {
+  console.error('❌ Prisma client missing required models. Please run: npx prisma generate && restart dev server')
   console.error('Available models:', Object.keys(prisma).filter(k => !k.startsWith('_') && !k.startsWith('$')))
 }
 

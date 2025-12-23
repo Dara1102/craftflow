@@ -451,3 +451,74 @@ export async function deleteLaborRole(id: number) {
   })
   revalidatePath('/admin/labor-roles')
 }
+
+// Cakeboard Types
+export async function createCakeboardType(data: {
+  name: string
+  description?: string
+  vendorId?: number | null
+  availableSizes?: string
+  availableShapes?: string
+  costPerUnit?: number | null
+  notes?: string
+  sortOrder?: number
+}) {
+  await prisma.cakeboardType.create({
+    data: {
+      name: data.name,
+      description: data.description || null,
+      vendorId: data.vendorId ?? null,
+      availableSizes: data.availableSizes || null,
+      availableShapes: data.availableShapes || null,
+      costPerUnit: data.costPerUnit ?? null,
+      notes: data.notes || null,
+      sortOrder: data.sortOrder || 0,
+      isActive: true,
+    }
+  })
+  revalidatePath('/admin/cakeboards')
+}
+
+export async function updateCakeboardType(id: number, data: {
+  name: string
+  description?: string
+  vendorId?: number | null
+  availableSizes?: string
+  availableShapes?: string
+  costPerUnit?: number | null
+  notes?: string
+  sortOrder?: number
+  isActive?: boolean
+}) {
+  await prisma.cakeboardType.update({
+    where: { id },
+    data: {
+      name: data.name,
+      description: data.description || null,
+      vendorId: data.vendorId ?? null,
+      availableSizes: data.availableSizes || null,
+      availableShapes: data.availableShapes || null,
+      costPerUnit: data.costPerUnit ?? null,
+      notes: data.notes || null,
+      sortOrder: data.sortOrder || 0,
+      isActive: data.isActive ?? true,
+    }
+  })
+  revalidatePath('/admin/cakeboards')
+}
+
+export async function deleteCakeboardType(id: number) {
+  // Check if type is used by any cake tiers
+  const usedCount = await prisma.cakeTier.count({
+    where: { cakeboardTypeId: id }
+  })
+
+  if (usedCount > 0) {
+    throw new Error(`Cannot delete this cakeboard type - it is assigned to ${usedCount} cake tier(s)`)
+  }
+
+  await prisma.cakeboardType.delete({
+    where: { id }
+  })
+  revalidatePath('/admin/cakeboards')
+}

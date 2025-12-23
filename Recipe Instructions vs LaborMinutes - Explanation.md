@@ -310,3 +310,4 @@ export interface CostingResult {
 
 The system is working correctly! Instructions calculate laborMinutes, and laborMinutes is used for costing. For production reports, you just need to include the full recipe data (which includes instructions).
 
+

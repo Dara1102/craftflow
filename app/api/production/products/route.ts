@@ -69,6 +69,11 @@ export async function GET(request: Request) {
             productType: true,
             packaging: true
           }
+        },
+        OrderDecoration: {
+          include: {
+            DecorationTechnique: true
+          }
         }
       },
       orderBy: { eventDate: 'asc' }
@@ -87,6 +92,7 @@ export async function GET(request: Request) {
         customerName: string
         eventDate: string
         eventTime: string | null
+        isDelivery: boolean
         productTypeName: string
         menuItemName: string | null
         quantity: number
@@ -96,6 +102,8 @@ export async function GET(request: Request) {
         packaging: string | null
         packagingQty: number | null
         notes: string | null
+        style: string | null
+        decorations: string | null
       }[]
     }[] = []
 
@@ -122,12 +130,27 @@ export async function GET(request: Request) {
         totalQuantity += item.quantity
         totalItems++
 
+        // Get appropriate time based on delivery/pickup
+        let eventTime: string | null = null
+        if (order.isDelivery && order.deliveryTime) {
+          eventTime = new Date(order.deliveryTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        } else if (!order.isDelivery && order.pickupTime) {
+          eventTime = new Date(order.pickupTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        }
+
+        // Get decorations for this order
+        const decorationNames = order.OrderDecoration
+          .map(d => d.DecorationTechnique?.name)
+          .filter((n): n is string => !!n)
+        const decorationsStr = decorationNames.length > 0 ? decorationNames.join(', ') : null
+
         dateGroup.items.push({
           orderId: order.id,
           orderItemId: item.id,
           customerName: order.customer?.name || 'Unknown Customer',
           eventDate: order.eventDate.toISOString(),
-          eventTime: order.eventTime || null,
+          eventTime,
+          isDelivery: order.isDelivery,
           productTypeName: item.productType?.name || 'Unknown',
           menuItemName: item.menuItem?.name || item.itemName || null,
           quantity: item.quantity,
@@ -136,7 +159,9 @@ export async function GET(request: Request) {
           frostingRecipe: item.menuItem?.frostingRecipe?.name || null,
           packaging: item.packaging?.name || null,
           packagingQty: item.packagingQty || null,
-          notes: item.notes || null
+          notes: item.notes || null,
+          style: order.theme || null,
+          decorations: decorationsStr
         })
       }
     }

@@ -6,7 +6,8 @@ import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/db'
 
 export interface CreateOrderData {
-  customerId: number
+  customerId?: number
+  customerName?: string  // For legacy orders without linked customer
   eventDate: string
 
   // Cake details
@@ -21,8 +22,9 @@ export interface CreateOrderData {
   colors?: string
   accentColors?: string
 
-  // Delivery details
+  // Delivery/Pickup details
   isDelivery?: boolean
+  pickupTime?: string
   deliveryZoneId?: number | null
   deliveryDistance?: number | null
   deliveryContact?: string
@@ -55,6 +57,7 @@ export interface CreateOrderData {
     flavor: string
     filling: string
     finishType: string
+    frostingComplexity?: number
   }[]
   decorations: {
     decorationTechniqueId: number
@@ -81,7 +84,8 @@ export interface CreateOrderData {
 export async function createOrder(data: CreateOrderData) {
   const order = await prisma.cakeOrder.create({
     data: {
-      customerId: data.customerId,
+      customerId: data.customerId || null,
+      customerName: data.customerName || null,
       eventDate: new Date(data.eventDate),
 
       // Cake details
@@ -96,14 +100,15 @@ export async function createOrder(data: CreateOrderData) {
       colors: data.colors,
       accentColors: data.accentColors,
 
-      // Delivery details
+      // Delivery/Pickup details
       isDelivery: data.isDelivery || false,
-      deliveryZoneId: data.deliveryZoneId || null,
-      deliveryDistance: data.deliveryDistance || null,
-      deliveryContact: data.deliveryContact,
-      deliveryPhone: data.deliveryPhone,
-      deliveryTime: data.deliveryTime ? new Date(data.deliveryTime) : null,
-      deliveryAddress: data.deliveryAddress,
+      pickupTime: !data.isDelivery && data.pickupTime ? new Date(data.pickupTime) : null,
+      deliveryZoneId: data.isDelivery ? (data.deliveryZoneId || null) : null,
+      deliveryDistance: data.isDelivery ? (data.deliveryDistance || null) : null,
+      deliveryContact: data.isDelivery ? data.deliveryContact : null,
+      deliveryPhone: data.isDelivery ? data.deliveryPhone : null,
+      deliveryTime: data.isDelivery && data.deliveryTime ? new Date(data.deliveryTime) : null,
+      deliveryAddress: data.isDelivery ? data.deliveryAddress : null,
 
       // Labor & notes
       estimatedHours: data.estimatedHours,
@@ -132,6 +137,7 @@ export async function createOrder(data: CreateOrderData) {
           flavor: tier.flavor,
           filling: tier.filling,
           finishType: tier.finishType,
+          frostingComplexity: tier.frostingComplexity || 2,
         }))
       },
       orderDecorations: {
@@ -174,7 +180,9 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
       await tx.cakeOrder.update({
         where: { id: orderId },
         data: {
-          customerId: data.customerId,
+          // Handle either linked customer or text-only customerName
+          customerId: data.customerId || null,
+          customerName: data.customerName || null,
           eventDate: new Date(data.eventDate),
 
           // Cake details
@@ -188,14 +196,15 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
           colors: data.colors,
           accentColors: data.accentColors,
 
-          // Delivery details
+          // Delivery/Pickup details
           isDelivery: data.isDelivery || false,
-          deliveryZoneId: data.deliveryZoneId || null,
-          deliveryDistance: data.deliveryDistance || null,
-          deliveryContact: data.deliveryContact,
-          deliveryPhone: data.deliveryPhone,
-          deliveryTime: data.deliveryTime ? new Date(data.deliveryTime) : null,
-          deliveryAddress: data.deliveryAddress,
+          pickupTime: !data.isDelivery && data.pickupTime ? new Date(data.pickupTime) : null,
+          deliveryZoneId: data.isDelivery ? (data.deliveryZoneId || null) : null,
+          deliveryDistance: data.isDelivery ? (data.deliveryDistance || null) : null,
+          deliveryContact: data.isDelivery ? data.deliveryContact : null,
+          deliveryPhone: data.isDelivery ? data.deliveryPhone : null,
+          deliveryTime: data.isDelivery && data.deliveryTime ? new Date(data.deliveryTime) : null,
+          deliveryAddress: data.isDelivery ? data.deliveryAddress : null,
 
           // Labor & notes
           estimatedHours: data.estimatedHours,
@@ -233,6 +242,7 @@ export async function updateOrder(orderId: number, data: CreateOrderData) {
         flavor: tier.flavor,
         filling: tier.filling,
         finishType: tier.finishType,
+        frostingComplexity: tier.frostingComplexity || 2,
         updatedAt: new Date(),
       }))
     })

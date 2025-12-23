@@ -1,0 +1,25 @@
+model OrderProfitSnapshot {
+  id              String   @id @default(uuid())
+  orderId         String
+  revenue         Float
+  ingredientCost  Float
+  laborCost       Float
+  packagingCost   Float
+  deliveryCost    Float
+  overheadCost    Float
+  complexityTax   Float
+  marginPercent   Float
+  createdAt       DateTime @default(now())
+}
+
+model DesignROI {
+  id            String   @id @default(uuid())
+  portfolioItemId String
+  avgPrice      Float
+  avgMargin     Float
+  avgLaborHours Float
+  reorderRate   Float
+  complexityScore Int
+  roiBadge      String
+  updatedAt     DateTime @updatedAt
+}

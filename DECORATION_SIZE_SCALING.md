@@ -89,3 +89,4 @@ When creating/editing decorations in admin:
 2. **Fair Pricing**: Customers pay appropriately for size
 3. **Automatic**: No manual adjustment needed
 4. **Backward Compatible**: Decorations without `baseCakeSize` still work (no scaling)
+

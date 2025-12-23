@@ -19,6 +19,11 @@ export async function GET(
       include: {
         TierSize: { select: { id: true, name: true, shape: true, servings: true } },
         Recipe: { select: { id: true, name: true, type: true } },
+        InventoryItemRecipe: {
+          include: {
+            Recipe: { select: { id: true, name: true, type: true } }
+          }
+        },
         InventoryLot: {
           orderBy: { producedAt: 'asc' }, // FIFO order
           include: {
@@ -145,6 +150,89 @@ export async function DELETE(
     console.error('Failed to delete inventory item:', error)
     return NextResponse.json(
       { error: 'Failed to delete inventory item' },
+      { status: 500 }
+    )
+  }
+}
+
+// PUT /api/inventory/[id] - Update item with recipe links
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const itemId = parseInt(id)
+
+  if (isNaN(itemId)) {
+    return NextResponse.json({ error: 'Invalid item ID' }, { status: 400 })
+  }
+
+  try {
+    const body = await request.json()
+    const { recipeLinks, ...itemData } = body
+
+    // Update item fields if provided
+    const updateData: Record<string, unknown> = {}
+    const allowedFields = [
+      'name', 'sku', 'description', 'unit', 'minStock', 'maxStock',
+      'shelfLifeDays', 'storageLocation', 'isActive', 'tierSizeId',
+      'recipeId', 'flavor', 'productType'
+    ]
+
+    for (const field of allowedFields) {
+      if (itemData[field] !== undefined) {
+        updateData[field] = itemData[field]
+      }
+    }
+
+    // Update item
+    if (Object.keys(updateData).length > 0) {
+      await prisma.inventoryItem.update({
+        where: { id: itemId },
+        data: updateData
+      })
+    }
+
+    // Update recipe links if provided
+    if (recipeLinks !== undefined) {
+      // Delete existing links
+      await prisma.inventoryItemRecipe.deleteMany({
+        where: { inventoryItemId: itemId }
+      })
+
+      // Create new links
+      if (recipeLinks && recipeLinks.length > 0) {
+        await prisma.inventoryItemRecipe.createMany({
+          data: recipeLinks.map((link: { recipeId: number; recipeType: string; quantityPerUnit: number; notes?: string }) => ({
+            inventoryItemId: itemId,
+            recipeId: link.recipeId,
+            recipeType: link.recipeType,
+            quantityPerUnit: link.quantityPerUnit,
+            notes: link.notes || null
+          }))
+        })
+      }
+    }
+
+    // Fetch and return updated item
+    const item = await prisma.inventoryItem.findUnique({
+      where: { id: itemId },
+      include: {
+        TierSize: { select: { id: true, name: true } },
+        Recipe: { select: { id: true, name: true } },
+        InventoryItemRecipe: {
+          include: {
+            Recipe: { select: { id: true, name: true, type: true } }
+          }
+        }
+      }
+    })
+
+    return NextResponse.json(item)
+  } catch (error) {
+    console.error('Failed to update inventory item:', error)
+    return NextResponse.json(
+      { error: 'Failed to update inventory item' },
       { status: 500 }
     )
   }

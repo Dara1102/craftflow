@@ -124,3 +124,4 @@
 2. Test customer lookup and creation
 3. Test cost locking when quote is accepted
 4. Consider adding tier-specific decorations if needed (future enhancement)
+
