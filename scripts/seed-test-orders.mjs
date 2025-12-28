@@ -3,8 +3,36 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// Sample cake images from test-photos folder
+const CAKE_IMAGES = [
+  '/test-photos/IMG_0530.jpeg',
+  '/test-photos/IMG_1112.jpeg',
+  '/test-photos/IMG_1256.jpeg',
+  '/test-photos/IMG_1269.jpeg',
+  '/test-photos/IMG_1395.jpeg',
+  '/test-photos/IMG_1764.jpeg',
+  '/test-photos/IMG_1786.jpeg',
+  '/test-photos/IMG_2313.jpeg',
+  '/test-photos/IMG_2890.JPG',
+  '/test-photos/IMG_2899.jpeg',
+  '/test-photos/IMG_2972.JPG',
+  '/test-photos/IMG_2975.JPG',
+  '/test-photos/IMG_3021.JPG',
+  '/test-photos/IMG_4317.JPG',
+  '/test-photos/IMG_4713.JPG',
+]
+
 async function main() {
-  console.log('Creating test orders for the next 2 weeks...\n')
+  console.log('Resetting and creating test orders for the next 2 weeks...\n')
+
+  // Delete existing test orders (based on test customer names)
+  const testCustomerNames = ['Sarah Johnson', 'Mike Thompson', 'Emily Chen', 'David Wilson', 'Jessica Brown', 'Alex Martinez']
+  await prisma.cakeOrder.deleteMany({
+    where: {
+      customerName: { in: testCustomerNames }
+    }
+  })
+  console.log('Deleted existing test orders\n')
 
   // Get existing data
   const tierSizes = await prisma.tierSize.findMany()
@@ -67,17 +95,34 @@ async function main() {
     return result
   }
 
-  // Test orders data
+  // Create additional test customers
+  let jessica = customers.find(c => c.name === 'Jessica Brown')
+  if (!jessica) {
+    jessica = await prisma.customer.create({
+      data: { name: 'Jessica Brown', email: 'jessica@example.com', phone: '555-0105', updatedAt: now }
+    })
+  }
+
+  let alex = customers.find(c => c.name === 'Alex Martinez')
+  if (!alex) {
+    alex = await prisma.customer.create({
+      data: { name: 'Alex Martinez', email: 'alex@example.com', phone: '555-0106', updatedAt: now }
+    })
+  }
+
+  // Test orders data - spread across next 2 weeks with images
   const testOrders = [
+    // Day 1 - Tomorrow
     {
       customer: sarah,
-      eventDate: addDays(today, 3),
+      eventDate: addDays(today, 1),
       occasion: 'Birthday Party',
       theme: 'Princess Theme',
       notes: '5-year-old birthday. Pink and purple colors. Tiara topper.',
+      imageUrl: CAKE_IMAGES[0],
       isDelivery: true,
       deliveryAddress: '123 Oak Street, Springfield',
-      deliveryTime: new Date(addDays(today, 3).setHours(14, 0, 0, 0)),
+      deliveryTime: new Date(addDays(today, 1).setHours(14, 0, 0, 0)),
       colors: 'Pink, Purple, Gold',
       tiers: [
         {
@@ -91,14 +136,36 @@ async function main() {
       ]
     },
     {
+      customer: jessica,
+      eventDate: addDays(today, 1),
+      occasion: 'Graduation',
+      theme: 'Class of 2025',
+      notes: 'High school graduation. School colors.',
+      imageUrl: CAKE_IMAGES[1],
+      isDelivery: false,
+      pickupTime: new Date(addDays(today, 1).setHours(10, 0, 0, 0)),
+      colors: 'Blue, White',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['10 inch round'] || 2,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Smooth',
+        }
+      ]
+    },
+    // Day 2
+    {
       customer: mike,
-      eventDate: addDays(today, 5),
+      eventDate: addDays(today, 2),
       occasion: 'Wedding',
       theme: 'Elegant White',
       notes: '3-tier wedding cake. White fondant with gold accents. Fresh flowers on site.',
+      imageUrl: CAKE_IMAGES[2],
       isDelivery: true,
       deliveryAddress: '456 Maple Ave, Grand Ballroom',
-      deliveryTime: new Date(addDays(today, 5).setHours(10, 0, 0, 0)),
+      deliveryTime: new Date(addDays(today, 2).setHours(10, 0, 0, 0)),
       colors: 'White, Gold',
       tiers: [
         {
@@ -124,14 +191,16 @@ async function main() {
         }
       ]
     },
+    // Day 3
     {
       customer: emily,
-      eventDate: addDays(today, 7),
+      eventDate: addDays(today, 3),
       occasion: 'Corporate Event',
       theme: 'Modern Geometric',
       notes: 'Company anniversary cake. Logo printed on top. Clean modern look.',
+      imageUrl: CAKE_IMAGES[3],
       isDelivery: false,
-      pickupTime: new Date(addDays(today, 7).setHours(9, 0, 0, 0)),
+      pickupTime: new Date(addDays(today, 3).setHours(9, 0, 0, 0)),
       colors: 'Navy Blue, White',
       tiers: [
         {
@@ -151,14 +220,37 @@ async function main() {
       ]
     },
     {
+      customer: alex,
+      eventDate: addDays(today, 3),
+      occasion: 'Retirement Party',
+      theme: 'Golf Course',
+      notes: 'Golf themed retirement cake. Green grass effect.',
+      imageUrl: CAKE_IMAGES[4],
+      isDelivery: true,
+      deliveryAddress: '321 Country Club Lane',
+      deliveryTime: new Date(addDays(today, 3).setHours(11, 0, 0, 0)),
+      colors: 'Green, White',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['10 inch round'] || 2,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Textured',
+        }
+      ]
+    },
+    // Day 4
+    {
       customer: david,
-      eventDate: addDays(today, 10),
+      eventDate: addDays(today, 4),
       occasion: 'Baby Shower',
       theme: 'Teddy Bears',
       notes: 'Gender reveal inside! Blue filling. Cute teddy bear decorations.',
+      imageUrl: CAKE_IMAGES[5],
       isDelivery: true,
       deliveryAddress: '789 Pine Road',
-      deliveryTime: new Date(addDays(today, 10).setHours(13, 0, 0, 0)),
+      deliveryTime: new Date(addDays(today, 4).setHours(13, 0, 0, 0)),
       colors: 'Yellow, White, Brown',
       tiers: [
         {
@@ -171,14 +263,16 @@ async function main() {
         }
       ]
     },
+    // Day 5
     {
       customer: sarah,
-      eventDate: addDays(today, 12),
+      eventDate: addDays(today, 5),
       occasion: 'Anniversary',
       theme: 'Romantic Roses',
       notes: '25th wedding anniversary. Red roses, elegant script.',
+      imageUrl: CAKE_IMAGES[6],
       isDelivery: false,
-      pickupTime: new Date(addDays(today, 12).setHours(16, 0, 0, 0)),
+      pickupTime: new Date(addDays(today, 5).setHours(16, 0, 0, 0)),
       colors: 'Red, White, Gold',
       tiers: [
         {
@@ -197,26 +291,208 @@ async function main() {
           finishType: 'Buttercream - Textured',
         }
       ]
+    },
+    {
+      customer: jessica,
+      eventDate: addDays(today, 5),
+      occasion: 'Birthday',
+      theme: 'Unicorn Magic',
+      notes: '8-year-old birthday. Rainbow colors, unicorn horn topper.',
+      imageUrl: CAKE_IMAGES[7],
+      isDelivery: true,
+      deliveryAddress: '555 Rainbow Lane',
+      deliveryTime: new Date(addDays(today, 5).setHours(12, 0, 0, 0)),
+      colors: 'Pink, Purple, Blue, Rainbow',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['8 inch round'] || 1,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Textured',
+        }
+      ]
+    },
+    // Day 6
+    {
+      customer: mike,
+      eventDate: addDays(today, 6),
+      occasion: 'Birthday',
+      theme: 'Sports Theme',
+      notes: 'Football themed cake. Team colors.',
+      imageUrl: CAKE_IMAGES[8],
+      isDelivery: false,
+      pickupTime: new Date(addDays(today, 6).setHours(15, 0, 0, 0)),
+      colors: 'Green, Brown, White',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['10 inch round'] || 2,
+          batterRecipeId: recipeMap['Chocolate Sponge Batter'],
+          frostingRecipeId: recipeMap['Chocolate Buttercream'],
+          finishType: 'Fondant',
+        }
+      ]
+    },
+    // Day 7
+    {
+      customer: emily,
+      eventDate: addDays(today, 7),
+      occasion: 'Bridal Shower',
+      theme: 'Garden Party',
+      notes: 'Elegant floral design. Pastel colors.',
+      imageUrl: CAKE_IMAGES[9],
+      isDelivery: true,
+      deliveryAddress: '888 Garden Way',
+      deliveryTime: new Date(addDays(today, 7).setHours(11, 0, 0, 0)),
+      colors: 'Blush, Sage, Cream',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['8 inch round'] || 1,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Smooth',
+        },
+        {
+          tierIndex: 1,
+          tierSizeId: sizeMap['6 inch round'] || 3,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Smooth',
+        }
+      ]
+    },
+    {
+      customer: alex,
+      eventDate: addDays(today, 7),
+      occasion: 'Birthday',
+      theme: 'Chocolate Lovers',
+      notes: 'All chocolate everything! Rich and decadent.',
+      imageUrl: CAKE_IMAGES[10],
+      isDelivery: false,
+      pickupTime: new Date(addDays(today, 7).setHours(14, 0, 0, 0)),
+      colors: 'Brown, Gold',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['8 inch round'] || 1,
+          batterRecipeId: recipeMap['Chocolate Sponge Batter'],
+          frostingRecipeId: recipeMap['Chocolate Buttercream'],
+          finishType: 'Buttercream - Textured',
+        }
+      ]
+    },
+    // Week 2 orders
+    {
+      customer: david,
+      eventDate: addDays(today, 9),
+      occasion: 'Birthday',
+      theme: 'Superhero',
+      notes: '6-year-old birthday. Spider-Man theme.',
+      imageUrl: CAKE_IMAGES[11],
+      isDelivery: true,
+      deliveryAddress: '222 Hero Street',
+      deliveryTime: new Date(addDays(today, 9).setHours(13, 0, 0, 0)),
+      colors: 'Red, Blue, Black',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['10 inch round'] || 2,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Fondant',
+        }
+      ]
+    },
+    {
+      customer: sarah,
+      eventDate: addDays(today, 10),
+      occasion: 'Baptism',
+      theme: 'Heavenly',
+      notes: 'Religious symbols. Cross topper.',
+      imageUrl: CAKE_IMAGES[12],
+      isDelivery: true,
+      deliveryAddress: '100 Church Lane',
+      deliveryTime: new Date(addDays(today, 10).setHours(10, 0, 0, 0)),
+      colors: 'White, Blue, Gold',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['8 inch round'] || 1,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Fondant',
+        }
+      ]
+    },
+    {
+      customer: jessica,
+      eventDate: addDays(today, 12),
+      occasion: 'Wedding',
+      theme: 'Rustic Elegance',
+      notes: '4-tier wedding cake. Naked cake style with berries.',
+      imageUrl: CAKE_IMAGES[13],
+      isDelivery: true,
+      deliveryAddress: '500 Barn Road, Wedding Venue',
+      deliveryTime: new Date(addDays(today, 12).setHours(9, 0, 0, 0)),
+      colors: 'White, Green, Berry',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['12 inch round'] || 4,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Naked',
+        },
+        {
+          tierIndex: 1,
+          tierSizeId: sizeMap['10 inch round'] || 2,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Naked',
+        },
+        {
+          tierIndex: 2,
+          tierSizeId: sizeMap['8 inch round'] || 1,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Naked',
+        },
+        {
+          tierIndex: 3,
+          tierSizeId: sizeMap['6 inch round'] || 3,
+          batterRecipeId: recipeMap['Vanilla Sponge Batter'],
+          frostingRecipeId: recipeMap['Vanilla Buttercream'],
+          finishType: 'Buttercream - Naked',
+        }
+      ]
+    },
+    {
+      customer: alex,
+      eventDate: addDays(today, 14),
+      occasion: 'Birthday',
+      theme: 'Classic Elegance',
+      notes: 'Sophisticated adult birthday. Minimal design.',
+      imageUrl: CAKE_IMAGES[14],
+      isDelivery: false,
+      pickupTime: new Date(addDays(today, 14).setHours(16, 0, 0, 0)),
+      colors: 'Black, Gold, White',
+      tiers: [
+        {
+          tierIndex: 0,
+          tierSizeId: sizeMap['8 inch round'] || 1,
+          batterRecipeId: recipeMap['Chocolate Sponge Batter'],
+          frostingRecipeId: recipeMap['Chocolate Buttercream'],
+          finishType: 'Buttercream - Smooth',
+        }
+      ]
     }
   ]
 
   // Create orders
   for (const orderData of testOrders) {
     const { customer, tiers, ...orderFields } = orderData
-
-    // Check if similar order already exists
-    const existing = await prisma.cakeOrder.findFirst({
-      where: {
-        customerId: customer.id,
-        eventDate: orderFields.eventDate,
-        occasion: orderFields.occasion
-      }
-    })
-
-    if (existing) {
-      console.log(`Order already exists: ${customer.name} - ${orderFields.occasion} on ${orderFields.eventDate.toDateString()}`)
-      continue
-    }
 
     const order = await prisma.cakeOrder.create({
       data: {
@@ -240,12 +516,12 @@ async function main() {
     })
 
     console.log(`Created: Order #${order.id} - ${customer.name} - ${orderFields.occasion}`)
-    console.log(`   Date: ${orderFields.eventDate.toDateString()}`)
-    console.log(`   Tiers: ${tiers.length} (${tiers.map(t => t.finishType).join(', ')})`)
+    console.log(`   Date: ${orderFields.eventDate.toDateString()} | Tiers: ${tiers.length}`)
+    if (orderFields.imageUrl) console.log(`   Image: ${orderFields.imageUrl}`)
     console.log()
   }
 
-  console.log('Done!')
+  console.log(`\nDone! Created ${testOrders.length} test orders with images.`)
 }
 
 main()

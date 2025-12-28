@@ -404,7 +404,8 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
   const { data: deliveryStartPoints } = useSWR<DeliveryStartPoint[]>('/api/delivery-start-points', fetcher)
   const { data: tierCosts } = useSWR<TierCost[]>('/api/tier-costs', fetcher)
   const { data: laborRoles } = useSWR<LaborRole[]>('/api/labor-roles', fetcher)
-  const { data: recipes } = useSWR<Recipe[]>('/api/recipes', fetcher)
+  const { data: recipesData } = useSWR<{ recipes: Recipe[] }>('/api/recipes', fetcher)
+  const recipes = recipesData?.recipes
   const { data: packaging } = useSWR<Array<{
     id: number
     name: string

@@ -9,10 +9,18 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') // 'BATTER', 'FILLING', or 'FROSTING'
+    const name = searchParams.get('name') // Exact name match
+    const search = searchParams.get('search') // Partial name match
 
-    const where: any = {}
+    const where: Record<string, unknown> = {}
     if (type) {
       where.type = type
+    }
+    if (name) {
+      where.name = name
+    }
+    if (search) {
+      where.name = { contains: search, mode: 'insensitive' }
     }
 
     const recipesRaw = await prisma.recipe.findMany({
@@ -40,7 +48,8 @@ export async function GET(request: Request) {
       }))
     }))
 
-    return NextResponse.json(recipes)
+    // Return in { recipes: [...] } format for consistency
+    return NextResponse.json({ recipes })
   } catch (error) {
     console.error('Error fetching recipes:', error)
     return NextResponse.json(

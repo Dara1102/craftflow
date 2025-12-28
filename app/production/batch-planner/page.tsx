@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 
 interface TierDetail {
@@ -134,6 +134,19 @@ const RECIPE_TYPE_LABELS: Record<string, string> = {
   finish: 'Finish',
 }
 
+// Helper to get local date string (YYYY-MM-DD) without timezone issues
+function getLocalDateString(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// Get today's date in local format
+function getTodayString(): string {
+  return getLocalDateString(new Date())
+}
+
 // Helper to get week dates
 function getWeekDates(offset: number): string[] {
   const today = new Date()
@@ -145,7 +158,20 @@ function getWeekDates(offset: number): string[] {
   for (let i = 0; i < 7; i++) {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
-    dates.push(date.toISOString().split('T')[0])
+    dates.push(getLocalDateString(date))
+  }
+  return dates
+}
+
+// Helper to get extended dates for scheduling (3 weeks ahead from today)
+function getSchedulingDates(): string[] {
+  const today = new Date()
+  const dates = []
+  // Start from today and go 21 days ahead (3 weeks)
+  for (let i = 0; i < 21; i++) {
+    const date = new Date(today)
+    date.setDate(today.getDate() + i)
+    dates.push(getLocalDateString(date))
   }
   return dates
 }
@@ -159,16 +185,34 @@ export default function BatchPlannerPage() {
   const [draggedBatch, setDraggedBatch] = useState<RecipeBatch | null>(null)
   const [suggestions, setSuggestions] = useState<ScheduleSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [viewMode, setViewMode] = useState<'suggested' | 'saved'>('suggested')
   const [showCreateBatch, setShowCreateBatch] = useState(false)
   const [creatingBatch, setCreatingBatch] = useState(false)
   const [staff, setStaff] = useState<Staff[]>([])
+  const [useGrams, setUseGrams] = useState(false) // false = ounces, true = grams
   const [applyingSchedule, setApplyingSchedule] = useState(false)
   const [tierSelectionBatch, setTierSelectionBatch] = useState<RecipeBatch | null>(null)
   const [selectedTierIds, setSelectedTierIds] = useState<Set<number>>(new Set())
   const [editingSavedBatch, setEditingSavedBatch] = useState<SavedBatch | null>(null)
+  const [previewDate, setPreviewDate] = useState<string | null>(null)
+  const hasMergedDuplicatesRef = useRef(false)
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset])
+  const schedulingDates = useMemo(() => getSchedulingDates(), [])
+
+  // Refresh batches data (called after tier removal to update unscheduled list)
+  const refreshBatches = async () => {
+    const startDate = weekDates[0]
+    const endDate = weekDates[6]
+    try {
+      const batchesRes = await fetch(`/api/production/batches?startDate=${startDate}&endDate=${endDate}`)
+      if (batchesRes.ok) {
+        const data = await batchesRes.json()
+        setBatches(data.batches || [])
+      }
+    } catch (error) {
+      console.error('Failed to refresh batches:', error)
+    }
+  }
 
   // Fetch batches
   useEffect(() => {
@@ -206,7 +250,66 @@ export default function BatchPlannerPage() {
     }
 
     fetchData()
+    // Reset merge check when week changes
+    hasMergedDuplicatesRef.current = false
   }, [weekDates])
+
+  // Auto-merge duplicate batches (same recipe, type, and date) - runs once on initial load
+  useEffect(() => {
+    if (savedBatches.length < 2 || hasMergedDuplicatesRef.current) return
+
+    const mergeDuplicates = async () => {
+      // Mark as processed immediately to prevent re-runs
+      hasMergedDuplicatesRef.current = true
+
+      // Group batches by recipe+type+date
+      const groups = new Map<string, SavedBatch[]>()
+      for (const batch of savedBatches) {
+        if (!batch.recipeName || !batch.scheduledDate) continue
+        const dateStr = batch.scheduledDate.split('T')[0]
+        const key = `${batch.recipeName}|${batch.batchType}|${dateStr}`
+        const existing = groups.get(key) || []
+        existing.push(batch)
+        groups.set(key, existing)
+      }
+
+      // Find groups with duplicates
+      for (const [, batches] of groups) {
+        if (batches.length > 1) {
+          // Keep the first batch, merge others into it
+          const targetBatch = batches[0]
+          for (let i = 1; i < batches.length; i++) {
+            const sourceBatch = batches[i]
+            console.log(`Auto-merging batch ${sourceBatch.id} into ${targetBatch.id}`)
+
+            try {
+              const mergeRes = await fetch('/api/production/batches/manage', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sourceBatchId: sourceBatch.id,
+                  targetBatchId: targetBatch.id
+                })
+              })
+
+              if (mergeRes.ok) {
+                const data = await mergeRes.json()
+                // Update state to reflect merge
+                setSavedBatches(prev => {
+                  const filtered = prev.filter(b => b.id !== sourceBatch.id)
+                  return filtered.map(b => b.id === targetBatch.id ? data.batch : b)
+                })
+              }
+            } catch (error) {
+              console.error('Failed to auto-merge duplicate batches:', error)
+            }
+          }
+        }
+      }
+    }
+
+    mergeDuplicates()
+  }, [savedBatches]) // Run when savedBatches changes, but ref prevents re-runs
 
   // Open tier selection modal for creating batch
   const openTierSelectionModal = (suggestedBatch: RecipeBatch) => {
@@ -216,13 +319,15 @@ export default function BatchPlannerPage() {
   }
 
   // Create a new batch from suggested batch with selected tiers
-  const handleCreateBatch = async (tierIds: number[]) => {
+  const handleCreateBatch = async (tierIds: number[], scheduledDate?: string) => {
     // Allow creating batch if we have tiers OR stock items
     const hasStockItems = tierSelectionBatch?.stockItems && tierSelectionBatch.stockItems.length > 0
     if (!tierSelectionBatch || (tierIds.length === 0 && !hasStockItems)) return
 
     setCreatingBatch(true)
     try {
+      // Use provided date, batch's date, or null
+      const dateToUse = scheduledDate || tierSelectionBatch.scheduledDate || null
       const res = await fetch('/api/production/batches/manage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -230,7 +335,7 @@ export default function BatchPlannerPage() {
           name: `${tierSelectionBatch.recipe} - Week of ${weekDates[0]}`,
           batchType: tierSelectionBatch.taskType,
           recipeName: tierSelectionBatch.recipe,
-          scheduledDate: tierSelectionBatch.scheduledDate,
+          scheduledDate: dateToUse,
           tierIds: tierIds.length > 0 ? tierIds : undefined,
           // Include stock item IDs so we can link them
           stockTaskIds: tierSelectionBatch.stockItems?.map(s => s.stockTaskId)
@@ -240,7 +345,6 @@ export default function BatchPlannerPage() {
       if (res.ok) {
         const data = await res.json()
         setSavedBatches(prev => [...prev, data.batch])
-        setViewMode('saved')
         setTierSelectionBatch(null)
         setSelectedTierIds(new Set())
 
@@ -260,7 +364,7 @@ export default function BatchPlannerPage() {
     }
   }
 
-  // Remove tiers from a saved batch
+  // Remove tiers from a saved batch (unschedule - tier goes back to unscheduled)
   const handleRemoveTiersFromBatch = async (batchId: number, tierIds: number[]) => {
     try {
       const res = await fetch(`/api/production/batches/manage/${batchId}`, {
@@ -272,12 +376,15 @@ export default function BatchPlannerPage() {
       if (res.ok) {
         const data = await res.json()
         // If batch now has 0 tiers, remove it from the list
-        if (data.batch.totalTiers === 0) {
+        if (data.batch.totalTiers === 0 && data.batch.StockProductionTask?.length === 0) {
           setSavedBatches(prev => prev.filter(b => b.id !== batchId))
         } else {
           setSavedBatches(prev => prev.map(b => b.id === batchId ? data.batch : b))
         }
         setEditingSavedBatch(null)
+
+        // IMPORTANT: Refresh the batches data so removed tiers show up in unscheduled
+        refreshBatches()
       }
     } catch (error) {
       console.error('Failed to remove tiers from batch:', error)
@@ -301,9 +408,80 @@ export default function BatchPlannerPage() {
     }
   }
 
+  // Delete an order (CakeOrder) from the system
+  const handleDeleteOrder = async (orderId: number) => {
+    if (!confirm(`Are you sure you want to delete Order #${orderId}? This cannot be undone.`)) return
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: 'DELETE'
+      })
+
+      if (res.ok) {
+        // Refresh batches to remove the deleted order's tiers
+        refreshBatches()
+        // Close the modal
+        setTierSelectionBatch(null)
+        setSelectedTierIds(new Set())
+      } else {
+        const error = await res.json()
+        alert(error.error || 'Failed to delete order')
+      }
+    } catch (error) {
+      console.error('Failed to delete order:', error)
+      alert('Failed to delete order')
+    }
+  }
+
   // Update a saved batch (schedule, status)
   const handleUpdateSavedBatch = async (batchId: number, updates: Partial<SavedBatch>) => {
     try {
+      const currentBatch = savedBatches.find(b => b.id === batchId)
+      if (!currentBatch) return
+
+      // Check if scheduling to a date that already has a batch of the same recipe/type
+      if (updates.scheduledDate) {
+        const targetDate = updates.scheduledDate.split('T')[0]
+        const existingBatch = savedBatches.find(b =>
+          b.id !== batchId &&
+          b.recipeName === currentBatch.recipeName &&
+          b.batchType === currentBatch.batchType &&
+          b.scheduledDate?.split('T')[0] === targetDate
+        )
+
+        if (existingBatch) {
+          // Merge the batches
+          const mergeRes = await fetch('/api/production/batches/manage', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sourceBatchId: batchId,
+              targetBatchId: existingBatch.id
+            })
+          })
+
+          if (mergeRes.ok) {
+            const data = await mergeRes.json()
+            // Remove source batch and update target batch
+            setSavedBatches(prev => {
+              const filtered = prev.filter(b => b.id !== batchId)
+              return filtered.map(b => b.id === existingBatch.id ? data.batch : b)
+            })
+          }
+
+          // Refetch suggested batches
+          const startDate = weekDates[0]
+          const endDate = weekDates[6]
+          const batchesRes = await fetch(`/api/production/batches?startDate=${startDate}&endDate=${endDate}`)
+          if (batchesRes.ok) {
+            const batchData = await batchesRes.json()
+            setBatches(batchData.batches || [])
+          }
+          return
+        }
+      }
+
+      // No merge needed, just update
       const res = await fetch('/api/production/batches/manage', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -314,19 +492,28 @@ export default function BatchPlannerPage() {
         const data = await res.json()
         const updatedBatch = data.batch
 
-        // Update the local state
-        setSavedBatches(prev => {
-          const newBatches = prev.map(b => b.id === batchId ? updatedBatch : b)
+        // Check if backend auto-merged the batches
+        if (data.merged && data.deletedBatchId) {
+          // Backend merged this batch into an existing one
+          setSavedBatches(prev => {
+            // Remove the deleted batch and update the merged target
+            const filtered = prev.filter(b => b.id !== data.deletedBatchId)
+            return filtered.map(b => b.id === updatedBatch.id ? updatedBatch : b)
+          })
 
-          // Check if there are any remaining DRAFT batches
-          const draftBatches = newBatches.filter(b => b.status === 'DRAFT')
-          if (draftBatches.length === 0 && viewMode === 'saved') {
-            // Auto-redirect to suggested view when no more drafts
-            setTimeout(() => setViewMode('suggested'), 100)
+          // Refetch suggested batches
+          const startDate = weekDates[0]
+          const endDate = weekDates[6]
+          const batchesRes = await fetch(`/api/production/batches?startDate=${startDate}&endDate=${endDate}`)
+          if (batchesRes.ok) {
+            const batchData = await batchesRes.json()
+            setBatches(batchData.batches || [])
           }
+          return
+        }
 
-          return newBatches
-        })
+        // Update the local state
+        setSavedBatches(prev => prev.map(b => b.id === batchId ? updatedBatch : b))
 
         // Refetch suggested batches to update date stats
         const startDate = weekDates[0]
@@ -483,6 +670,143 @@ export default function BatchPlannerPage() {
     }
   }
 
+  // Get all batches for a specific date, grouped by recipe
+  const getBatchesForDate = (date: string) => {
+    const batchGroups: {
+      id: string
+      taskType: string
+      recipe: string
+      orders: {
+        id: number
+        customerName: string
+        imageUrl: string | null
+        occasion: string | null
+        theme: string | null
+        colors: string | null
+        dueDate: string
+        isDelivery: boolean
+        tiersCount: number
+      }[]
+      stockItems: {
+        stockTaskId: number
+        itemName: string
+        quantity: number
+      }[]
+    }[] = []
+
+    // From suggested batches
+    const suggestedDayBatches = batches.filter(b => {
+      if (!b.scheduledDate) return false
+      return b.scheduledDate.split('T')[0] === date
+    })
+    for (const batch of suggestedDayBatches) {
+      const seenOrders = new Set<number>()
+      const orders: typeof batchGroups[0]['orders'] = []
+
+      for (const tier of batch.tiers) {
+        if (!seenOrders.has(tier.orderId)) {
+          seenOrders.add(tier.orderId)
+          const tiersInOrder = batch.tiers.filter(t => t.orderId === tier.orderId).length
+          orders.push({
+            id: tier.orderId,
+            customerName: tier.customerName,
+            imageUrl: tier.imageUrl,
+            occasion: tier.occasion,
+            theme: tier.theme,
+            colors: tier.colors,
+            dueDate: tier.dueDate,
+            isDelivery: tier.isDelivery,
+            tiersCount: tiersInOrder
+          })
+        }
+      }
+
+      const stockItems = (batch.stockItems || []).map(stock => ({
+        stockTaskId: stock.stockTaskId,
+        itemName: stock.itemName,
+        quantity: stock.quantity
+      }))
+
+      if (orders.length > 0 || stockItems.length > 0) {
+        batchGroups.push({
+          id: batch.id,
+          taskType: batch.taskType,
+          recipe: batch.recipe,
+          orders,
+          stockItems
+        })
+      }
+    }
+
+    // From saved batches
+    const savedDayBatches = savedBatches.filter(b => {
+      if (!b.scheduledDate) return false
+      return b.scheduledDate.split('T')[0] === date
+    })
+    for (const batch of savedDayBatches) {
+      const seenOrders = new Set<number>()
+      const orders: typeof batchGroups[0]['orders'] = []
+
+      for (const bt of batch.ProductionBatchTier) {
+        const orderId = bt.CakeTier.CakeOrder.id
+        if (!seenOrders.has(orderId)) {
+          seenOrders.add(orderId)
+          const order = bt.CakeTier.CakeOrder
+          const tiersInOrder = batch.ProductionBatchTier.filter(t => t.CakeTier.CakeOrder.id === orderId).length
+          orders.push({
+            id: orderId,
+            customerName: order.customerName || order.Customer?.name || 'Unknown',
+            imageUrl: order.imageUrl,
+            occasion: order.occasion,
+            theme: order.theme,
+            colors: order.colors,
+            dueDate: order.eventDate,
+            isDelivery: order.isDelivery,
+            tiersCount: tiersInOrder
+          })
+        }
+      }
+
+      const stockItems = (batch.StockProductionTask || []).map(stock => ({
+        stockTaskId: stock.id,
+        itemName: stock.InventoryItem.name,
+        quantity: stock.targetQuantity
+      }))
+
+      if (orders.length > 0 || stockItems.length > 0) {
+        batchGroups.push({
+          id: `saved-${batch.id}`,
+          taskType: batch.batchType,
+          recipe: batch.recipeName || batch.name,
+          orders,
+          stockItems
+        })
+      }
+    }
+
+    // Sort by task type (BAKE first, then PREP)
+    const typeOrder = ['BAKE', 'PREP', 'FROST', 'STACK', 'DECORATE']
+    batchGroups.sort((a, b) => typeOrder.indexOf(a.taskType) - typeOrder.indexOf(b.taskType))
+
+    return batchGroups
+  }
+
+  // Legacy function for backward compatibility
+  const getOrdersForDate = (date: string) => {
+    const batchGroups = getBatchesForDate(date)
+    const allOrders: { id: number; customerName: string; imageUrl: string | null; occasion: string | null; theme: string | null; colors: string | null; dueDate: string; isDelivery: boolean; tiersCount: number; source: 'suggested' | 'saved' }[] = []
+    const seenOrders = new Set<number>()
+    for (const batch of batchGroups) {
+      for (const order of batch.orders) {
+        if (!seenOrders.has(order.id)) {
+          seenOrders.add(order.id)
+          allOrders.push({ ...order, source: batch.id.startsWith('saved-') ? 'saved' : 'suggested' })
+        }
+      }
+    }
+    return allOrders
+  }
+
   // Get unique order IDs from tiers
   const getOrderIds = (tiers: TierDetail[]) => {
     return [...new Set(tiers.map(t => t.orderId))]
@@ -510,29 +834,6 @@ export default function BatchPlannerPage() {
             <p className="text-sm text-gray-500">Recipe-centric batch scheduling</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* View Mode Toggle */}
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              <button
-                onClick={() => setViewMode('suggested')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  viewMode === 'suggested'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Suggested ({batches.length})
-              </button>
-              <button
-                onClick={() => setViewMode('saved')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  viewMode === 'saved'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Drafts ({savedBatches.filter(b => b.status === 'DRAFT').length})
-              </button>
-            </div>
             <button
               onClick={handleAutoSchedule}
               className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors font-medium text-sm"
@@ -545,6 +846,52 @@ export default function BatchPlannerPage() {
             >
               Try New Builder →
             </Link>
+
+            {/* Units Toggle */}
+            <div className="flex items-center gap-1 border-l pl-3 ml-1">
+              <span className="text-xs text-gray-500 mr-1">Units:</span>
+              <div className="inline-flex rounded border overflow-hidden">
+                <button
+                  onClick={() => setUseGrams(false)}
+                  className={`px-2 py-1 text-xs ${!useGrams ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  oz
+                </button>
+                <button
+                  onClick={() => setUseGrams(true)}
+                  className={`px-2 py-1 text-xs ${useGrams ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  g
+                </button>
+              </div>
+            </div>
+
+            {/* Print Buttons */}
+            <div className="flex items-center gap-1 border-l pl-3 ml-1">
+              <Link
+                href={`/production/batch-planner/print-weekly?weekStart=${weekDates[0]}`}
+                target="_blank"
+                className="text-sm text-gray-600 hover:text-gray-800 bg-gray-100 px-3 py-1.5 rounded-lg flex items-center gap-1"
+                title="Print weekly schedule with order details"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                Schedule
+              </Link>
+              <Link
+                href={`/production/batch-planner/print-recipe?weekStart=${weekDates[0]}`}
+                target="_blank"
+                className="text-sm text-gray-600 hover:text-gray-800 bg-gray-100 px-3 py-1.5 rounded-lg flex items-center gap-1"
+                title="Print recipes with ingredients"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Recipes
+              </Link>
+            </div>
+
             <Link
               href="/production"
               className="text-pink-600 hover:text-pink-800 text-sm"
@@ -581,25 +928,27 @@ export default function BatchPlannerPage() {
           </button>
         </div>
 
-        {/* Date Strip - Drop Targets */}
+        {/* Date Strip - Drop Targets & Click to Preview */}
         <div className="px-6 py-3 bg-white border-b border-gray-200">
           <div className="flex gap-2">
             {weekDates.map(date => {
               const stats = getDateStats(date)
-              const isToday = date === new Date().toISOString().split('T')[0]
-              const isPast = date < new Date().toISOString().split('T')[0]
+              const todayStr = getTodayString()
+              const isToday = date === todayStr
+              const isPast = date < todayStr
               return (
                 <div
                   key={date}
                   onDragOver={handleDragOver}
                   onDrop={() => handleDrop(date)}
-                  className={`flex-1 p-2 rounded-lg border-2 transition-all text-center ${
+                  onClick={() => !draggedBatch && setPreviewDate(date)}
+                  className={`flex-1 p-2 rounded-lg border-2 transition-all text-center cursor-pointer ${
                     isToday
                       ? 'border-pink-500 bg-pink-50'
                       : isPast
                       ? 'border-gray-200 bg-gray-100 opacity-60'
                       : 'border-gray-200 bg-gray-50 hover:border-gray-300'
-                  } ${draggedBatch ? 'hover:border-pink-400 hover:bg-pink-50 hover:scale-105' : ''}`}
+                  } ${draggedBatch ? 'hover:border-pink-400 hover:bg-pink-50 hover:scale-105 cursor-grabbing' : 'hover:shadow-md'}`}
                 >
                   <div className={`font-semibold text-sm ${isToday ? 'text-pink-600' : 'text-gray-900'}`}>
                     {formatShortDate(date)}
@@ -608,6 +957,9 @@ export default function BatchPlannerPage() {
                     {stats.count} batch{stats.count !== 1 ? 'es' : ''} • {stats.tiers} tier{stats.tiers !== 1 ? 's' : ''}
                     {stats.saved > 0 && <span className="text-green-600 ml-1">({stats.saved} saved)</span>}
                   </div>
+                  {!draggedBatch && stats.count > 0 && (
+                    <div className="text-xs text-pink-500 mt-1">Click to preview</div>
+                  )}
                 </div>
               )
             })}
@@ -651,13 +1003,18 @@ export default function BatchPlannerPage() {
 
       {/* Auto-Schedule Suggestions Modal */}
       {showSuggestions && suggestions.length > 0 && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-            <div className="px-6 py-4 bg-pink-50 border-b border-pink-200">
-              <h2 className="text-lg font-bold text-gray-900">Auto-Schedule Suggestions</h2>
-              <p className="text-sm text-gray-600">Review and apply the suggested schedule</p>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowSuggestions(false)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 bg-pink-50 border-b border-pink-200 flex justify-between items-start flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Auto-Schedule Suggestions</h2>
+                <p className="text-sm text-gray-600">Review and apply the suggested schedule</p>
+              </div>
+              <button onClick={() => setShowSuggestions(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">
+                ×
+              </button>
             </div>
-            <div className="p-4 max-h-96 overflow-y-auto">
+            <div className="p-4 overflow-y-auto flex-1 min-h-0">
               <div className="space-y-3">
                 {suggestions.map(suggestion => {
                   const batch = batches.find(b => b.id === suggestion.batchId)
@@ -686,7 +1043,7 @@ export default function BatchPlannerPage() {
                 })}
               </div>
             </div>
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowSuggestions(false)}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
@@ -705,11 +1062,180 @@ export default function BatchPlannerPage() {
         </div>
       )}
 
+      {/* Day Preview Modal */}
+      {previewDate && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setPreviewDate(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 bg-pink-50 border-b border-pink-200 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {new Date(previewDate + 'T12:00:00').toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </h2>
+                <p className="text-sm text-gray-600">Orders with batches scheduled for this day</p>
+              </div>
+              <button
+                onClick={() => setPreviewDate(null)}
+                className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              {(() => {
+                const batchGroups = getBatchesForDate(previewDate)
+                if (batchGroups.length === 0) {
+                  return (
+                    <div className="text-center py-8 text-gray-500">
+                      No batches scheduled for this day.
+                    </div>
+                  )
+                }
+
+                const BATCH_COLORS: Record<string, { bg: string; border: string; headerBg: string; text: string }> = {
+                  BAKE: { bg: 'bg-orange-50', border: 'border-orange-200', headerBg: 'bg-orange-100', text: 'text-orange-800' },
+                  PREP: { bg: 'bg-blue-50', border: 'border-blue-200', headerBg: 'bg-blue-100', text: 'text-blue-800' },
+                  FROST: { bg: 'bg-purple-50', border: 'border-purple-200', headerBg: 'bg-purple-100', text: 'text-purple-800' },
+                  STACK: { bg: 'bg-amber-50', border: 'border-amber-200', headerBg: 'bg-amber-100', text: 'text-amber-800' },
+                  DECORATE: { bg: 'bg-pink-50', border: 'border-pink-200', headerBg: 'bg-pink-100', text: 'text-pink-800' },
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {batchGroups.map(batch => {
+                      const colors = BATCH_COLORS[batch.taskType] || BATCH_COLORS.BAKE
+                      return (
+                        <div key={batch.id} className={`${colors.bg} rounded-lg border ${colors.border} overflow-hidden`}>
+                          {/* Batch Header */}
+                          <div className={`${colors.headerBg} px-4 py-2 border-b ${colors.border}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-bold ${colors.text} uppercase`}>{batch.taskType}</span>
+                              <span className={`font-semibold ${colors.text}`}>{batch.recipe}</span>
+                            </div>
+                            <div className="text-xs text-gray-600 mt-0.5">
+                              {batch.orders.length} order{batch.orders.length !== 1 ? 's' : ''}
+                              {batch.stockItems.length > 0 && ` + ${batch.stockItems.length} stock item${batch.stockItems.length !== 1 ? 's' : ''}`}
+                            </div>
+                          </div>
+
+                          {/* Batch Content */}
+                          <div className="p-3 space-y-2">
+                            {/* Orders */}
+                            {batch.orders.map(order => {
+                              const dateStr = order.dueDate.split('T')[0]
+                              const dueDate = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric'
+                              })
+                              return (
+                                <div key={order.id} className="flex gap-3 p-2 bg-white rounded-lg border border-gray-200">
+                                  {/* Order Image */}
+                                  <div className="flex-shrink-0">
+                                    {order.imageUrl ? (
+                                      <img
+                                        src={order.imageUrl}
+                                        alt={`Order ${order.id}`}
+                                        className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                                      />
+                                    ) : (
+                                      <div className="w-16 h-16 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
+                                        <span className="text-xl text-gray-300">🎂</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Order Details */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-start">
+                                      <div>
+                                        <Link
+                                          href={`/orders/${order.id}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="font-bold text-pink-600 hover:text-pink-800 text-sm"
+                                        >
+                                          #{order.id}
+                                        </Link>
+                                        <span className="text-gray-600 ml-1 text-sm">{order.customerName}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <div className={`text-xs font-medium ${order.isDelivery ? 'text-blue-600' : 'text-green-600'}`}>
+                                          {order.isDelivery ? 'Delivery' : 'Pickup'}
+                                        </div>
+                                        <div className="text-xs text-red-600">Due: {dueDate}</div>
+                                      </div>
+                                    </div>
+                                    {(order.occasion || order.theme) && (
+                                      <div className="text-xs text-gray-600 truncate">
+                                        {order.occasion}{order.occasion && order.theme && ' - '}{order.theme}
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-gray-500">
+                                      {order.tiersCount} tier{order.tiersCount !== 1 ? 's' : ''}
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+
+                            {/* Stock Items */}
+                            {batch.stockItems.map(stock => (
+                              <div key={stock.stockTaskId} className="flex gap-3 p-2 bg-green-50 rounded-lg border border-green-200">
+                                <div className="flex-shrink-0">
+                                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                                    <span className="text-lg">🧁</span>
+                                  </div>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-green-800 text-sm">{stock.itemName}</div>
+                                  <div className="text-xs text-green-600">Qty: {stock.quantity}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+            <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                {(() => {
+                  const batchGroups = getBatchesForDate(previewDate)
+                  const totalOrders = batchGroups.reduce((sum, b) => sum + b.orders.length, 0)
+                  const totalStock = batchGroups.reduce((sum, b) => sum + b.stockItems.length, 0)
+                  const parts = []
+                  parts.push(`${batchGroups.length} batch${batchGroups.length !== 1 ? 'es' : ''}`)
+                  if (totalOrders > 0) parts.push(`${totalOrders} order${totalOrders !== 1 ? 's' : ''}`)
+                  if (totalStock > 0) parts.push(`${totalStock} stock item${totalStock !== 1 ? 's' : ''}`)
+                  return parts.join(', ') || 'Nothing scheduled'
+                })()}
+              </div>
+              <button
+                onClick={() => setPreviewDate(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="p-6 max-w-full mx-auto">
         {/* View Mode: Suggested Batches */}
-        {viewMode === 'suggested' && (
-          <div className="flex gap-6">
+        <div className="flex gap-6">
             {/* Left Sidebar - Unscheduled Batches (Sticky) */}
             <div className="w-80 flex-shrink-0">
               <div className="sticky top-[220px]">
@@ -743,19 +1269,19 @@ export default function BatchPlannerPage() {
                           getOrderIds={getOrderIds}
                           onEdit={openTierSelectionModal}
                           isSaving={creatingBatch}
-                          compact
+                          useGrams={useGrams}
                         />
                       ))
                     )}
                   </div>
                 </div>
 
-                {/* Batches in Other Weeks */}
+                {/* Batches scheduled for other weeks */}
                 {otherWeekBatches.length > 0 && (
                   <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
                     <div className="px-4 py-2 bg-blue-100 border-b border-blue-200">
                       <h2 className="font-semibold text-blue-800 text-sm">
-                        Other Weeks ({otherWeekBatches.length})
+                        Upcoming Scheduled ({otherWeekBatches.length})
                       </h2>
                     </div>
                     <div className="p-3 max-h-40 overflow-y-auto space-y-2">
@@ -771,7 +1297,7 @@ export default function BatchPlannerPage() {
                           showScheduledDate
                           onEdit={openTierSelectionModal}
                           isSaving={creatingBatch}
-                          compact
+                          useGrams={useGrams}
                         />
                       ))}
                     </div>
@@ -803,7 +1329,7 @@ export default function BatchPlannerPage() {
 
                   if (totalBatches === 0) return null
 
-                  const isToday = date === new Date().toISOString().split('T')[0]
+                  const isToday = date === getTodayString()
 
                   return (
                     <div
@@ -835,6 +1361,7 @@ export default function BatchPlannerPage() {
                               getOrderIds={getOrderIds}
                               onEdit={openTierSelectionModal}
                               isSaving={creatingBatch}
+                              useGrams={useGrams}
                             />
                           ))}
                           {/* Saved batches for this day */}
@@ -845,7 +1372,8 @@ export default function BatchPlannerPage() {
                               onDelete={handleDeleteBatch}
                               onUpdate={handleUpdateSavedBatch}
                               onEditTiers={setEditingSavedBatch}
-                              weekDates={weekDates}
+                              schedulingDates={schedulingDates}
+                              useGrams={useGrams}
                             />
                           ))}
                         </div>
@@ -863,9 +1391,8 @@ export default function BatchPlannerPage() {
               )}
             </div>
           </div>
-        )}
 
-        {batches.length === 0 && viewMode === 'suggested' && (
+        {batches.length === 0 && (
           <div className="bg-white shadow rounded-lg p-12 text-center mt-6">
             <p className="text-gray-500">No batches found for this week</p>
             <Link
@@ -875,69 +1402,6 @@ export default function BatchPlannerPage() {
               Go to Prep Review to generate tasks
             </Link>
           </div>
-        )}
-
-        {/* View Mode: Saved Batches */}
-        {viewMode === 'saved' && (
-          <>
-            <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4">
-              <h3 className="font-semibold text-green-800 mb-1">Saved Production Batches</h3>
-              <p className="text-sm text-green-700">
-                These are your confirmed batches for this week. You can add/remove tiers and schedule them.
-              </p>
-            </div>
-
-            {savedBatches.length === 0 ? (
-              <div className="bg-white shadow rounded-lg p-12 text-center">
-                <p className="text-gray-500 mb-4">No saved batches yet</p>
-                <p className="text-sm text-gray-400 mb-4">
-                  Switch to &quot;Suggested&quot; view and click &quot;Save Batch&quot; to create production batches
-                </p>
-                <button
-                  onClick={() => setViewMode('suggested')}
-                  className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700"
-                >
-                  View Suggested Batches
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Group saved batches by status */}
-                {['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED'].map(status => {
-                  const statusBatches = savedBatches.filter(b => b.status === status)
-                  if (statusBatches.length === 0) return null
-
-                  const statusColors: Record<string, { bg: string; text: string; border: string }> = {
-                    DRAFT: { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200' },
-                    SCHEDULED: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-                    IN_PROGRESS: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-                    COMPLETED: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-                  }
-                  const colors = statusColors[status]
-
-                  return (
-                    <div key={status} className={`${colors.bg} border ${colors.border} rounded-lg p-4`}>
-                      <h3 className={`font-semibold ${colors.text} mb-3`}>
-                        {status.replace('_', ' ')} ({statusBatches.length})
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                        {statusBatches.map(batch => (
-                          <SavedBatchCard
-                            key={batch.id}
-                            batch={batch}
-                            onDelete={handleDeleteBatch}
-                            onUpdate={handleUpdateSavedBatch}
-                            onEditTiers={setEditingSavedBatch}
-                            weekDates={weekDates}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </>
         )}
 
         {/* Task Type Definitions */}
@@ -969,14 +1433,15 @@ export default function BatchPlannerPage() {
 
         {/* How to Use */}
         <div className="mt-4 bg-white shadow rounded-lg p-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">How Recipe Batching Works</h4>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">How to Use Batch Planner</h4>
           <ul className="text-sm text-gray-500 space-y-1">
-            <li>• Each card represents one <strong>recipe batch</strong> (e.g., "Vanilla Buttercream") across multiple orders</li>
-            <li>• <strong>Click a card</strong> or the <strong>Edit Batch</strong> button to select which orders/tiers to include</li>
-            <li>• In the edit modal, check/uncheck orders to add or remove them from the batch</li>
-            <li>• <strong>Drag</strong> any batch card to a date in the header to schedule it</li>
-            <li>• Click <strong>Auto-Schedule</strong> to get optimal scheduling suggestions based on due dates</li>
-            <li>• <strong>Hover</strong> over a card to see order details, colors, and design image</li>
+            <li>• <strong>Unscheduled section:</strong> Shows recipe batches waiting to be scheduled (grouped by recipe type)</li>
+            <li>• <strong>Click a batch card</strong> to select orders/tiers, choose a date, and schedule the batch</li>
+            <li>• <strong>Drag</strong> any batch card to a date in the calendar header to quickly schedule it</li>
+            <li>• <strong>Auto-Schedule:</strong> Click to get optimal scheduling suggestions based on due dates</li>
+            <li>• <strong>Edit scheduled batches:</strong> Click any scheduled batch to unschedule orders or adjust</li>
+            <li>• <strong>Delete orders:</strong> Unschedule the order first, then click the trash icon in the batch modal</li>
+            <li>• <strong>Print:</strong> Use Print Schedule for daily overview or Print Recipe for full recipes with ingredients</li>
           </ul>
         </div>
       </div>
@@ -1003,8 +1468,11 @@ export default function BatchPlannerPage() {
             setTierSelectionBatch(null)
             setSelectedTierIds(new Set())
           }}
-          onSave={() => handleCreateBatch(Array.from(selectedTierIds))}
+          onSave={(scheduledDate?: string) => handleCreateBatch(Array.from(selectedTierIds), scheduledDate)}
           isSaving={creatingBatch}
+          schedulingDates={schedulingDates}
+          initialDate={tierSelectionBatch.scheduledDate || null}
+          onDeleteOrder={tierSelectionBatch.status === 'unscheduled' ? handleDeleteOrder : undefined}
         />
       )}
 
@@ -1031,6 +1499,7 @@ function BatchCard({
   showScheduledDate = false,
   onEdit,
   isSaving = false,
+  useGrams = false,
 }: {
   batch: RecipeBatch
   onDragStart: (batch: RecipeBatch) => void
@@ -1041,8 +1510,10 @@ function BatchCard({
   showScheduledDate?: boolean
   onEdit?: (batch: RecipeBatch) => void
   isSaving?: boolean
+  useGrams?: boolean
 }) {
   const [showTooltip, setShowTooltip] = useState(false)
+  const [showAllTiers, setShowAllTiers] = useState(false)
   const colors = TASK_TYPE_COLORS[batch.taskType] || TASK_TYPE_COLORS.BAKE
   const orderIds = getOrderIds(batch.tiers)
   // earliestDueDate comes from the API - find actual earliest from tiers if available
@@ -1056,8 +1527,16 @@ function BatchCard({
   const themes = [...new Set(batch.tiers.map(t => t.theme).filter(Boolean))]
   const allColors = [...new Set(batch.tiers.map(t => t.colors).filter(Boolean))]
 
-  // Get first image if any
-  const firstImage = batch.tiers.find(t => t.imageUrl)?.imageUrl
+  // Get unique images by order (one image per order)
+  const orderImages: { orderId: number; imageUrl: string }[] = []
+  const seenOrderIds = new Set<number>()
+  for (const tier of batch.tiers) {
+    if (tier.imageUrl && !seenOrderIds.has(tier.orderId)) {
+      seenOrderIds.add(tier.orderId)
+      orderImages.push({ orderId: tier.orderId, imageUrl: tier.imageUrl })
+    }
+  }
+  const firstImage = orderImages[0]?.imageUrl
 
   return (
     <div
@@ -1075,9 +1554,18 @@ function BatchCard({
       {showTooltip && batch.tiers.length > 0 && (
         <div className="absolute z-30 left-full ml-2 top-0 w-64 bg-gray-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
           <div className="font-semibold mb-2">{batch.taskType}: {batch.recipe}</div>
-          {firstImage && (
-            <div className="mb-2 rounded overflow-hidden bg-gray-800">
-              <img src={firstImage} alt="Design" className="w-full h-20 object-cover" />
+          {orderImages.length > 0 && (
+            <div className="mb-2 flex gap-1 overflow-x-auto">
+              {orderImages.slice(0, 4).map((img) => (
+                <div key={img.orderId} className="flex-shrink-0 w-14 h-14 rounded overflow-hidden bg-gray-800">
+                  <img src={img.imageUrl} alt={`Order #${img.orderId}`} className="w-full h-full object-cover" />
+                </div>
+              ))}
+              {orderImages.length > 4 && (
+                <div className="flex-shrink-0 w-14 h-14 rounded bg-gray-700 flex items-center justify-center text-gray-400">
+                  +{orderImages.length - 4}
+                </div>
+              )}
             </div>
           )}
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
@@ -1112,13 +1600,6 @@ function BatchCard({
         </div>
       )}
 
-      {/* Mini image thumbnail if available */}
-      {firstImage && (
-        <div className="absolute top-2 right-2 w-8 h-8 rounded overflow-hidden border border-white/50 shadow-sm">
-          <img src={firstImage} alt="" className="w-full h-full object-cover" />
-        </div>
-      )}
-
       {/* Header: Task Type + Recipe */}
       <div className="flex justify-between items-start mb-2">
         <div>
@@ -1126,22 +1607,44 @@ function BatchCard({
             {batch.taskType}
           </span>
         </div>
-        <div className="text-xs text-gray-500">
-          {RECIPE_TYPE_LABELS[batch.recipeType] || batch.recipeType}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">
+            {RECIPE_TYPE_LABELS[batch.recipeType] || batch.recipeType}
+          </span>
+          {batch.scheduledDate && (
+            <a
+              href={`/production/batch-planner/print-recipe?date=${batch.scheduledDate.split('T')[0]}&type=${batch.taskType}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-gray-400 hover:text-gray-600 p-0.5"
+              title="Print recipe for this day"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+            </a>
+          )}
         </div>
       </div>
 
       {/* Recipe Name */}
-      <div className={`font-bold ${colors.text} text-lg leading-tight mb-1`}>
+      <div className={`font-bold ${colors.text} text-lg leading-tight`}>
         {batch.recipe}
       </div>
 
-      {/* Occasion/Theme hint */}
-      {occasions.length > 0 && (
-        <div className="text-xs text-gray-600 mb-2 truncate">
-          {occasions.slice(0, 2).join(', ')}{occasions.length > 2 ? '...' : ''}
-        </div>
-      )}
+      {/* Total Amount - PROMINENT */}
+      <div className={`text-sm font-bold ${colors.text} bg-white/60 rounded px-2 py-1 my-2 inline-block`}>
+        {(() => {
+          const oz = batch.taskType === 'BAKE'
+            ? batch.totalServings * 2
+            : batch.totalButtercreamOz + batch.totalStockQuantityOz
+          const grams = oz * 28.3495
+          return useGrams
+            ? <>{Math.round(grams)} g ({(grams / 1000).toFixed(2)} kg)</>
+            : <>{Math.round(oz)} oz ({(oz / 16).toFixed(1)} lbs)</>
+        })()}
+      </div>
 
       {/* Stats */}
       <div className="flex items-center gap-3 text-sm mb-2">
@@ -1159,16 +1662,50 @@ function BatchCard({
         <div className="text-xs bg-white/50 rounded px-2 py-1 mb-2">
           <span className="font-medium text-gray-700">Total Yield: </span>
           <span className="text-gray-600">
-            {Math.round((batch.totalButtercreamOz + (batch.totalStockQuantityOz || 0)) * 10) / 10} oz
-            ({Math.round((batch.totalButtercreamOz + (batch.totalStockQuantityOz || 0)) / 16 * 10) / 10} lb)
+            {(() => {
+              const oz = batch.totalButtercreamOz + (batch.totalStockQuantityOz || 0)
+              const grams = oz * 28.3495
+              return useGrams
+                ? <>{Math.round(grams)} g ({(grams / 1000).toFixed(2)} kg)</>
+                : <>{Math.round(oz * 10) / 10} oz ({Math.round(oz / 16 * 10) / 10} lb)</>
+            })()}
           </span>
         </div>
       )}
 
-      {/* Orders */}
-      <div className="text-xs text-gray-600 mb-2">
-        {orderIds.length > 0 && (
-          <span>Orders: {orderIds.slice(0, 3).map(id => `#${id}`).join(', ')}{orderIds.length > 3 ? '...' : ''}</span>
+      {/* Orders with customer names and images */}
+      <div className="text-xs text-gray-700 mb-2 space-y-1">
+        {(showAllTiers ? batch.tiers : batch.tiers.slice(0, 4)).map((tier, idx) => (
+          <div key={`${tier.orderId}-${tier.tierIndex}-${idx}`} className="flex items-center gap-2">
+            {tier.imageUrl ? (
+              <img
+                src={tier.imageUrl}
+                alt=""
+                className="w-8 h-8 rounded object-cover flex-shrink-0 border border-gray-200"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0 border border-gray-200">
+                <span className="text-gray-400 text-xs">🎂</span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="font-semibold">#{tier.orderId}</span>
+                <span className="text-gray-500 truncate">{tier.customerName}</span>
+              </div>
+              <div className="text-gray-400 text-[10px]">
+                {tier.sizeName} • {tier.servings} srv
+              </div>
+            </div>
+          </div>
+        ))}
+        {batch.tiers.length > 4 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAllTiers(!showAllTiers); }}
+            className="text-pink-500 hover:text-pink-700 text-center py-1 w-full font-medium"
+          >
+            {showAllTiers ? 'Show less ↑' : `+${batch.tiers.length - 4} more tiers...`}
+          </button>
         )}
       </div>
 
@@ -1441,15 +1978,18 @@ function SavedBatchCard({
   onDelete,
   onUpdate,
   onEditTiers,
-  weekDates,
+  schedulingDates,
+  useGrams = false,
 }: {
   batch: SavedBatch
   onDelete: (id: number) => void
   onUpdate: (id: number, updates: Partial<SavedBatch>) => void
   onEditTiers: (batch: SavedBatch) => void
-  weekDates: string[]
+  schedulingDates: string[]
+  useGrams?: boolean
 }) {
   const [showScheduler, setShowScheduler] = useState(false)
+  const [showAllTiers, setShowAllTiers] = useState(false)
   const colors = TASK_TYPE_COLORS[batch.batchType] || TASK_TYPE_COLORS.BAKE
 
   // Normalize scheduledDate to YYYY-MM-DD format for display and comparison
@@ -1463,9 +2003,6 @@ function SavedBatchCard({
   // Count unique orders
   const orderIds = [...new Set(batch.ProductionBatchTier.map(bt => bt.CakeTier.CakeOrder.id))]
 
-  // Get first image if any
-  const firstImage = batch.ProductionBatchTier.find(bt => bt.CakeTier.CakeOrder.imageUrl)?.CakeTier.CakeOrder.imageUrl
-
   // Get earliest due date
   const dueDates = batch.ProductionBatchTier.map(bt => new Date(bt.CakeTier.CakeOrder.eventDate))
   const earliestDue = dueDates.length > 0 ? new Date(Math.min(...dueDates.map(d => d.getTime()))) : null
@@ -1475,30 +2012,52 @@ function SavedBatchCard({
       onClick={() => onEditTiers(batch)}
       className={`${colors.bg} rounded-lg p-3 border ${colors.border} hover:shadow-lg transition-all relative cursor-pointer`}
     >
-      {/* Mini image thumbnail if available */}
-      {firstImage && (
-        <div className="absolute top-2 right-2 w-8 h-8 rounded overflow-hidden border border-white/50 shadow-sm">
-          <img src={firstImage} alt="" className="w-full h-full object-cover" />
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex justify-between items-start mb-2">
         <span className={`text-xs font-semibold ${colors.text} uppercase`}>
           {batch.batchType}
         </span>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(batch.id); }}
-          className="text-gray-400 hover:text-red-500 text-sm"
-          title="Delete batch"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-1">
+          {scheduledDateOnly && (
+            <a
+              href={`/production/batch-planner/print-recipe?date=${scheduledDateOnly}&type=${batch.batchType}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-gray-400 hover:text-gray-600 text-sm p-0.5"
+              title="Print recipe for this day"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+            </a>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(batch.id); }}
+            className="text-gray-400 hover:text-red-500 text-sm"
+            title="Delete batch"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* Batch Name */}
-      <div className={`font-bold ${colors.text} text-lg leading-tight mb-1`}>
+      <div className={`font-bold ${colors.text} text-lg leading-tight`}>
         {batch.recipeName || batch.name}
+      </div>
+
+      {/* Total Amount - PROMINENT */}
+      <div className={`text-sm font-bold ${colors.text} bg-white/60 rounded px-2 py-1 my-2 inline-block`}>
+        {(() => {
+          const oz = batch.batchType === 'BAKE'
+            ? batch.totalServings * 2
+            : Number(batch.totalButtercream)
+          const grams = oz * 28.3495
+          return useGrams
+            ? <>{Math.round(grams)} g ({(grams / 1000).toFixed(2)} kg)</>
+            : <>{Math.round(oz)} oz ({(oz / 16).toFixed(1)} lbs)</>
+        })()}
       </div>
 
       {/* Stats */}
@@ -1512,22 +2071,41 @@ function SavedBatchCard({
         </span>
       </div>
 
-      {/* Yield info for PREP */}
-      {batch.batchType === 'PREP' && batch.totalButtercream > 0 && (
-        <div className="text-xs bg-white/50 rounded px-2 py-1 mb-2">
-          <span className="font-medium text-gray-700">Yield: </span>
-          <span className="text-gray-600">
-            {batch.totalButtercream} oz ({Math.round(Number(batch.totalButtercream) / 16 * 10) / 10} lb)
-          </span>
-        </div>
-      )}
-
-      {/* Orders */}
-      {orderIds.length > 0 && (
-        <div className="text-xs text-gray-600 mb-2">
-          Orders: {orderIds.slice(0, 4).map(id => `#${id}`).join(', ')}{orderIds.length > 4 ? '...' : ''}
-        </div>
-      )}
+      {/* Orders with customer names and images */}
+      <div className="text-xs text-gray-700 mb-2 space-y-1">
+        {(showAllTiers ? batch.ProductionBatchTier : batch.ProductionBatchTier.slice(0, 4)).map((bt) => (
+          <div key={bt.id} className="flex items-center gap-2">
+            {bt.CakeTier.CakeOrder.imageUrl ? (
+              <img
+                src={bt.CakeTier.CakeOrder.imageUrl}
+                alt=""
+                className="w-8 h-8 rounded object-cover flex-shrink-0 border border-gray-200"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0 border border-gray-200">
+                <span className="text-gray-400 text-xs">🎂</span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="font-semibold">#{bt.CakeTier.CakeOrder.id}</span>
+                <span className="text-gray-500 truncate">{bt.CakeTier.CakeOrder.customerName || bt.CakeTier.CakeOrder.Customer?.name}</span>
+              </div>
+              <div className="text-gray-400 text-[10px]">
+                {bt.CakeTier.TierSize?.name} • {bt.CakeTier.TierSize?.servings} srv
+              </div>
+            </div>
+          </div>
+        ))}
+        {batch.ProductionBatchTier.length > 4 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAllTiers(!showAllTiers); }}
+            className="text-pink-500 hover:text-pink-700 text-center py-1 w-full font-medium"
+          >
+            {showAllTiers ? 'Show less ↑' : `+${batch.ProductionBatchTier.length - 4} more tiers...`}
+          </button>
+        )}
+      </div>
 
       {/* Stock items */}
       {batch.StockProductionTask && batch.StockProductionTask.length > 0 && (
@@ -1558,7 +2136,7 @@ function SavedBatchCard({
             }}
           >
             <option value="">Unscheduled</option>
-            {weekDates.map(date => (
+            {schedulingDates.map(date => (
               <option key={date} value={date}>
                 {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
               </option>
@@ -1620,6 +2198,9 @@ function TierSelectionModal({
   onClose,
   onSave,
   isSaving,
+  schedulingDates,
+  initialDate,
+  onDeleteOrder,
 }: {
   batch: RecipeBatch
   selectedTierIds: Set<number>
@@ -1627,9 +2208,13 @@ function TierSelectionModal({
   onSelectAll: () => void
   onSelectNone: () => void
   onClose: () => void
-  onSave: () => void
+  onSave: (scheduledDate?: string) => void
   isSaving: boolean
+  schedulingDates: string[]
+  initialDate: string | null
+  onDeleteOrder?: (orderId: number) => void
 }) {
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate || '')
   const colors = TASK_TYPE_COLORS[batch.taskType] || TASK_TYPE_COLORS.BAKE
 
   // Group tiers by order
@@ -1734,11 +2319,27 @@ function TierSelectionModal({
                           <span className="font-semibold text-gray-900">Order #{orderId}</span>
                           <span className="ml-2 text-gray-600">{firstTier.customerName}</span>
                         </div>
-                        <div className="text-right">
-                          <div className="font-medium text-red-600 text-sm">Due {dueDateStr}</div>
-                          <div className="text-xs text-gray-500">
-                            {firstTier.isDelivery ? 'Delivery' : 'Pickup'}
+                        <div className="flex items-start gap-3">
+                          <div className="text-right">
+                            <div className="font-medium text-red-600 text-sm">Due {dueDateStr}</div>
+                            <div className="text-xs text-gray-500">
+                              {firstTier.isDelivery ? 'Delivery' : 'Pickup'}
+                            </div>
                           </div>
+                          {onDeleteOrder && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onDeleteOrder(Number(orderId))
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                              title="Delete this order"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       </div>
                       {(firstTier.occasion || firstTier.theme) && (
@@ -1828,7 +2429,23 @@ function TierSelectionModal({
                 </>
               )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
+              {/* Date Selector */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Schedule for:</label>
+                <select
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+                >
+                  <option value="">Select a date...</option>
+                  {schedulingDates.map(date => (
+                    <option key={date} value={date}>
+                      {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={onClose}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
@@ -1836,11 +2453,11 @@ function TierSelectionModal({
                 Cancel
               </button>
               <button
-                onClick={onSave}
-                disabled={(selectedTierIds.size === 0 && (!batch.stockItems || batch.stockItems.length === 0)) || isSaving}
+                onClick={() => onSave(selectedDate || undefined)}
+                disabled={(selectedTierIds.size === 0 && (!batch.stockItems || batch.stockItems.length === 0)) || isSaving || !selectedDate}
                 className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 font-medium"
               >
-                {isSaving ? 'Saving...' : `Save Batch (${selectedTierIds.size} tiers${batch.stockItems?.length ? ` + ${batch.stockItems.length} stock` : ''})`}
+                {isSaving ? 'Saving...' : selectedDate ? `Schedule Batch` : 'Select a date'}
               </button>
             </div>
           </div>
@@ -1850,7 +2467,7 @@ function TierSelectionModal({
   )
 }
 
-// Edit Saved Batch Modal - for removing tiers from existing batches
+// Edit Saved Batch Modal - for unscheduling tiers from existing batches
 function EditSavedBatchModal({
   batch,
   onClose,
@@ -1892,10 +2509,10 @@ function EditSavedBatchModal({
     })
   }
 
-  const handleRemove = () => {
+  const handleUnschedule = () => {
     if (selectedForRemoval.size === 0) return
-    if (selectedForRemoval.size === batch.ProductionBatchTier.length) {
-      if (!confirm('This will remove all tiers and delete the batch. Continue?')) return
+    if (selectedForRemoval.size === batch.ProductionBatchTier.length && (!batch.StockProductionTask || batch.StockProductionTask.length === 0)) {
+      if (!confirm('This will unschedule all tiers and delete the empty batch. The tiers will return to the Unscheduled section where you can reschedule them. Continue?')) return
     }
     onRemoveTiers(Array.from(selectedForRemoval))
   }
@@ -1911,7 +2528,7 @@ function EditSavedBatchModal({
                 Edit Batch
               </span>
               <h2 className={`text-xl font-bold ${colors.text}`}>{batch.recipeName || batch.name}</h2>
-              <p className="text-sm text-gray-600">Select tiers to remove from this batch</p>
+              <p className="text-sm text-gray-600">Select tiers to unschedule (they will return to the Unscheduled section)</p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">
               ×
@@ -2030,11 +2647,11 @@ function EditSavedBatchModal({
           <div className="flex justify-between items-center">
             <div className="text-sm text-gray-600">
               {selectedForRemoval.size > 0 ? (
-                <span className="text-red-600 font-medium">
-                  {selectedForRemoval.size} tier{selectedForRemoval.size !== 1 ? 's' : ''} selected for removal
+                <span className="text-amber-600 font-medium">
+                  {selectedForRemoval.size} tier{selectedForRemoval.size !== 1 ? 's' : ''} will be unscheduled
                 </span>
               ) : (
-                <span>Select tiers to remove</span>
+                <span>Select tiers to unschedule</span>
               )}
             </div>
             <div className="flex gap-3">
@@ -2045,11 +2662,11 @@ function EditSavedBatchModal({
                 Cancel
               </button>
               <button
-                onClick={handleRemove}
+                onClick={handleUnschedule}
                 disabled={selectedForRemoval.size === 0}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 font-medium"
               >
-                Remove Selected ({selectedForRemoval.size})
+                Unschedule Selected ({selectedForRemoval.size})
               </button>
             </div>
           </div>

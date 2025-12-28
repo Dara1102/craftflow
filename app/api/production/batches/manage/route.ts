@@ -285,6 +285,73 @@ export async function PUT(request: Request) {
       updateData.status = 'SCHEDULED'
     }
 
+    // Check if there's another batch with same recipe/type on the target date - auto-merge
+    if (scheduledDate) {
+      const currentBatch = await prisma.productionBatch.findUnique({
+        where: { id },
+        select: { recipeName: true, batchType: true }
+      })
+
+      if (currentBatch?.recipeName) {
+        const targetDateStart = new Date(scheduledDate)
+        targetDateStart.setHours(0, 0, 0, 0)
+        const targetDateEnd = new Date(scheduledDate)
+        targetDateEnd.setHours(23, 59, 59, 999)
+
+        const existingBatch = await prisma.productionBatch.findFirst({
+          where: {
+            id: { not: id },
+            recipeName: currentBatch.recipeName,
+            batchType: currentBatch.batchType,
+            scheduledDate: {
+              gte: targetDateStart,
+              lte: targetDateEnd
+            }
+          }
+        })
+
+        if (existingBatch) {
+          // Auto-merge: move tiers and stock tasks to existing batch
+          await prisma.productionBatchTier.updateMany({
+            where: { batchId: id },
+            data: { batchId: existingBatch.id }
+          })
+          await prisma.stockProductionTask.updateMany({
+            where: { productionBatchId: id },
+            data: { productionBatchId: existingBatch.id }
+          })
+
+          // Recalculate totals on target
+          await recalculateBatchTotals(existingBatch.id)
+
+          // Delete current batch
+          await prisma.productionBatch.delete({ where: { id } })
+
+          // Return the merged batch
+          const mergedBatch = await prisma.productionBatch.findUnique({
+            where: { id: existingBatch.id },
+            include: {
+              ProductionBatchTier: {
+                include: {
+                  CakeTier: {
+                    include: {
+                      CakeOrder: { select: { id: true, customerName: true, eventDate: true, imageUrl: true } },
+                      TierSize: true
+                    }
+                  }
+                }
+              },
+              StockProductionTask: {
+                include: { InventoryItem: { select: { id: true, name: true, productType: true } } }
+              }
+            }
+          })
+
+          return NextResponse.json({ batch: mergedBatch, merged: true, deletedBatchId: id })
+        }
+      }
+    }
+
     const batch = await prisma.productionBatch.update({
       where: { id },
       data: updateData,
@@ -315,3 +382,92 @@ export async function PUT(request: Request) {
 }
 
 // DELETE is handled in [id]/route.ts
+
+// PATCH /api/production/batches/manage - Merge two batches
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json()
+    const { sourceBatchId, targetBatchId } = body
+
+    if (!sourceBatchId || !targetBatchId) {
+      return NextResponse.json(
+        { error: 'sourceBatchId and targetBatchId are required' },
+        { status: 400 }
+      )
+    }
+
+    // Get both batches
+    const [sourceBatch, targetBatch] = await Promise.all([
+      prisma.productionBatch.findUnique({
+        where: { id: sourceBatchId },
+        include: {
+          ProductionBatchTier: true,
+          StockProductionTask: true
+        }
+      }),
+      prisma.productionBatch.findUnique({ where: { id: targetBatchId } })
+    ])
+
+    if (!sourceBatch || !targetBatch) {
+      return NextResponse.json(
+        { error: 'One or both batches not found' },
+        { status: 404 }
+      )
+    }
+
+    // Move all tiers from source to target
+    await prisma.productionBatchTier.updateMany({
+      where: { batchId: sourceBatchId },
+      data: { batchId: targetBatchId }
+    })
+
+    // Move all stock tasks from source to target
+    await prisma.stockProductionTask.updateMany({
+      where: { productionBatchId: sourceBatchId },
+      data: { productionBatchId: targetBatchId }
+    })
+
+    // Recalculate totals on target batch
+    await recalculateBatchTotals(targetBatchId)
+
+    // Delete the source batch
+    await prisma.productionBatch.delete({
+      where: { id: sourceBatchId }
+    })
+
+    // Fetch the updated target batch
+    const mergedBatch = await prisma.productionBatch.findUnique({
+      where: { id: targetBatchId },
+      include: {
+        ProductionBatchTier: {
+          include: {
+            CakeTier: {
+              include: {
+                CakeOrder: {
+                  select: { id: true, customerName: true, eventDate: true, imageUrl: true }
+                },
+                TierSize: true
+              }
+            }
+          }
+        },
+        StockProductionTask: {
+          include: {
+            InventoryItem: { select: { id: true, name: true, productType: true } }
+          }
+        }
+      }
+    })
+
+    return NextResponse.json({
+      batch: mergedBatch,
+      message: `Merged batch ${sourceBatchId} into batch ${targetBatchId}`
+    })
+  } catch (error) {
+    console.error('Failed to merge batches:', error)
+    return NextResponse.json(
+      { error: 'Failed to merge batches', details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    )
+  }
+}

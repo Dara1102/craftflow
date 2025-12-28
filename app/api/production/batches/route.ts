@@ -159,6 +159,12 @@ export async function GET(request: Request) {
         : order.pickupTime?.toISOString() || null
 
       for (const tier of order.CakeTier) {
+        // Check if this tier is already assigned to a production batch
+        const existingBatchAssignments = tier.ProductionBatchTier || []
+        const assignedBatchTypes = new Set(
+          existingBatchAssignments.map(pbt => pbt.ProductionBatch?.batchType).filter(Boolean)
+        )
+
         const sizeName = tier.TierSize?.name || 'Unknown size'
         const servings = tier.TierSize?.servings || 0
 
@@ -216,17 +222,19 @@ export async function GET(request: Request) {
         }
 
         // Create batch entries for each recipe type
-        // BAKE batch - by batter
-        if (!taskType || taskType === 'BAKE') {
+        // BAKE batch - by batter (skip if already assigned to a BAKE batch)
+        const isAssignedToBake = assignedBatchTypes.has('BAKE')
+        if ((!taskType || taskType === 'BAKE') && !isAssignedToBake) {
           const bakeKey = `BAKE-${batterName}`
           if (!batches[bakeKey]) {
-            const existingTask = orderTasks.find(t => t.taskType === 'BAKE')
+            // These are SUGGESTED batches - tiers NOT yet in a ProductionBatch
+            // They should always be "unscheduled" since they need to be added to a batch
             batches[bakeKey] = {
               id: bakeKey,
               taskType: 'BAKE',
               recipe: batterName,
               recipeType: 'batter',
-              scheduledDate: existingTask?.scheduledDate?.toISOString().split('T')[0] || null,
+              scheduledDate: null, // Not scheduled until added to a ProductionBatch
               tiers: [],
               stockItems: [],
               totalTiers: 0,
@@ -235,10 +243,8 @@ export async function GET(request: Request) {
               totalButtercreamOz: 0,
               totalStockQuantityOz: 0,
               earliestDueDate: dueDate,
-              assignedTo: existingTask?.assignedTo || null,
-              status: existingTask?.status === 'COMPLETED' ? 'completed'
-                : existingTask?.status === 'IN_PROGRESS' ? 'in_progress'
-                : existingTask?.scheduledDate ? 'scheduled' : 'unscheduled'
+              assignedTo: null,
+              status: 'unscheduled' // Always unscheduled since tier isn't in a batch
             }
           }
           batches[bakeKey].tiers.push(tierDetail)
@@ -258,17 +264,19 @@ export async function GET(request: Request) {
         const isFondant = (name: string | null) => name?.toLowerCase().includes('fondant')
         const prepRecipe = frostingRecipeName || fillingRecipeName || null
         const shouldIncludeInPrep = prepRecipe && !isFondant(prepRecipe)
+        const isAssignedToPrep = assignedBatchTypes.has('PREP')
 
-        if ((!taskType || taskType === 'PREP') && shouldIncludeInPrep) {
+        if ((!taskType || taskType === 'PREP') && shouldIncludeInPrep && !isAssignedToPrep) {
           const prepKey = `PREP-${prepRecipe}`
           if (!batches[prepKey]) {
-            const existingTask = orderTasks.find(t => t.taskType === 'PREP')
+            // These are SUGGESTED batches - tiers NOT yet in a ProductionBatch
+            // They should always be "unscheduled" since they need to be added to a batch
             batches[prepKey] = {
               id: prepKey,
               taskType: 'PREP',
               recipe: prepRecipe,
               recipeType: frostingRecipeName ? 'frosting' : 'filling',
-              scheduledDate: existingTask?.scheduledDate?.toISOString().split('T')[0] || null,
+              scheduledDate: null, // Not scheduled until added to a ProductionBatch
               tiers: [],
               stockItems: [],
               totalTiers: 0,
@@ -277,10 +285,8 @@ export async function GET(request: Request) {
               totalButtercreamOz: 0,
               totalStockQuantityOz: 0,
               earliestDueDate: dueDate,
-              assignedTo: existingTask?.assignedTo || null,
-              status: existingTask?.status === 'COMPLETED' ? 'completed'
-                : existingTask?.status === 'IN_PROGRESS' ? 'in_progress'
-                : existingTask?.scheduledDate ? 'scheduled' : 'unscheduled'
+              assignedTo: null,
+              status: 'unscheduled' // Always unscheduled since tier isn't in a batch
             }
           }
           batches[prepKey].tiers.push(tierDetail)
@@ -361,14 +367,16 @@ export async function GET(request: Request) {
       }
     }
 
-    // Convert to array and sort
-    const batchList = Object.values(batches).sort((a, b) => {
-      // Sort by task type order, then by earliest due date
-      const typeOrder = TASK_TYPES.indexOf(a.taskType as typeof TASK_TYPES[number])
-        - TASK_TYPES.indexOf(b.taskType as typeof TASK_TYPES[number])
-      if (typeOrder !== 0) return typeOrder
-      return a.earliestDueDate.localeCompare(b.earliestDueDate)
-    })
+    // Convert to array, filter out empty batches, and sort
+    const batchList = Object.values(batches)
+      .filter(b => b.tiers.length > 0 || b.stockItems.length > 0) // Remove batches with no items
+      .sort((a, b) => {
+        // Sort by task type order, then by earliest due date
+        const typeOrder = TASK_TYPES.indexOf(a.taskType as typeof TASK_TYPES[number])
+          - TASK_TYPES.indexOf(b.taskType as typeof TASK_TYPES[number])
+        if (typeOrder !== 0) return typeOrder
+        return a.earliestDueDate.localeCompare(b.earliestDueDate)
+      })
 
     return NextResponse.json({
       batches: batchList,

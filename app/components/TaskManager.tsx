@@ -56,10 +56,13 @@ export default function TaskManager({ orderId, eventDate }: TaskManagerProps) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    loadData()
+    if (orderId) {
+      loadData()
+    }
   }, [orderId])
 
   const loadData = async () => {
+    if (!orderId) return
     setLoading(true)
     try {
       const [tasksRes, staffRes] = await Promise.all([
@@ -85,6 +88,10 @@ export default function TaskManager({ orderId, eventDate }: TaskManagerProps) {
   }
 
   const generateTasks = async () => {
+    if (!orderId) {
+      setError('Order ID is missing')
+      return
+    }
     setGenerating(true)
     setError(null)
     try {
