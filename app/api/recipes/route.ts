@@ -48,8 +48,8 @@ export async function GET(request: Request) {
       }))
     }))
 
-    // Return in { recipes: [...] } format for consistency
-    return NextResponse.json({ recipes })
+    // Return array directly for backwards compatibility with existing pages
+    return NextResponse.json(recipes)
   } catch (error) {
     console.error('Error fetching recipes:', error)
     return NextResponse.json(

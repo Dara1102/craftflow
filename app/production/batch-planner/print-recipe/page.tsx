@@ -307,8 +307,9 @@ export default function PrintRecipePage() {
             const recipeRes = await fetch(`/api/recipes?name=${encodeURIComponent(name)}`)
             if (recipeRes.ok) {
               const recipeData = await recipeRes.json()
-              if (recipeData.recipes?.[0]) {
-                recipeMap[name] = recipeData.recipes[0]
+              // API returns array directly
+              if (Array.isArray(recipeData) && recipeData[0]) {
+                recipeMap[name] = recipeData[0]
               }
             }
           } catch (err) {
