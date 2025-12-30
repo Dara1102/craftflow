@@ -1371,9 +1371,16 @@ export default function BatchPlannerPage() {
                 totalTiers: batch.totalTiers,
                 totalServings: batch.totalServings,
                 totalButtercream: batch.totalButtercream,
-                orderIds: batch.ProductionBatchTier.map(pbt => pbt.CakeTier.CakeOrder.id)
+                orderIds: batch.ProductionBatchTier.map(pbt => pbt.CakeTier.CakeOrder.id),
+                tierIds: batch.ProductionBatchTier.map(pbt => pbt.CakeTier.id)
               }))}
               useGrams={useGrams}
+              batchTypeConfigs={batchTypeConfigs.map(c => ({
+                code: c.code,
+                name: c.name,
+                dependsOn: c.dependsOn || [],
+                color: c.color || null
+              }))}
               startDate={new Date(weekDates[0] + 'T00:00:00')}
               endDate={new Date(weekDates[6] + 'T23:59:59')}
               onBatchReschedule={async (batchId, newStartDate, newEndDate) => {
