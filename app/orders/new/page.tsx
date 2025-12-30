@@ -113,6 +113,16 @@ export default function NewOrder() {
   const [status, setStatus] = useState<OrderStatus>(OrderStatus.DRAFT)
   const [notes, setNotes] = useState('')
   const [isRush, setIsRush] = useState(false)
+  const [rushSkipBatchTypes, setRushSkipBatchTypes] = useState<string[]>([])
+
+  // Batch types that can be skipped for rush orders
+  const batchTypeOptions = [
+    { code: 'BAKE', name: 'Bake', description: 'Skip if using stock cake layers' },
+    { code: 'PREP', name: 'Prep (Frosting)', description: 'Skip if using stock frosting' },
+    { code: 'STACK', name: 'Stack & Fill', description: 'Skip if using pre-assembled cakes' },
+    { code: 'FROST', name: 'Final Frost', description: 'Skip if cake is pre-frosted' },
+    { code: 'DECORATE', name: 'Decorate', description: 'Skip if minimal decoration needed' },
+  ]
 
   // Calculate if order qualifies as rush (event date is today or tomorrow)
   const isRushEligible = (() => {
@@ -126,6 +136,15 @@ export default function NewOrder() {
     dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2)
     return event >= today && event < dayAfterTomorrow
   })()
+
+  // Toggle a batch type in the skip list
+  const toggleSkipBatchType = (code: string) => {
+    setRushSkipBatchTypes(prev =>
+      prev.includes(code)
+        ? prev.filter(c => c !== code)
+        : [...prev, code]
+    )
+  }
 
   // Cake details
   const [cakeType, setCakeType] = useState<CakeType | ''>('')
@@ -492,6 +511,7 @@ export default function NewOrder() {
       notes,
       status,
       isRush,
+      rushSkipBatchTypes: isRush && rushSkipBatchTypes.length > 0 ? rushSkipBatchTypes : undefined,
       tiers: validTiers.map(t => ({
         tierSizeId: parseInt(t.tierSizeId.toString()),
         batterRecipeId: t.batterRecipeId || null,
@@ -843,15 +863,20 @@ export default function NewOrder() {
                             </h3>
                             <p className={`mt-1 text-sm ${isRush ? 'text-red-700' : 'text-yellow-700'}`}>
                               {isRush
-                                ? 'This order will skip the normal batch workflow and use available stock inventory.'
-                                : 'Event date is today or tomorrow. Enable Rush Order to skip normal production batching.'}
+                                ? 'Select which production steps to skip (use stock inventory for those steps).'
+                                : 'Event date is today or tomorrow. Enable Rush Order to customize production steps.'}
                             </p>
                             <div className="mt-3">
                               <label className="inline-flex items-center cursor-pointer">
                                 <input
                                   type="checkbox"
                                   checked={isRush}
-                                  onChange={(e) => setIsRush(e.target.checked)}
+                                  onChange={(e) => {
+                                    setIsRush(e.target.checked)
+                                    if (!e.target.checked) {
+                                      setRushSkipBatchTypes([])
+                                    }
+                                  }}
                                   className="sr-only peer"
                                 />
                                 <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
@@ -860,6 +885,52 @@ export default function NewOrder() {
                                 </span>
                               </label>
                             </div>
+
+                            {/* Batch step selection when rush is enabled */}
+                            {isRush && (
+                              <div className="mt-4 pt-4 border-t border-red-200">
+                                <p className="text-sm font-medium text-red-800 mb-3">
+                                  Select steps to SKIP (will use stock instead):
+                                </p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                  {batchTypeOptions.map(opt => (
+                                    <label
+                                      key={opt.code}
+                                      className={`flex items-start p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                        rushSkipBatchTypes.includes(opt.code)
+                                          ? 'bg-red-100 border-red-400'
+                                          : 'bg-white border-gray-200 hover:border-red-300'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={rushSkipBatchTypes.includes(opt.code)}
+                                        onChange={() => toggleSkipBatchType(opt.code)}
+                                        className="mt-0.5 h-4 w-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                                      />
+                                      <div className="ml-2">
+                                        <span className={`text-sm font-medium ${
+                                          rushSkipBatchTypes.includes(opt.code) ? 'text-red-800' : 'text-gray-700'
+                                        }`}>
+                                          {opt.name}
+                                        </span>
+                                        <p className="text-xs text-gray-500 mt-0.5">{opt.description}</p>
+                                      </div>
+                                    </label>
+                                  ))}
+                                </div>
+                                {rushSkipBatchTypes.length === 0 && (
+                                  <p className="mt-3 text-xs text-red-600">
+                                    No steps selected to skip. Order will go through normal batching for all steps.
+                                  </p>
+                                )}
+                                {rushSkipBatchTypes.length > 0 && (
+                                  <p className="mt-3 text-xs text-red-700 font-medium">
+                                    Skipping: {rushSkipBatchTypes.join(', ')} — will use stock inventory
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

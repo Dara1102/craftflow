@@ -50,6 +50,7 @@ export interface CreateOrderData {
   notes?: string
   status: OrderStatus
   isRush?: boolean
+  rushSkipBatchTypes?: string[]  // Array of batch type codes to skip (e.g., ['BAKE', 'PREP'])
   tiers: {
     tierSizeId: number
     batterRecipeId?: number | null
@@ -130,6 +131,7 @@ export async function createOrder(data: CreateOrderData) {
 
       // Rush order
       isRush: data.isRush || false,
+      rushSkipBatchTypes: data.rushSkipBatchTypes ? JSON.stringify(data.rushSkipBatchTypes) : null,
 
       cakeTiers: {
         create: data.tiers.map((tier, index) => ({

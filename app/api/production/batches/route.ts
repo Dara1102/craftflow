@@ -132,10 +132,10 @@ export async function GET(request: Request) {
   try {
     // Get all confirmed orders with tiers
     // Don't filter by date - we want all active orders for batch planning
+    // Rush orders are included but will be filtered per-batch-type based on rushSkipBatchTypes
     const orders = await prisma.cakeOrder.findMany({
       where: {
         status: { in: ['CONFIRMED', 'IN_PROGRESS'] },
-        isRush: false,  // Exclude rush orders from batch workflow
       },
       include: {
         Customer: { select: { name: true } },
@@ -196,6 +196,13 @@ export async function GET(request: Request) {
       const dueTime = order.isDelivery
         ? order.deliveryTime?.toISOString() || null
         : order.pickupTime?.toISOString() || null
+
+      // Parse rush skip batch types for this order
+      const rushSkipTypes: string[] = order.rushSkipBatchTypes
+        ? JSON.parse(order.rushSkipBatchTypes)
+        : []
+      const shouldSkipBatchType = (batchType: string) =>
+        order.isRush && rushSkipTypes.includes(batchType)
 
       for (const tier of order.CakeTier) {
         // Check if this tier is already assigned to a production batch
@@ -262,9 +269,9 @@ export async function GET(request: Request) {
         }
 
         // Create batch entries for each recipe type
-        // BAKE batch - by batter (skip if already assigned to a BAKE batch)
+        // BAKE batch - by batter (skip if already assigned to a BAKE batch or rush-skipped)
         const isAssignedToBake = assignedBatchTypes.has('BAKE')
-        if ((!taskType || taskType === 'BAKE') && !isAssignedToBake) {
+        if ((!taskType || taskType === 'BAKE') && !isAssignedToBake && !shouldSkipBatchType('BAKE')) {
           const bakeKey = `BAKE-${batterName}`
           if (!batches[bakeKey]) {
             // These are SUGGESTED batches - tiers NOT yet in a ProductionBatch
@@ -306,7 +313,7 @@ export async function GET(request: Request) {
         const shouldIncludeInPrep = prepRecipe && !isFondant(prepRecipe)
         const isAssignedToPrep = assignedBatchTypes.has('PREP')
 
-        if ((!taskType || taskType === 'PREP') && shouldIncludeInPrep && !isAssignedToPrep) {
+        if ((!taskType || taskType === 'PREP') && shouldIncludeInPrep && !isAssignedToPrep && !shouldSkipBatchType('PREP')) {
           const prepKey = `PREP-${prepRecipe}`
           if (!batches[prepKey]) {
             // These are SUGGESTED batches - tiers NOT yet in a ProductionBatch

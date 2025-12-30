@@ -46,7 +46,8 @@ model CakeOrder {
   isBulkOrder      Boolean           @default(false)
   bulkQuantity     Int?              // For bulk orders (e.g., 500 cupcakes)
   productionDays   Int?              // Number of days needed for production
-  isRush           Boolean           @default(false)  // Rush order - skip normal batch workflow
+  isRush              Boolean           @default(false)  // Rush order - may skip some batch steps
+  rushSkipBatchTypes  String?           // JSON array of batch type codes to skip (e.g., ["BAKE"])
   Customer         Customer?         @relation(fields: [customerId], references: [id])
   DeliveryZone     DeliveryZone?     @relation(fields: [deliveryZoneId], references: [id])
   CakeTier              CakeTier[]
