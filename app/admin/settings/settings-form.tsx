@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { updateSetting, createDeliveryStartPoint, updateDeliveryStartPoint, deleteDeliveryStartPoint, setDefaultDeliveryStartPoint } from '@/app/actions/admin'
+import { PRODUCTION_DEFAULTS, PRODUCTION_SETTING_KEYS } from '@/lib/production-settings'
 
 interface DeliveryStartPoint {
   id: number
@@ -89,6 +90,32 @@ export default function SettingsForm({ initialSettings, initialStartPoints }: Pr
   const [editingName, setEditingName] = useState('')
   const [editingAddress, setEditingAddress] = useState('')
 
+  // Production settings
+  const [layersPerTier, setLayersPerTier] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.layersPerTier] || PRODUCTION_DEFAULTS.layersPerTier.toString()
+  )
+  const [layerHeightInches, setLayerHeightInches] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.layerHeightInches] || PRODUCTION_DEFAULTS.layerHeightInches.toString()
+  )
+  const [standardTierHeight, setStandardTierHeight] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.standardTierHeightInches] || PRODUCTION_DEFAULTS.standardTierHeightInches.toString()
+  )
+  const [batterGramsPerCubicInch, setBatterGramsPerCubicInch] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.batterGramsPerCubicInch] || PRODUCTION_DEFAULTS.batterGramsPerCubicInch.toString()
+  )
+  const [buttercreamInternalGrams, setButtercreamInternalGrams] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.buttercreamInternalGramsPerLayer] || PRODUCTION_DEFAULTS.buttercreamInternalGramsPerLayer.toString()
+  )
+  const [buttercreamCrumbCoatGrams, setButtercreamCrumbCoatGrams] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.buttercreamCrumbCoatGramsPerSqInch] || PRODUCTION_DEFAULTS.buttercreamCrumbCoatGramsPerSqInch.toString()
+  )
+  const [defaultSurplusPercent, setDefaultSurplusPercent] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.defaultSurplusPercent] || PRODUCTION_DEFAULTS.defaultSurplusPercent.toString()
+  )
+  const [defaultUnits, setDefaultUnits] = useState(
+    initialSettings[PRODUCTION_SETTING_KEYS.defaultUnits] || PRODUCTION_DEFAULTS.defaultUnits
+  )
+
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -109,6 +136,16 @@ export default function SettingsForm({ initialSettings, initialStartPoints }: Pr
     await updateSetting('SliceGenerousWidthCm', generousWidth)
     await updateSetting('SliceGenerousDepthCm', generousDepth)
 
+    // Save production settings
+    await updateSetting(PRODUCTION_SETTING_KEYS.layersPerTier, layersPerTier)
+    await updateSetting(PRODUCTION_SETTING_KEYS.layerHeightInches, layerHeightInches)
+    await updateSetting(PRODUCTION_SETTING_KEYS.standardTierHeightInches, standardTierHeight)
+    await updateSetting(PRODUCTION_SETTING_KEYS.batterGramsPerCubicInch, batterGramsPerCubicInch)
+    await updateSetting(PRODUCTION_SETTING_KEYS.buttercreamInternalGramsPerLayer, buttercreamInternalGrams)
+    await updateSetting(PRODUCTION_SETTING_KEYS.buttercreamCrumbCoatGramsPerSqInch, buttercreamCrumbCoatGrams)
+    await updateSetting(PRODUCTION_SETTING_KEYS.defaultSurplusPercent, defaultSurplusPercent)
+    await updateSetting(PRODUCTION_SETTING_KEYS.defaultUnits, defaultUnits)
+
     setIsSaving(false)
     alert('Settings saved successfully!')
   }
@@ -120,6 +157,17 @@ export default function SettingsForm({ initialSettings, initialStartPoints }: Pr
     setPartyDepth(DEFAULT_SLICE_SIZES.party.depthCm.toString())
     setGenerousWidth(DEFAULT_SLICE_SIZES.generous.widthCm.toString())
     setGenerousDepth(DEFAULT_SLICE_SIZES.generous.depthCm.toString())
+  }
+
+  const resetProductionSettings = () => {
+    setLayersPerTier(PRODUCTION_DEFAULTS.layersPerTier.toString())
+    setLayerHeightInches(PRODUCTION_DEFAULTS.layerHeightInches.toString())
+    setStandardTierHeight(PRODUCTION_DEFAULTS.standardTierHeightInches.toString())
+    setBatterGramsPerCubicInch(PRODUCTION_DEFAULTS.batterGramsPerCubicInch.toString())
+    setButtercreamInternalGrams(PRODUCTION_DEFAULTS.buttercreamInternalGramsPerLayer.toString())
+    setButtercreamCrumbCoatGrams(PRODUCTION_DEFAULTS.buttercreamCrumbCoatGramsPerSqInch.toString())
+    setDefaultSurplusPercent(PRODUCTION_DEFAULTS.defaultSurplusPercent.toString())
+    setDefaultUnits(PRODUCTION_DEFAULTS.defaultUnits)
   }
 
   // Convert cm to inches for display
@@ -579,6 +627,185 @@ export default function SettingsForm({ initialSettings, initialStartPoints }: Pr
                   No delivery start points configured. Add your office or warehouse location to enable automatic distance calculations.
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Production Settings */}
+      <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div className="md:grid md:grid-cols-3 md:gap-6">
+          <div className="md:col-span-1">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Production Settings</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Configure tier structure and yield calculations for batch planning.
+            </p>
+            <button
+              type="button"
+              onClick={resetProductionSettings}
+              className="mt-3 text-sm text-pink-600 hover:text-pink-800 underline"
+            >
+              Reset to defaults
+            </button>
+          </div>
+          <div className="mt-5 md:mt-0 md:col-span-2">
+            <div className="space-y-6">
+              {/* Tier Structure */}
+              <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                <h4 className="text-sm font-medium text-gray-900 mb-1">Tier Structure</h4>
+                <p className="text-xs text-gray-500 mb-3">
+                  How many cake layers make up a tier, and their dimensions
+                </p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Layers per Tier</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      max="5"
+                      value={layersPerTier}
+                      onChange={(e) => setLayersPerTier(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Usually 3 layers</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Layer Height (inches)</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="1"
+                      max="4"
+                      value={layerHeightInches}
+                      onChange={(e) => setLayerHeightInches(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Sheet pan depth</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Standard Tier Height (inches)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="3"
+                      max="8"
+                      value={standardTierHeight}
+                      onChange={(e) => setStandardTierHeight(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">4&quot; or 6&quot; common</p>
+                  </div>
+                </div>
+                <div className="mt-3 p-2 bg-white rounded border border-orange-100">
+                  <p className="text-xs text-gray-600">
+                    <strong>Calculated:</strong> {layersPerTier} layers × {layerHeightInches}&quot; = {(parseFloat(layersPerTier) * parseFloat(layerHeightInches)).toFixed(1)}&quot; of cake + buttercream = ~{standardTierHeight}&quot; tier
+                  </p>
+                </div>
+              </div>
+
+              {/* Batter Calculations */}
+              <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
+                <h4 className="text-sm font-medium text-gray-900 mb-1">Batter Yield</h4>
+                <p className="text-xs text-gray-500 mb-3">
+                  How much batter is needed per volume of cake
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Batter (grams per cubic inch)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="5"
+                      max="30"
+                      value={batterGramsPerCubicInch}
+                      onChange={(e) => setBatterGramsPerCubicInch(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">~14g/in³ typical</p>
+                  </div>
+                  <div className="flex items-end">
+                    <div className="p-2 bg-white rounded border border-amber-100 w-full">
+                      <p className="text-xs text-gray-600">
+                        <strong>Example 6&quot; tier:</strong> ~{Math.round(parseFloat(batterGramsPerCubicInch) * Math.PI * 9 * parseFloat(layerHeightInches) * parseFloat(layersPerTier))}g batter
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Buttercream Calculations */}
+              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                <h4 className="text-sm font-medium text-gray-900 mb-1">Buttercream Yield</h4>
+                <p className="text-xs text-gray-500 mb-3">
+                  Frosting between layers and for crumb coat (STACK phase)
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Internal BC (grams per layer)</label>
+                    <input
+                      type="number"
+                      step="10"
+                      min="20"
+                      max="300"
+                      value={buttercreamInternalGrams}
+                      onChange={(e) => setButtercreamInternalGrams(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Between cake layers (6&quot; base)</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Crumb Coat (grams per sq inch)</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0.5"
+                      max="5"
+                      value={buttercreamCrumbCoatGrams}
+                      onChange={(e) => setButtercreamCrumbCoatGrams(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Outer thin coat</p>
+                  </div>
+                </div>
+                <div className="mt-3 p-2 bg-white rounded border border-blue-100">
+                  <p className="text-xs text-gray-600">
+                    <strong>Example 6&quot; tier:</strong> {parseFloat(layersPerTier) - 1} internal layers × {buttercreamInternalGrams}g + crumb coat = ~{Math.round((parseFloat(layersPerTier) - 1) * parseFloat(buttercreamInternalGrams) + parseFloat(buttercreamCrumbCoatGrams) * 140)}g BC for STACK
+                  </p>
+                </div>
+              </div>
+
+              {/* Defaults */}
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <h4 className="text-sm font-medium text-gray-900 mb-3">Display Defaults</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Default Surplus %</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      max="25"
+                      value={defaultSurplusPercent}
+                      onChange={(e) => setDefaultSurplusPercent(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Extra for waste/testing</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Default Units</label>
+                    <select
+                      value={defaultUnits}
+                      onChange={(e) => setDefaultUnits(e.target.value)}
+                      className="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                    >
+                      <option value="grams">Grams (g / kg)</option>
+                      <option value="ounces">Ounces (oz / lbs)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-400">For batch planner display</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

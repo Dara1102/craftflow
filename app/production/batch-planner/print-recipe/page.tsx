@@ -2,6 +2,15 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import {
+  PRODUCTION_DEFAULTS,
+  parseProductionSettings,
+  parseTierSize,
+  calculateBatterForTier,
+  calculateButtercreamForTier,
+  formatQuantity,
+  type ProductionSettings
+} from '@/lib/production-settings'
 
 interface Recipe {
   id: number
@@ -143,6 +152,8 @@ interface UnifiedBatch {
     quantity: number
     productType: string
   }[]
+  // Tier details for proper yield calculations
+  tierSizes: { sizeName: string; count: number; complexity: number }[]
 }
 
 export default function PrintRecipePage() {
@@ -153,8 +164,9 @@ export default function PrintRecipePage() {
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [weekStart, setWeekStart] = useState<string>('')
   const [selectedBatchType, setSelectedBatchType] = useState<string>('all')
-  const [surplusPercent, setSurplusPercent] = useState<number>(5)
-  const [useGrams, setUseGrams] = useState<boolean>(true)
+  const [surplusPercent, setSurplusPercent] = useState<number>(PRODUCTION_DEFAULTS.defaultSurplusPercent)
+  const [useGrams, setUseGrams] = useState<boolean>(true) // Default to grams
+  const [prodSettings, setProdSettings] = useState<ProductionSettings>(PRODUCTION_DEFAULTS)
 
   // Parse URL params
   useEffect(() => {
@@ -193,6 +205,25 @@ export default function PrintRecipePage() {
 
   const weekDates = useMemo(() => weekStart ? getWeekDates(weekStart) : [], [weekStart])
 
+  // Fetch production settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch('/api/settings')
+        if (res.ok) {
+          const data = await res.json()
+          const settings = parseProductionSettings(data)
+          setProdSettings(settings)
+          setSurplusPercent(settings.defaultSurplusPercent)
+          setUseGrams(settings.defaultUnits === 'grams')
+        }
+      } catch (error) {
+        console.error('Failed to fetch settings:', error)
+      }
+    }
+    fetchSettings()
+  }, [])
+
   // Fetch batches and recipes - merge SAVED batches and SCHEDULED stock-only batches
   useEffect(() => {
     if (!weekStart || weekDates.length === 0) return
@@ -230,10 +261,19 @@ export default function PrintRecipePage() {
               (batch.ProductionBatchTier || []).map((pbt: { CakeTier: { CakeOrder: { id: number } } }) => pbt.CakeTier.CakeOrder.id)
             )]
 
-            // Calculate stock quantity (estimate 6oz per stock unit)
-            const stockQuantityOz = (batch.StockProductionTask || []).reduce(
-              (sum: number, task: { targetQuantity: number }) => sum + (task.targetQuantity * 6), 0
-            )
+            // Aggregate tier sizes for yield calculations
+            const tierSizeMap = new Map<string, { count: number; complexity: number }>()
+            for (const pbt of batch.ProductionBatchTier || []) {
+              const sizeName = pbt.CakeTier?.TierSize?.name || '8 inch round'
+              const complexity = pbt.CakeTier?.frostingComplexity || 2
+              const existing = tierSizeMap.get(sizeName) || { count: 0, complexity }
+              tierSizeMap.set(sizeName, { count: existing.count + 1, complexity })
+            }
+            const tierSizes = Array.from(tierSizeMap.entries()).map(([sizeName, data]) => ({
+              sizeName,
+              count: data.count,
+              complexity: data.complexity
+            }))
 
             unifiedBatches.push({
               id: String(batch.id),
@@ -253,7 +293,8 @@ export default function PrintRecipePage() {
                 name: task.InventoryItem.name,
                 quantity: task.targetQuantity,
                 productType: task.InventoryItem.productType
-              }))
+              })),
+              tierSizes
             })
           }
         }
@@ -290,7 +331,8 @@ export default function PrintRecipePage() {
                 name: item.itemName,
                 quantity: item.quantity,
                 productType: item.productType || 'STOCK'
-              }))
+              })),
+              tierSizes: []
             })
           }
         }
@@ -533,7 +575,7 @@ export default function PrintRecipePage() {
                 <tbody>
                   {/* Group by recipe name across all days */}
                   {(() => {
-                    // Build a map of recipe -> day -> quantity
+                    // Build a map of recipe -> day -> quantity (in grams for consistency)
                     const recipeByDay: Record<string, { type: string; days: Record<string, number>; total: number }> = {}
 
                     for (const group of groupedRecipes) {
@@ -541,13 +583,42 @@ export default function PrintRecipePage() {
                       if (!recipeByDay[key]) {
                         recipeByDay[key] = { type: group.batches[0].batchType, days: {}, total: 0 }
                       }
+
+                      // Aggregate tier sizes from all batches in this group
+                      const allTierSizes = group.batches.flatMap(b => b.tierSizes || [])
+
+                      // Calculate production-settings-based yields
+                      let tierBatterGrams = 0
+                      let tierButtercreamGrams = 0
+
+                      if (allTierSizes.length > 0) {
+                        for (const tierSize of allTierSizes) {
+                          const { diameterInches, shape } = parseTierSize(tierSize.sizeName)
+                          const batter = calculateBatterForTier(diameterInches, prodSettings, shape)
+                          const buttercream = calculateButtercreamForTier(diameterInches, prodSettings, shape, tierSize.complexity)
+                          tierBatterGrams += batter.grams * tierSize.count
+                          tierButtercreamGrams += buttercream.totalGrams * tierSize.count
+                        }
+                      }
+
+                      // Fallback to old calculation if no tier sizes
                       const totalServings = group.batches.reduce((sum, b) => sum + b.totalServings, 0)
                       const totalButtercream = group.batches.reduce((sum, b) => sum + (b.totalButtercreamOz || 0), 0)
-                      // Include stock item quantities (estimate ~12oz per stock item)
-                      const stockOz = group.batches.reduce((sum, b) => sum + b.stockItems.reduce((s, item) => s + (item.quantity * 12), 0), 0)
-                      const oz = group.batches[0].batchType === 'BAKE' ? (totalServings * 2) + stockOz : totalButtercream + stockOz
-                      recipeByDay[key].days[group.date] = (recipeByDay[key].days[group.date] || 0) + oz
-                      recipeByDay[key].total += oz
+
+                      // Include stock item quantities (estimate 340g per stock item)
+                      const stockGrams = group.batches.reduce((sum, b) => sum + b.stockItems.reduce((s, item) => s + (item.quantity * 340), 0), 0)
+
+                      let grams: number
+                      if (group.batches[0].batchType === 'BAKE') {
+                        grams = tierBatterGrams > 0 ? tierBatterGrams : (totalServings * 56.7) // ~2oz per serving fallback
+                        grams += stockGrams
+                      } else {
+                        grams = tierButtercreamGrams > 0 ? tierButtercreamGrams : (totalButtercream * 28.3495)
+                        grams += stockGrams
+                      }
+
+                      recipeByDay[key].days[group.date] = (recipeByDay[key].days[group.date] || 0) + grams
+                      recipeByDay[key].total += grams
                     }
 
                     return Object.entries(recipeByDay).map(([key, data]) => {
@@ -566,8 +637,8 @@ export default function PrintRecipePage() {
                               {data.days[date] ? (
                                 <span className="font-mono">
                                   {useGrams
-                                    ? `${Math.round(data.days[date] * 28.3495)} g`
-                                    : `${Math.round(data.days[date])} oz`
+                                    ? `${Math.round(data.days[date])} g`
+                                    : `${Math.round(data.days[date] / 28.3495)} oz`
                                   }
                                 </span>
                               ) : (
@@ -577,8 +648,8 @@ export default function PrintRecipePage() {
                           ))}
                           <td className="text-right py-2 px-2 font-bold">
                             {useGrams
-                              ? <>{Math.round(data.total * 28.3495)} g<span className="text-gray-500 font-normal ml-1">({(data.total * 28.3495 / 1000).toFixed(2)} kg)</span></>
-                              : <>{Math.round(data.total)} oz<span className="text-gray-500 font-normal ml-1">({(data.total / 16).toFixed(1)} lbs)</span></>
+                              ? <>{Math.round(data.total)} g<span className="text-gray-500 font-normal ml-1">({(data.total / 1000).toFixed(2)} kg)</span></>
+                              : <>{Math.round(data.total / 28.3495)} oz<span className="text-gray-500 font-normal ml-1">({(data.total / 28.3495 / 16).toFixed(1)} lbs)</span></>
                             }
                           </td>
                         </tr>
@@ -611,18 +682,43 @@ export default function PrintRecipePage() {
               // Get all stock items from all batches in this group
               const stockItems = groupBatches.flatMap(b => b.stockItems || [])
 
-              // Calculate stock item quantity (estimate 12oz per stock item for cupcakes/cake pops)
-              const stockQuantityOz = stockItems.reduce((sum, item) => sum + (item.quantity * 12), 0)
+              // Aggregate tier sizes from all batches in this group
+              const allTierSizes = groupBatches.flatMap(b => b.tierSizes || [])
+
+              // Calculate production-settings-based yields for cake tiers
+              let tierBatterGrams = 0
+              let tierButtercreamGrams = 0
+
+              if (allTierSizes.length > 0) {
+                // Use production settings for accurate tier calculations
+                for (const tierSize of allTierSizes) {
+                  const { diameterInches, shape } = parseTierSize(tierSize.sizeName)
+                  const batter = calculateBatterForTier(diameterInches, prodSettings, shape)
+                  const buttercream = calculateButtercreamForTier(diameterInches, prodSettings, shape, tierSize.complexity)
+                  tierBatterGrams += batter.grams * tierSize.count
+                  tierButtercreamGrams += buttercream.totalGrams * tierSize.count
+                }
+              }
+
+              // Calculate stock item quantity (estimate 340g / 12oz per stock item for cupcakes/cake pops)
+              const stockQuantityGrams = stockItems.reduce((sum, item) => sum + (item.quantity * 340), 0)
 
               // Calculate base needed amount (include stock items)
-              const baseNeededOz = firstBatch.batchType === 'BAKE'
-                ? (totalServings * 2) + stockQuantityOz
-                : totalButtercream + stockQuantityOz
+              let baseNeededGrams: number
+              if (firstBatch.batchType === 'BAKE') {
+                // For batter: use tier calculations if available, else fall back to servings estimate
+                baseNeededGrams = tierBatterGrams > 0 ? tierBatterGrams : (totalServings * 56.7) // ~2oz per serving as fallback
+                baseNeededGrams += stockQuantityGrams
+              } else {
+                // For buttercream/frosting: use tier calculations if available
+                baseNeededGrams = tierButtercreamGrams > 0 ? tierButtercreamGrams : (totalButtercream * 28.3495)
+                baseNeededGrams += stockQuantityGrams
+              }
 
               // Apply surplus
               const surplusMultiplier = 1 + (surplusPercent / 100)
-              const neededOz = baseNeededOz * surplusMultiplier
-              const neededGrams = neededOz * 28.3495
+              const neededGrams = baseNeededGrams * surplusMultiplier
+              const neededOz = neededGrams / 28.3495
 
               // Calculate multiplier based on yield
               const baseYieldMl = recipe?.yieldVolumeMl || 1000

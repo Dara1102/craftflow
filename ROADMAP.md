@@ -1,15 +1,418 @@
 # Craftflow Product Roadmap
 
 ## Vision
-The industry-leading AI-powered bakery management platform that transforms how bakeries price, quote, produce, and grow their business.
+The industry-leading AI-powered **creative production platform** that transforms how makers price, quote, produce, and grow their business.
 
-**Core USP**: AI Image-to-Order - Upload a cake photo, AI auto-populates the order with detected tiers, decorations, colors, and instant pricing. No other bakery software offers this capability.
+### Target Market
+**From kitchen table to $2-5MM in revenue** - Craftflow grows with you.
+- **Beginners**: First-time business owners who need guidance, not complexity
+- **Growing businesses**: Scaling from side hustle to full-time operation
+- **Established operations**: $2-5MM revenue businesses needing operational efficiency
+
+### Design Philosophy
+**Approachable. Intuitive. Helpful.**
+- UI must feel easy and welcoming, especially for novices
+- Early adoption depends on low friction onboarding
+- Progressive disclosure: simple by default, powerful when needed
+- Never intimidating, always helpful
+- Guidance built-in (not just documentation)
+
+### Core Value Proposition: Sales → Production Bridge
+**The gap Craftflow fills:**
+> Most makers either underprice (guessing) or overprice (fear). They quote inconsistently,
+> forget costs, and struggle to translate customer requests into production schedules.
+
+**Onboarding focuses on:**
+1. **Quote accurately** - Know your true costs before you commit to a price
+2. **Quote efficiently** - Generate quotes in minutes, not hours
+3. **Share with production** - Orders flow seamlessly to schedules, task lists, shopping lists
+4. **Close the loop** - Production updates flow back to customer communication
+
+**The bridge:**
+```
+SALES SIDE                         PRODUCTION SIDE
+─────────────────────────────────────────────────────
+Customer inquiry
+    ↓
+Quote (with real costs)
+    ↓
+Order confirmed        ──────→     Production schedule
+                                   Shopping list
+                                   Task assignments
+                                   Batch planning
+    ↓                                   ↓
+Delivery/pickup        ←──────     Order completed
+```
+
+### Platform Strategy
+**Modular architecture for creative production businesses:**
+- **Phase 1**: Bakeries (cakes, cupcakes, cookies, custom desserts)
+- **Phase 2**: Etsy-style creative businesses
+  - Woodworking & custom furniture
+  - Jewelry & accessories
+  - Garments & alterations
+  - Candles, soaps, crafts
+  - Fine art prints & custom framing
+  - 3D printing & prototyping
+  - Bespoke glassware & ceramics
+  - Leatherwork & bags
+  - Floral design & arrangements
+  - Custom signage & engraving
+  - Any bespoke/made-to-order production
+- **Core engine**: Recipe/BOM-based costing, labor tracking, production scheduling
+- **Industry modules**: Specialized workflows, terminology, integrations per vertical
+
+---
+
+### Technical Architecture: Modular Industry System
+
+**Core Platform (shared across all industries):**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CRAFTFLOW CORE                          │
+├─────────────────────────────────────────────────────────────┤
+│  Materials/Ingredients    │  Recipes/BOMs    │  Vendors     │
+│  Labor Roles & Rates      │  Customers       │  Orders      │
+│  Quotes & Pricing         │  Production Tasks│  Scheduling  │
+│  Costing Engine           │  Reports         │  Settings    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Industry Modules (plug-in architecture):**
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│   BAKERY     │  │  WOODWORK    │  │   JEWELRY    │  │   GARMENTS   │
+├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤
+│ Tier sizes   │  │ Wood types   │  │ Metal types  │  │ Fabric types │
+│ Cake shapes  │  │ Joint types  │  │ Stone types  │  │ Size charts  │
+│ Decorations  │  │ Finishes     │  │ Settings     │  │ Alterations  │
+│ Bake/Prep    │  │ Cut/Sand     │  │ Cast/Polish  │  │ Cut/Sew      │
+│ Stack/Frost  │  │ Assemble     │  │ Set/String   │  │ Fit/Finish   │
+│ Batch baking │  │ Batch cuts   │  │ Batch cast   │  │ Batch cut    │
+└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+```
+
+**How it works technically:**
+
+```typescript
+// Core models are generic
+interface Material {
+  id: string
+  name: string
+  unit: string          // oz, grams, board-ft, yards, grams
+  costPerUnit: number
+  vendorId: string
+  // ... common fields
+}
+
+interface Recipe {  // or "BOM" (Bill of Materials)
+  id: string
+  name: string
+  type: string          // Industry module defines types
+  materials: RecipeMaterial[]
+  laborMinutes: number
+  yield: number
+  yieldUnit: string     // "servings", "pieces", "items"
+}
+
+// Industry module defines specific types and behaviors
+interface IndustryModule {
+  id: string            // "bakery", "woodwork", "jewelry"
+  name: string
+
+  // Terminology mapping
+  terminology: {
+    material: string    // "Ingredient" | "Wood" | "Metal"
+    recipe: string      // "Recipe" | "Cut List" | "Design"
+    product: string     // "Cake" | "Furniture" | "Piece"
+  }
+
+  // Product structure
+  productStructure: {
+    hasLayers: boolean        // Cakes have tiers
+    hasDimensions: boolean    // Furniture has L×W×H
+    hasSizes: boolean         // Jewelry has ring sizes
+  }
+
+  // Production workflow
+  taskTypes: string[]         // ["BAKE", "PREP", "STACK", "FROST", "DECORATE"]
+  batchableSteps: string[]    // Which steps can be batched
+
+  // Yield calculation
+  yieldCalculator: (product, settings) => YieldResult
+
+  // UI customizations
+  orderFormFields: FieldDefinition[]
+  productionViews: ViewDefinition[]
+}
+
+// Registry of modules
+const industryModules = {
+  bakery: BakeryModule,
+  woodwork: WoodworkModule,
+  jewelry: JewelryModule,
+  garments: GarmentsModule,
+  // ... extensible
+}
+```
+
+**Database design for multi-industry:**
+```
+# Core tables (all industries)
+Material { id, name, unit, costPerUnit, vendorId, industryType }
+Recipe { id, name, type, industryType, laborMinutes, yield }
+Order { id, customerId, industryType, status, ... }
+ProductionTask { id, orderId, taskType, ... }
+
+# Industry-specific tables
+bakery.TierSize { id, name, diameter, servings, shape }
+bakery.DecorationTechnique { id, name, laborMinutes, complexity }
+
+woodwork.WoodType { id, species, grade, costPerBoardFoot }
+woodwork.JointType { id, name, laborMinutes }
+
+jewelry.MetalType { id, name, purity, costPerGram }
+jewelry.StoneType { id, name, cut, costPerCarat }
+```
+
+**Onboarding determines module:**
+```
+"What kind of products do you make?"
+  → Cakes & baked goods     → Load BakeryModule
+  → Furniture & woodwork    → Load WoodworkModule
+  → Jewelry & accessories   → Load JewelryModule
+  → Clothing & alterations  → Load GarmentsModule
+  → Other custom products   → Load GenericModule (BOM-based)
+```
+
+---
+
+### Database Migration Path: Bakery → Multi-Industry
+
+**Current schema already has strong foundations:**
+
+| Current Model | Multi-Industry Ready? | Notes |
+|---------------|----------------------|-------|
+| `Ingredient` | ✅ Yes | Rename to `Material`, add `category` enum |
+| `Recipe` | ✅ Yes | Already generic, add `industryType` |
+| `LaborRole` | ✅ Yes | Works for any industry |
+| `Staff` / `StaffRole` | ✅ Yes | Becomes `BusinessUser` when multi-tenant |
+| `Vendor` / `IngredientVendor` | ✅ Yes | Already generic |
+| `ProductionTask` | ✅ Yes | TaskType enum extends per industry |
+| `FieldOption` | ✅ Yes | Generic key-value config |
+| `Setting` | ✅ Yes | Any key-value settings |
+
+**Models requiring evolution:**
+
+| Current Model | Future Model | Migration Strategy |
+|---------------|--------------|-------------------|
+| `CakeOrder` | `Order` | Add `productCategoryId`, rename model |
+| `CakeTier` | `OrderComponent` | Add `componentType` enum, abstract dimensions |
+| `TierSize` | `ComponentSize` | Add `categoryId`, works for any sized component |
+| `DecorationTechnique` | `CustomElement` | Already abstract enough |
+| *(new)* | `ProductCategory` | Add for multi-industry routing |
+| *(new)* | `WorkflowDefinition` | Custom task sequences per category |
+| *(new)* | `Business` | Add when going multi-tenant |
+
+**Phase 1 Migration (Single-tenant, bakery-focused):**
+```sql
+-- Already complete: Current schema works for bakery MVP
+-- No changes needed for v1.x
+```
+
+**Phase 2 Migration (Single-tenant, multi-industry):**
+```sql
+-- Add product categories
+CREATE TABLE ProductCategory (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(50) UNIQUE,     -- 'bakery', 'woodwork', 'jewelry'
+  name VARCHAR(100),
+  terminology JSONB,           -- {"material": "Ingredient", "recipe": "Recipe"}
+  isActive BOOLEAN DEFAULT true
+);
+
+-- Add category to existing tables
+ALTER TABLE Recipe ADD COLUMN productCategoryId INTEGER REFERENCES ProductCategory(id);
+ALTER TABLE Ingredient ADD COLUMN category VARCHAR(50) DEFAULT 'ingredient';
+ALTER TABLE CakeOrder ADD COLUMN productCategoryId INTEGER REFERENCES ProductCategory(id);
+
+-- Rename for clarity (optional, can alias)
+-- CakeOrder → Order (with productCategoryId)
+-- CakeTier → OrderComponent (with componentType)
+```
+
+**Phase 3 Migration (Multi-tenant SaaS):**
+```sql
+-- Add business/tenant model
+CREATE TABLE Business (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  slug VARCHAR(50) UNIQUE,
+  primaryProductCategoryId INTEGER REFERENCES ProductCategory(id),
+  timezone VARCHAR(50) DEFAULT 'America/New_York',
+  currency VARCHAR(3) DEFAULT 'USD',
+  status VARCHAR(20) DEFAULT 'active'
+);
+
+-- Add business_id to all tenant-scoped tables
+ALTER TABLE Customer ADD COLUMN businessId INTEGER REFERENCES Business(id);
+ALTER TABLE Recipe ADD COLUMN businessId INTEGER REFERENCES Business(id);
+ALTER TABLE Ingredient ADD COLUMN businessId INTEGER REFERENCES Business(id);
+-- ... etc for all tables
+```
+
+**Key design decision: Component abstraction**
+```typescript
+// Current: Bakery-specific
+interface CakeTier {
+  tierSizeId: number        // 6", 8", 10" rounds
+  batterRecipeId: number
+  fillingRecipeId: number
+  frostingRecipeId: number
+  frostingComplexity: number
+}
+
+// Future: Generic component
+interface OrderComponent {
+  id: string
+  orderId: string
+  componentType: string     // 'tier', 'tabletop', 'ring_band', 'bodice'
+  position: number
+  dimensions: Record<string, number>  // {diameter: 8, height: 6} or {length: 48, width: 24}
+  materials: ComponentMaterial[]      // Recipes/BOMs attached
+  attributes: Record<string, any>     // Industry-specific (frostingComplexity, wood_species, etc.)
+}
+```
+
+**The path is clear:**
+1. ✅ Current schema works perfectly for bakery MVP
+2. 📋 Phase 2 adds `ProductCategory` and generalizes naming
+3. 📋 Phase 3 adds multi-tenancy with `Business` model
+4. 📋 Each phase is additive, not destructive
+
+---
+
+**Benefits of this architecture:**
+1. **Shared core** - Costing, scheduling, customers work the same everywhere
+2. **Industry-specific UX** - Bakers see "recipes", woodworkers see "cut lists"
+3. **Extensible** - New industries = new module, not new app
+4. **Familiar terminology** - Each industry sees their language
+5. **Best practices built-in** - Each module encodes industry workflows
+
+### Core USP: AI-Powered Order Creation
+**Two paths to instant quotes - available across ALL industries:**
+
+**Path 1: Upload → AI Fills Order**
+> Customer sends a photo (inspiration, Pinterest, competitor, their sketch)
+> AI analyzes and auto-populates the order form with detected components
+
+| Industry | AI Detects |
+|----------|------------|
+| Bakery | Tiers, shapes, colors, decorations, complexity |
+| Woodwork | Dimensions, wood type, joinery, finish style |
+| Jewelry | Metal, stones, setting type, ring size |
+| Garments | Fabric type, style, alterations needed |
+
+**Path 2: Design with AI**
+> Customer describes what they want in natural language or selects options
+> AI generates design concepts and auto-populates the order
+
+```
+"I want a 3-tier wedding cake, rustic style, white with greenery"
+    → AI generates design options
+    → User selects one
+    → Order form auto-filled with components + pricing
+```
+
+**The magic**: Whether they upload OR describe, they get an instant accurate quote.
 
 **Market Differentiation**:
 - **vs. CakeBoss/OrderEase**: AI-powered pricing eliminates manual cost calculations
-- **vs. Generic POS**: Built specifically for bakeries with recipe-based costing
-- **vs. Spreadsheets**: Real-time pricing updates when ingredient costs change
+- **vs. Generic POS**: Built specifically for makers with recipe/BOM-based costing
+- **vs. Spreadsheets**: Real-time pricing updates when material costs change
 - **vs. Manual processes**: 10x faster quote-to-order conversion
+- **vs. Enterprise ERP**: Approachable UI that doesn't require training
+
+---
+
+### Network Intelligence: Shared Learning Across the Platform
+
+**The more makers use Craftflow, the smarter everyone gets.**
+
+#### Regional Material Pricing
+```
+"Butter costs $4.50/lb in Texas but $6.20/lb in Alaska"
+"Walnut lumber is cheaper in the Pacific Northwest"
+"Gold prices vary by region and supplier"
+```
+
+- [ ] Aggregate anonymized material costs by region
+- [ ] Show benchmarks: "Your butter cost is 15% above regional average"
+- [ ] Suggest alternative suppliers in your area
+- [ ] Track seasonal price fluctuations
+- [ ] Alert when regional prices spike or drop
+
+#### Industry Benchmarks
+- [ ] Average markup by product type and region
+- [ ] Labor time benchmarks: "Most bakers take 45 min to frost an 8" cake"
+- [ ] Pricing ranges: "Wedding cakes in your area typically $4-8/serving"
+- [ ] Help new makers price competitively without undercharging
+
+#### Shared Knowledge Base
+- [ ] Common recipes/BOMs (opt-in sharing)
+- [ ] Supplier reviews and ratings
+- [ ] Equipment recommendations by business size
+- [ ] Best practices by industry
+
+**Privacy**: All sharing is anonymized and aggregated. Individual business data is never exposed.
+
+---
+
+### Cross-Merchant Customer Recognition
+
+**How Square does it:**
+> When a customer pays with their credit card at any Square merchant, Square links
+> that card to a customer profile. If they pay at a different Square merchant later,
+> Square recognizes the card and can show the merchant "This customer has visited
+> 3 other Square businesses" or pre-fill their info.
+
+**How Craftflow could do it:**
+
+#### Payment-Based Recognition (with Stripe Connect)
+- [ ] Customer pays deposit via Stripe at Bakery A
+- [ ] Same card used at Bakery B (also on Craftflow)
+- [ ] System recognizes: "Returning Craftflow customer"
+- [ ] Pre-fill name, email, phone from previous orders
+- [ ] Show merchant: "Ordered from 2 other Craftflow makers"
+
+#### Email/Phone Recognition
+- [ ] Customer provides email for quote at Maker A
+- [ ] Same email used at Maker B
+- [ ] System suggests: "Is this the same Sarah Johnson?"
+- [ ] With consent, link profiles
+
+#### Network Customer Insights (Opt-in)
+```
+"Sarah Johnson"
+├── Ordered 5 custom cakes (various bakeries)
+├── Always pays on time
+├── Prefers delivery
+├── Average order: $350
+└── Last order: 2 weeks ago
+```
+
+**Benefits for makers:**
+- Pre-filled customer info (less typing)
+- Trust signals ("reliable customer across network")
+- Understand customer preferences before they tell you
+- Reduce no-shows/payment issues
+
+**Privacy & Consent:**
+- [ ] Customers opt-in to cross-merchant profile
+- [ ] Clear value proposition: "Save time on future orders"
+- [ ] Easy opt-out anytime
+- [ ] Merchants only see aggregate trust signals, not order details from competitors
+- [ ] GDPR/CCPA compliant data handling
 
 ---
 
@@ -90,6 +493,48 @@ The industry-leading AI-powered bakery management platform that transforms how b
 - [x] Interactive Task Checklist
 - [x] Task status updates (Pending → In Progress → Completed)
 - [x] Signoff system with staff names
+
+#### Batch Planner & Production Scheduling 🚧 IN PROGRESS
+- [x] ProductionBatch model (group tiers by recipe)
+- [x] Batch types (BAKE, PREP, FROST, etc.)
+- [x] Weekly batch overview with tier grouping
+- [x] Print-ready recipe views
+- [x] Yield calculations with production settings
+- [ ] **Multi-Day Task Spans** - Tasks that span days/weeks
+- [ ] **Batch Planner Gantt View** - Visual timeline in batch planner
+- [ ] **Drag-and-drop scheduling** - Reschedule batches visually
+- [ ] **Dependency chains** - BAKE → COOL → FROST → FINAL flow
+- [ ] **Capacity planning** - Oven/mixer time blocking
+- [ ] **Lead time configuration** - Days before event for each step
+
+**Multi-Day Production Flow:**
+```
+Event Date: Saturday Jan 4th
+──────────────────────────────────────────────
+Day -3 (Wed)   Day -2 (Thu)   Day -1 (Fri)   Day 0 (Sat)
+┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+│  BAKE   │───▶│  COOL   │───▶│  FROST  │───▶│ DELIVER │
+│ 3 hrs   │    │         │    │  FINAL  │    │         │
+│ All     │    │         │    │ 4 hrs   │    │ 2 hrs   │
+│ tiers   │    │         │    │         │    │         │
+└─────────┘    └─────────┘    └─────────┘    └─────────┘
+```
+
+**Database additions needed:**
+```prisma
+model ProductionBatch {
+  // Existing fields...
+  scheduledStartDate  DateTime?  // First day of batch
+  scheduledEndDate    DateTime?  // Last day of batch
+  leadTimeDays        Int?       // Days before event
+}
+
+model ProductionTask {
+  // Existing fields...
+  spansDays          Int @default(1)  // How many days this task spans
+  dayOffset          Int @default(0)  // Days before event (-3, -2, -1, 0)
+}
+```
 
 #### Product Menu & Combined Orders ✅
 - [x] ProductType model (Cupcakes, Cake Pops, Cookies, etc.)
@@ -288,6 +733,138 @@ The industry-leading AI-powered bakery management platform that transforms how b
 - [ ] Share gallery items to social media
 
 ### AI Onboarding & Document Intelligence
+
+#### Bakery Configuration Wizard (Full Onboarding) 🏭
+AI-guided onboarding that configures the entire system to match each bakery's business logic, workflow, products, and production methods.
+
+**Focus**: Capture how THIS bakery actually runs - not generic assumptions.
+
+---
+
+**Phase 1: Business Profile & Workflow Discovery**
+
+*"Tell us about your bakery..."*
+- [ ] Business type: Home baker, retail storefront, wholesale, mixed
+- [ ] Team size: Solo, small team (2-5), production team (5+)
+- [ ] Primary products: Custom cakes, cupcakes, cookies, wedding specialty, etc.
+- [ ] Volume: Orders per week/month range
+
+*"How do customers find and order from you?"*
+- [ ] Order channels: Phone, email, social media DMs, website form, walk-in
+- [ ] Quote process: Do you provide quotes before confirming? How?
+- [ ] Deposit structure: Do you take deposits? What percentage?
+- [ ] Lead time: Minimum notice for orders (24 hrs, 1 week, 2 weeks)
+
+*"What's your order-to-delivery workflow?"*
+- [ ] Quote → Confirm → Produce → Deliver/Pickup
+- [ ] Do you have a tasting/consultation step?
+- [ ] Who handles customer communication vs production?
+- [ ] How do you currently track orders? (Paper, spreadsheet, other software)
+
+---
+
+**Phase 2: Product Discovery**
+
+*"What products do you offer?"*
+- [ ] Tiered cakes (custom decorated)
+- [ ] Single-tier cakes (birthday, simple)
+- [ ] Cupcakes (standard, jumbo, mini)
+- [ ] Cookies (decorated, drop, sandwich)
+- [ ] Cake pops, macarons, brownies, bars
+- [ ] Specialty items (cheesecakes, pies, bread)
+- [ ] Seasonal/limited items
+
+*"For each product type:"*
+- [ ] Standard sizes/quantities offered
+- [ ] Price ranges (helps calibrate costing)
+- [ ] Which are made-to-order vs batch production?
+
+---
+
+**Phase 3: Recipe & Ingredient Upload**
+
+*"Let's import your existing recipes..."*
+- [ ] **PDF Upload**: Parse recipe PDFs from cookbooks, printed recipes
+- [ ] **Image Upload**: Photo of handwritten or printed recipes (OCR)
+- [ ] **Document Upload**: Word docs, Google Docs exports
+- [ ] **Spreadsheet Import**: Excel/CSV ingredient lists and recipes
+- [ ] **Copy/Paste**: Plain text recipe entry
+
+*AI extracts:*
+- [ ] Ingredient names and quantities
+- [ ] Unit conversions (cups → grams, sticks → oz)
+- [ ] Yield per batch
+- [ ] Prep/bake times (if mentioned)
+- [ ] Match ingredients to existing database or create new
+
+*"Upload your ingredient purchase history..."*
+- [ ] Receipt photos → extract items, costs, vendors
+- [ ] Vendor invoices (PDF) → parse line items
+- [ ] Spreadsheet of current ingredient costs
+
+---
+
+**Phase 4: Production Method & Yield Calibration**
+
+*"How do you bake?"*
+- [ ] "Do you bake in round pans, sheet pans, or both?"
+- [ ] "What sheet pan sizes do you use?" (full, half, quarter)
+- [ ] "How many 8" rounds can you cut from a half sheet?"
+- [ ] "Do you bake cupcakes in standard 12-cup or jumbo 6-cup tins?"
+- [ ] "What's your standard tier structure?" (layers per tier, layer height)
+
+*"Help us calibrate your yields..."*
+- [ ] "How much batter (cups/grams) fills one half sheet pan?"
+- [ ] "How much buttercream between layers on an 8" cake?"
+- [ ] "What's your typical waste % when cutting rounds from sheets?"
+- [ ] "How many cupcakes does one batch of batter make?"
+
+*Recipe-to-Vessel Linking:*
+- [ ] Link each recipe to its actual yield
+- [ ] "Your Vanilla Sponge recipe makes how many half sheets?"
+- [ ] Auto-calculate per-tier yields from recipe batch sizes
+
+**Yield Testing Instructions (In-App Guide):**
+> To calibrate your yields accurately:
+> 1. **Batter Test**: Weigh your batter when making a known recipe. Note: "1 batch of vanilla = 4,500g"
+> 2. **Pan Fill Test**: Weigh how much batter fills your standard pans (e.g., "half sheet = 1,800g")
+> 3. **Cutting Test**: Cut rounds from a sheet pan, count usable rounds and weigh scraps
+> 4. **Buttercream Test**: Weigh frosting used for internal layers vs crumb coat on a test cake
+> 5. Enter these numbers in Admin → Production Settings
+
+---
+
+**Phase 5: Equipment Profiles**
+
+*Define your baking equipment:*
+- [ ] Sheet pans (full, half, quarter) with dimensions
+- [ ] Round pans (sizes you own)
+- [ ] Cupcake tins (standard, jumbo, mini)
+- [ ] Specialty vessels: ramekins, bundt pans, shaped molds
+
+*Capacity per vessel:*
+- [ ] Volume/batter capacity in grams
+- [ ] **Specialty Batch Overrides**: Custom yield rules for non-standard items
+  - Ramekin cakes: X grams batter per ramekin
+  - Mini bundt cakes: Y grams per mold
+  - Custom shapes: manual yield entry
+
+---
+
+**Admin Configuration Panel:**
+- [ ] Re-run any wizard phase anytime to recalibrate
+- [ ] Manual override for any calculated value
+- [ ] Per-recipe yield overrides (some recipes behave differently)
+- [ ] Per-vessel yield settings
+- [ ] Specialty product profiles
+
+**Wizard Output:**
+- [ ] Auto-configure ProductionSettings based on answers
+- [ ] Pre-populate products, recipes, ingredients from uploads
+- [ ] Generate equipment-aware batch calculations
+- [ ] "You need 3 half sheets of vanilla to get all your 8" and 10" rounds"
+- [ ] Waste factor applied to cutting calculations
+- [ ] Workflow configured to match their order process
 
 #### Receipt/Bill Parsing
 - [ ] Snap photo of vendor receipt
@@ -490,6 +1067,27 @@ Bakery { name, slug, subscriptionTier, stripeCustomerId }
 Subscription { bakeryId, planId, status, billingCycle }
 InventoryItem { ingredientId, quantity, lastUpdated }
 Equipment { name, type, capacity, schedule }
+
+# v2.0 - Bakery Configuration Wizard
+BakingVessel {
+  name, type (SHEET_PAN, ROUND_PAN, CUPCAKE_TIN, SPECIALTY),
+  dimensions, volumeMl, batterCapacityGrams, isActive
+}
+VesselYield {
+  vesselId, tierSizeId?, outputCount (how many rounds from sheet),
+  wastePercent, notes
+}
+RecipeYield {
+  recipeId, vesselId?, batchYieldCount (1 batch = X sheet pans),
+  batchYieldGrams, notes
+}
+SpecialtyProduct {
+  name, vesselId?, batterGramsPerUnit, frostingGramsPerUnit,
+  unitsPerBatch, notes
+}
+ProductionProfile {
+  name, isDefault, settings JSON (layersPerTier, cutFromSheets, etc.)
+}
 
 # v2.0 - Portfolio Gallery
 PortfolioItem {

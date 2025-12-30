@@ -515,6 +515,12 @@ model ProductionTask {
   completedById        Int?
   dependsOnId          Int?
   notes                String?
+
+  // Multi-day scheduling support
+  dayOffset            Int              @default(0)   // Days before event (-3, -2, -1, 0)
+  spansDays            Int              @default(1)   // How many days this task spans
+  scheduledEndDate     DateTime?                      // End date for multi-day tasks
+
   createdAt            DateTime         @default(now())
   updatedAt            DateTime
   ProductionTask       ProductionTask?  @relation("ProductionTaskToProductionTask", fields: [dependsOnId], references: [id])
@@ -526,6 +532,7 @@ model ProductionTask {
 
   @@index([orderId])
   @@index([scheduledDate])
+  @@index([dayOffset])
   @@index([status])
   @@index([assignedToId])
 }
@@ -1032,11 +1039,17 @@ model ProductionBatch {
   batchType        ProductionBatchType
   recipeId         Int?                    // Optional: the recipe this batch is for
   recipeName       String?                 // Denormalized recipe name for display
-  scheduledDate    DateTime?               // When the batch is scheduled
+  scheduledDate    DateTime?               // When the batch is scheduled (legacy single-day)
   status           ProductionBatchStatus   @default(DRAFT)
   assignedToId     Int?
   assignedTo       String?                 // Denormalized staff name
   notes            String?
+
+  // Multi-day scheduling support
+  scheduledStartDate  DateTime?            // First day of batch (null = use scheduledDate)
+  scheduledEndDate    DateTime?            // Last day of batch (null = single day)
+  leadTimeDays        Int?                 // Days before event this should start (-3, -2, etc.)
+  durationDays        Int         @default(1)  // How many days this batch spans
 
   // Computed/cached values (updated when tiers change)
   totalTiers       Int                     @default(0)
@@ -1054,6 +1067,7 @@ model ProductionBatch {
 
   @@index([batchType])
   @@index([scheduledDate])
+  @@index([scheduledStartDate])
   @@index([status])
 }
 

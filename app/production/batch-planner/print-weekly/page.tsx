@@ -2,6 +2,14 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import {
+  PRODUCTION_DEFAULTS,
+  parseProductionSettings,
+  parseTierSize,
+  calculateBatterForTier,
+  calculateButtercreamForTier,
+  type ProductionSettings
+} from '@/lib/production-settings'
 
 // Suggested batch from /api/production/batches
 interface SuggestedBatch {
@@ -62,6 +70,7 @@ interface UnifiedBatch {
     imageUrl: string | null
     isDelivery: boolean
     tierIndex: number
+    frostingComplexity?: number
   }[]
   stockItems: {
     id: number
@@ -69,6 +78,8 @@ interface UnifiedBatch {
     quantity: number
     productType: string
   }[]
+  // Tier details for proper yield calculations
+  tierSizes: { sizeName: string; count: number; complexity: number }[]
 }
 
 const TASK_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -104,7 +115,8 @@ export default function PrintWeeklyPage() {
   const [mode, setMode] = useState<'day' | 'week'>('week')
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [weekStart, setWeekStart] = useState<string>('')
-  const [useGrams, setUseGrams] = useState(false)
+  const [useGrams, setUseGrams] = useState(true) // Default to grams
+  const [prodSettings, setProdSettings] = useState<ProductionSettings>(PRODUCTION_DEFAULTS)
 
   // Get week start from URL or default to current week's Monday
   useEffect(() => {
@@ -139,6 +151,24 @@ export default function PrintWeeklyPage() {
 
   const weekDates = useMemo(() => weekStart ? getWeekDates(weekStart) : [], [weekStart])
 
+  // Fetch production settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch('/api/settings')
+        if (res.ok) {
+          const data = await res.json()
+          const settings = parseProductionSettings(data)
+          setProdSettings(settings)
+          setUseGrams(settings.defaultUnits === 'grams')
+        }
+      } catch (error) {
+        console.error('Failed to fetch settings:', error)
+      }
+    }
+    fetchSettings()
+  }, [])
+
   // Fetch batches for the week - merge SAVED batches and SCHEDULED stock-only batches
   useEffect(() => {
     if (!weekStart || weekDates.length === 0) return
@@ -169,6 +199,20 @@ export default function PrintWeeklyPage() {
             const key = `${batch.batchType}-${batch.recipeName}-${batchDate}`
             addedBatchKeys.add(key)
 
+            // Aggregate tier sizes for yield calculations
+            const tierSizeMap = new Map<string, { count: number; complexity: number }>()
+            for (const pbt of batch.ProductionBatchTier || []) {
+              const sizeName = pbt.CakeTier?.TierSize?.name || '8 inch round'
+              const complexity = pbt.CakeTier?.frostingComplexity || 2
+              const existing = tierSizeMap.get(sizeName) || { count: 0, complexity }
+              tierSizeMap.set(sizeName, { count: existing.count + 1, complexity })
+            }
+            const tierSizes = Array.from(tierSizeMap.entries()).map(([sizeName, data]) => ({
+              sizeName,
+              count: data.count,
+              complexity: data.complexity
+            }))
+
             unifiedBatches.push({
               id: String(batch.id),
               batchType: batch.batchType,
@@ -183,6 +227,7 @@ export default function PrintWeeklyPage() {
                 CakeTier: {
                   id: number
                   tierIndex: number
+                  frostingComplexity?: number
                   TierSize: { name: string; servings: number } | null
                   CakeOrder: {
                     id: number
@@ -209,7 +254,8 @@ export default function PrintWeeklyPage() {
                 colors: pbt.CakeTier.CakeOrder.colors,
                 imageUrl: pbt.CakeTier.CakeOrder.imageUrl,
                 isDelivery: pbt.CakeTier.CakeOrder.isDelivery,
-                tierIndex: pbt.CakeTier.tierIndex
+                tierIndex: pbt.CakeTier.tierIndex,
+                frostingComplexity: pbt.CakeTier.frostingComplexity
               })),
               stockItems: (batch.StockProductionTask || []).map((task: {
                 id: number
@@ -220,7 +266,8 @@ export default function PrintWeeklyPage() {
                 name: task.InventoryItem.name,
                 quantity: task.targetQuantity,
                 productType: task.InventoryItem.productType
-              }))
+              })),
+              tierSizes
             })
           }
         }
@@ -259,7 +306,8 @@ export default function PrintWeeklyPage() {
                 name: item.itemName,
                 quantity: item.quantity,
                 productType: item.productType || 'STOCK'
-              }))
+              })),
+              tierSizes: []
             })
           }
         }
@@ -275,6 +323,47 @@ export default function PrintWeeklyPage() {
     fetchBatches()
   }, [weekStart, weekDates])
 
+  // Group same-recipe batches on the same day (merges duplicates for display)
+  const mergedBatches = useMemo(() => {
+    const groups = new Map<string, UnifiedBatch[]>()
+
+    for (const batch of batches) {
+      if (!batch.scheduledDate) continue
+      const dateStr = batch.scheduledDate.split('T')[0]
+      const key = `${batch.recipeName}|${batch.batchType}|${dateStr}`
+      const existing = groups.get(key) || []
+      existing.push(batch)
+      groups.set(key, existing)
+    }
+
+    const result: UnifiedBatch[] = []
+    for (const [, batchGroup] of groups) {
+      if (batchGroup.length === 1) {
+        result.push(batchGroup[0])
+      } else {
+        // Merge multiple batches with same recipe+type+date
+        const first = batchGroup[0]
+        const merged: UnifiedBatch = {
+          id: first.id,
+          batchType: first.batchType,
+          recipeName: first.recipeName,
+          scheduledDate: first.scheduledDate,
+          assignedTo: first.assignedTo,
+          totalTiers: batchGroup.reduce((sum, b) => sum + b.totalTiers, 0),
+          totalServings: batchGroup.reduce((sum, b) => sum + b.totalServings, 0),
+          totalButtercreamOz: batchGroup.reduce((sum, b) => sum + b.totalButtercreamOz, 0),
+          totalStockQuantityOz: batchGroup.reduce((sum, b) => sum + b.totalStockQuantityOz, 0),
+          tiers: batchGroup.flatMap(b => b.tiers),
+          stockItems: batchGroup.flatMap(b => b.stockItems),
+          tierSizes: batchGroup.flatMap(b => b.tierSizes || [])
+        }
+        result.push(merged)
+      }
+    }
+
+    return result
+  }, [batches])
+
   // Filter and group batches by date
   const batchesByDate = useMemo(() => {
     const grouped: Record<string, UnifiedBatch[]> = {}
@@ -285,7 +374,7 @@ export default function PrintWeeklyPage() {
     for (const date of datesToShow) {
       grouped[date] = []
     }
-    for (const batch of batches) {
+    for (const batch of mergedBatches) {
       if (batch.scheduledDate) {
         const dateOnly = batch.scheduledDate.split('T')[0]
         if (grouped[dateOnly]) {
@@ -301,7 +390,7 @@ export default function PrintWeeklyPage() {
       })
     }
     return grouped
-  }, [batches, weekDates, mode, selectedDate])
+  }, [mergedBatches, weekDates, mode, selectedDate])
 
   if (loading) {
     return (
@@ -364,16 +453,16 @@ export default function PrintWeeklyPage() {
               <span className="text-sm text-gray-600">Units:</span>
               <div className="inline-flex rounded border overflow-hidden">
                 <button
-                  onClick={() => setUseGrams(false)}
-                  className={`px-3 py-1 text-sm ${!useGrams ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                >
-                  oz
-                </button>
-                <button
                   onClick={() => setUseGrams(true)}
                   className={`px-3 py-1 text-sm ${useGrams ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                 >
-                  g
+                  Grams
+                </button>
+                <button
+                  onClick={() => setUseGrams(false)}
+                  className={`px-3 py-1 text-sm ${!useGrams ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  Ounces
                 </button>
               </div>
             </div>
@@ -450,16 +539,35 @@ export default function PrintWeeklyPage() {
                           </div>
                           <div className={`${colors.text} font-bold`}>
                             {(() => {
-                              // Calculate total oz: servings*2 for BAKE, buttercream for PREP, plus stock for both
-                              const baseOz = batch.batchType === 'BAKE'
-                                ? batch.totalServings * 2
-                                : batch.totalButtercreamOz
-                              const totalOz = baseOz + batch.totalStockQuantityOz
-                              const totalGrams = totalOz * 28.3495
+                              // Calculate using production settings for accurate tier-based yields
+                              let tierBatterGrams = 0
+                              let tierButtercreamGrams = 0
+
+                              if (batch.tierSizes && batch.tierSizes.length > 0) {
+                                for (const tierSize of batch.tierSizes) {
+                                  const { diameterInches, shape } = parseTierSize(tierSize.sizeName)
+                                  const batter = calculateBatterForTier(diameterInches, prodSettings, shape)
+                                  const buttercream = calculateButtercreamForTier(diameterInches, prodSettings, shape, tierSize.complexity)
+                                  tierBatterGrams += batter.grams * tierSize.count
+                                  tierButtercreamGrams += buttercream.totalGrams * tierSize.count
+                                }
+                              }
+
+                              // Stock items (~340g each)
+                              const stockGrams = batch.totalStockQuantityOz * 28.3495
+
+                              let totalGrams: number
+                              if (batch.batchType === 'BAKE') {
+                                totalGrams = tierBatterGrams > 0 ? tierBatterGrams : (batch.totalServings * 56.7)
+                                totalGrams += stockGrams
+                              } else {
+                                totalGrams = tierButtercreamGrams > 0 ? tierButtercreamGrams : (batch.totalButtercreamOz * 28.3495)
+                                totalGrams += stockGrams
+                              }
 
                               return useGrams
                                 ? <>{Math.round(totalGrams)} g ({(totalGrams / 1000).toFixed(2)} kg)</>
-                                : <>{Math.round(totalOz)} oz ({(totalOz / 16).toFixed(1)} lbs)</>
+                                : <>{Math.round(totalGrams / 28.3495)} oz ({(totalGrams / 28.3495 / 16).toFixed(1)} lbs)</>
                             })()}
                           </div>
                         </div>

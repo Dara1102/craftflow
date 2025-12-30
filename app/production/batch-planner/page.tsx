@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import BatchGanttChart from '@/app/components/BatchGanttChart'
 
 interface TierDetail {
   tierId: number
@@ -77,6 +78,11 @@ interface SavedBatch {
   batchType: 'BAKE' | 'PREP' | 'FROST' | 'STACK' | 'DECORATE'
   recipeName: string | null
   scheduledDate: string | null
+  // Multi-day scheduling fields
+  scheduledStartDate?: string | null
+  scheduledEndDate?: string | null
+  leadTimeDays?: number | null
+  durationDays?: number
   status: 'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED'
   assignedTo: string | null
   notes: string | null
@@ -188,12 +194,13 @@ export default function BatchPlannerPage() {
   const [showCreateBatch, setShowCreateBatch] = useState(false)
   const [creatingBatch, setCreatingBatch] = useState(false)
   const [staff, setStaff] = useState<Staff[]>([])
-  const [useGrams, setUseGrams] = useState(false) // false = ounces, true = grams
+  const [useGrams, setUseGrams] = useState(true) // true = grams (default), false = ounces
   const [applyingSchedule, setApplyingSchedule] = useState(false)
   const [tierSelectionBatch, setTierSelectionBatch] = useState<RecipeBatch | null>(null)
   const [selectedTierIds, setSelectedTierIds] = useState<Set<number>>(new Set())
   const [editingSavedBatch, setEditingSavedBatch] = useState<SavedBatch | null>(null)
   const [previewDate, setPreviewDate] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'cards' | 'gantt'>('cards')
   const hasMergedDuplicatesRef = useRef(false)
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset])
@@ -408,6 +415,28 @@ export default function BatchPlannerPage() {
     }
   }
 
+  // Update batch properties (duration, notes, etc.)
+  const handleUpdateBatch = async (batchId: number, updates: { durationDays?: number; notes?: string }) => {
+    try {
+      const res = await fetch(`/api/production/batches/manage/${batchId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setSavedBatches(prev => prev.map(b => b.id === batchId ? data.batch : b))
+        // Also update the editing batch if it's the same one
+        if (editingSavedBatch?.id === batchId) {
+          setEditingSavedBatch(data.batch)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update batch:', error)
+    }
+  }
+
   // Delete an order (CakeOrder) from the system
   const handleDeleteOrder = async (orderId: number) => {
     if (!confirm(`Are you sure you want to delete Order #${orderId}? This cannot be undone.`)) return
@@ -551,24 +580,48 @@ export default function BatchPlannerPage() {
     }
   }
 
-  // Apply all suggestions
+  // Apply all suggestions - creates real database batches
   const handleApplyAllSuggestions = async () => {
     setApplyingSchedule(true)
     try {
-      // Update each batch with suggested date
-      const updates = suggestions.map(s => ({
-        batchId: s.batchId,
-        scheduledDate: s.suggestedDate
-      }))
+      const createdBatches: SavedBatch[] = []
 
-      // For now, update locally (would need a batch update API endpoint)
-      setBatches(prev => prev.map(batch => {
-        const suggestion = suggestions.find(s => s.batchId === batch.id)
-        if (suggestion) {
-          return { ...batch, scheduledDate: suggestion.suggestedDate, status: 'scheduled' as const }
+      // Create a batch in the database for each suggestion
+      for (const suggestion of suggestions) {
+        // Find the suggested batch by ID
+        const suggestedBatch = batches.find(b => b.id === suggestion.batchId)
+        if (!suggestedBatch || suggestedBatch.tiers.length === 0) continue
+
+        // Get all tier IDs from this batch
+        const tierIds = suggestedBatch.tiers.map(t => t.tierId)
+
+        // Create the batch in the database
+        const res = await fetch('/api/production/batches/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: `${suggestedBatch.recipe} - Week of ${weekDates[0]}`,
+            batchType: suggestedBatch.taskType,
+            recipeName: suggestedBatch.recipe,
+            scheduledDate: suggestion.suggestedDate,
+            tierIds,
+            stockTaskIds: suggestedBatch.stockItems?.map(s => s.stockTaskId)
+          })
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          createdBatches.push(data.batch)
+        } else {
+          console.error('Failed to create batch:', await res.text())
         }
-        return batch
-      }))
+      }
+
+      // Update saved batches with newly created ones
+      setSavedBatches(prev => [...prev, ...createdBatches])
+
+      // Refresh the suggested batches to remove tiers that are now scheduled
+      await refreshBatches()
 
       setShowSuggestions(false)
       setSuggestions([])
@@ -846,6 +899,25 @@ export default function BatchPlannerPage() {
             >
               Try New Builder →
             </Link>
+
+            {/* View Toggle */}
+            <div className="flex items-center gap-1 border-l pl-3 ml-1">
+              <span className="text-xs text-gray-500 mr-1">View:</span>
+              <div className="inline-flex rounded border overflow-hidden">
+                <button
+                  onClick={() => setViewMode('cards')}
+                  className={`px-2 py-1 text-xs ${viewMode === 'cards' ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  Cards
+                </button>
+                <button
+                  onClick={() => setViewMode('gantt')}
+                  className={`px-2 py-1 text-xs ${viewMode === 'gantt' ? 'bg-pink-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  Gantt
+                </button>
+              </div>
+            </div>
 
             {/* Units Toggle */}
             <div className="flex items-center gap-1 border-l pl-3 ml-1">
@@ -1234,8 +1306,80 @@ export default function BatchPlannerPage() {
 
       {/* Main Content */}
       <div className="p-6 max-w-full mx-auto">
-        {/* View Mode: Suggested Batches */}
-        <div className="flex gap-6">
+        {/* Gantt View */}
+        {viewMode === 'gantt' && (
+          <div className="mb-6">
+            <BatchGanttChart
+              batches={savedBatches.map(batch => ({
+                id: batch.id,
+                name: batch.name,
+                batchType: batch.batchType,
+                recipeName: batch.recipeName,
+                scheduledDate: batch.scheduledDate,
+                scheduledStartDate: batch.scheduledStartDate || null,
+                scheduledEndDate: batch.scheduledEndDate || null,
+                durationDays: batch.durationDays || 1,
+                leadTimeDays: batch.leadTimeDays || null,
+                status: batch.status,
+                assignedTo: batch.assignedTo,
+                totalTiers: batch.totalTiers,
+                totalServings: batch.totalServings,
+                totalButtercream: batch.totalButtercream,
+                orderIds: batch.ProductionBatchTier.map(pbt => pbt.CakeTier.CakeOrder.id)
+              }))}
+              useGrams={useGrams}
+              startDate={new Date(weekDates[0] + 'T00:00:00')}
+              endDate={new Date(weekDates[6] + 'T23:59:59')}
+              onBatchReschedule={async (batchId, newStartDate, newEndDate) => {
+                try {
+                  const res = await fetch(`/api/production/batches/manage/${batchId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      scheduledDate: newStartDate,
+                      scheduledStartDate: newStartDate,
+                      scheduledEndDate: newEndDate,
+                    })
+                  })
+                  if (res.ok) {
+                    // Refresh saved batches
+                    const savedBatchesRes = await fetch(`/api/production/batches/manage?weekStart=${weekDates[0]}&weekEnd=${weekDates[6]}`)
+                    if (savedBatchesRes.ok) {
+                      const savedData = await savedBatchesRes.json()
+                      setSavedBatches(savedData.batches || [])
+                    }
+                  }
+                } catch (error) {
+                  console.error('Failed to reschedule batch:', error)
+                }
+              }}
+              onBatchClick={(batch) => {
+                const savedBatch = savedBatches.find(b => b.id === batch.id)
+                if (savedBatch) {
+                  setEditingSavedBatch(savedBatch)
+                }
+              }}
+            />
+
+            {/* Unscheduled batches summary */}
+            {unscheduledBatches.length > 0 && (
+              <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <h3 className="font-semibold text-yellow-800 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+                  Unscheduled Batches ({unscheduledBatches.length})
+                </h3>
+                <p className="text-sm text-yellow-700 mb-2">
+                  Switch to Cards view to schedule these batches by dragging them to dates.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Cards View */}
+        {viewMode === 'cards' && (
+          <>
+          <div className="flex gap-6">
             {/* Left Sidebar - Unscheduled Batches (Sticky) */}
             <div className="w-80 flex-shrink-0">
               <div className="sticky top-[220px]">
@@ -1403,6 +1547,8 @@ export default function BatchPlannerPage() {
             </Link>
           </div>
         )}
+          </>
+        )}
 
         {/* Task Type Definitions */}
         <div className="mt-6 bg-white shadow rounded-lg p-4">
@@ -1482,6 +1628,7 @@ export default function BatchPlannerPage() {
           batch={editingSavedBatch}
           onClose={() => setEditingSavedBatch(null)}
           onRemoveTiers={(tierIds) => handleRemoveTiersFromBatch(editingSavedBatch.id, tierIds)}
+          onUpdateBatch={handleUpdateBatch}
         />
       )}
     </div>
@@ -2472,13 +2619,38 @@ function EditSavedBatchModal({
   batch,
   onClose,
   onRemoveTiers,
+  onUpdateBatch,
 }: {
   batch: SavedBatch
   onClose: () => void
   onRemoveTiers: (tierIds: number[]) => void
+  onUpdateBatch: (batchId: number, updates: { durationDays?: number; notes?: string }) => Promise<void>
 }) {
   const [selectedForRemoval, setSelectedForRemoval] = useState<Set<number>>(new Set())
+  const [durationDays, setDurationDays] = useState(batch.durationDays || 1)
+  const [notes, setNotes] = useState(batch.notes || '')
+  const [isSaving, setIsSaving] = useState(false)
   const colors = TASK_TYPE_COLORS[batch.batchType] || TASK_TYPE_COLORS.BAKE
+
+  const handleSaveDuration = async (newDuration: number) => {
+    if (newDuration === batch.durationDays) return
+    setIsSaving(true)
+    try {
+      await onUpdateBatch(batch.id, { durationDays: newDuration })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSaveNotes = async () => {
+    if (notes === (batch.notes || '')) return
+    setIsSaving(true)
+    try {
+      await onUpdateBatch(batch.id, { notes })
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   // Group tiers by order
   const tiersByOrder: Record<number, typeof batch.ProductionBatchTier> = {}
@@ -2533,6 +2705,43 @@ function EditSavedBatchModal({
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">
               ×
             </button>
+          </div>
+
+          {/* Duration and scheduling info */}
+          <div className="mt-4 flex flex-wrap gap-4 items-center">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Duration:</label>
+              <div className="flex items-center">
+                <input
+                  type="number"
+                  min="1"
+                  max="14"
+                  value={durationDays}
+                  onChange={(e) => setDurationDays(parseInt(e.target.value) || 1)}
+                  onBlur={() => handleSaveDuration(durationDays)}
+                  className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-pink-500 focus:border-pink-500"
+                  disabled={isSaving}
+                />
+                <span className="ml-1 text-sm text-gray-600">day{durationDays !== 1 ? 's' : ''}</span>
+              </div>
+            </div>
+            {batch.scheduledDate && (
+              <div className="text-sm text-gray-600">
+                <span className="font-medium">Scheduled:</span>{' '}
+                {new Date(batch.scheduledDate + 'T12:00:00').toLocaleDateString('en-US', {
+                  weekday: 'short', month: 'short', day: 'numeric'
+                })}
+                {durationDays > 1 && batch.scheduledStartDate && (
+                  <span>
+                    {' → '}
+                    {new Date(
+                      new Date(batch.scheduledStartDate).getTime() + (durationDays - 1) * 24 * 60 * 60 * 1000
+                    ).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                )}
+              </div>
+            )}
+            {isSaving && <span className="text-xs text-pink-600">Saving...</span>}
           </div>
         </div>
 

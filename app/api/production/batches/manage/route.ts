@@ -2,17 +2,42 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
 // Surface area calculation for round cakes
-function calculateSurfaceArea(diameterInches: number, heightInches: number = 4): number {
+// Includes: outside (top + sides) + internal filling layers (2 layers for 3-layer cake)
+function calculateSurfaceArea(diameterInches: number, heightInches: number = 4, cakeLayers: number = 3): number {
   const radius = diameterInches / 2
   const topArea = Math.PI * radius * radius
   const sideArea = Math.PI * diameterInches * heightInches
-  return Math.round(topArea + sideArea)
+  const fillingLayers = cakeLayers - 1
+  const internalArea = fillingLayers * topArea
+  return Math.round(topArea + sideArea + internalArea)
 }
 
 // Estimate buttercream needed based on surface area
-function estimateButtercreamOz(surfaceAreaSqIn: number, complexity: number = 2): number {
-  const baseOzPerSqIn = 1 / 8
-  return Math.round(surfaceAreaSqIn * baseOzPerSqIn * complexity * 10) / 10
+// Accounts for outside frosting + internal filling layers
+function estimateButtercreamOz(
+  diameterInches: number,
+  heightInches: number = 4,
+  complexity: number = 2,
+  cakeLayers: number = 3
+): number {
+  const radius = diameterInches / 2
+  const topArea = Math.PI * radius * radius
+  const sideArea = Math.PI * diameterInches * heightInches
+  const outsideSurfaceArea = topArea + sideArea
+
+  // Internal filling layers
+  const fillingLayers = cakeLayers - 1
+  const internalArea = fillingLayers * topArea
+
+  // Outside: ~1 oz per 8 sq in × complexity
+  const outsideOzPerSqIn = 1 / 8
+  const outsideOz = outsideSurfaceArea * outsideOzPerSqIn * complexity
+
+  // Internal filling: ~0.5 oz per 8 sq in (thinner layer)
+  const fillingOzPerSqIn = 0.5 / 8
+  const fillingOz = internalArea * fillingOzPerSqIn
+
+  return Math.round((outsideOz + fillingOz) * 10) / 10
 }
 
 // Parse diameter from tier size name
@@ -240,9 +265,9 @@ async function recalculateBatchTotals(batchId: number) {
 
     const sizeName = bt.CakeTier.TierSize?.name || '8 inch round'
     const diameterInches = parseDiameterFromSize(sizeName)
-    const surfaceArea = calculateSurfaceArea(diameterInches)
+    const surfaceArea = calculateSurfaceArea(diameterInches) // includes internal filling layers
     const complexity = bt.CakeTier.frostingComplexity || 2
-    const buttercreamOz = estimateButtercreamOz(surfaceArea, complexity)
+    const buttercreamOz = estimateButtercreamOz(diameterInches, 4, complexity, 3) // 4" height, 3 cake layers
 
     totalSurfaceArea += surfaceArea
     totalButtercream += buttercreamOz
