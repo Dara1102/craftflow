@@ -105,13 +105,20 @@ export default async function Dashboard() {
                       {order.costing ? `$${order.costing.suggestedPrice.toFixed(2)}` : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        order.status === OrderStatus.CONFIRMED
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {order.status === 'DRAFT' ? 'Quote' : order.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          order.status === OrderStatus.CONFIRMED
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {order.status === 'DRAFT' ? 'Quote' : order.status}
+                        </span>
+                        {order.isRush && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                            RUSH
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <Link href={`/orders/${order.id}`} className="text-pink-600 hover:text-pink-900 mr-4">

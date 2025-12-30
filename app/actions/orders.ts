@@ -49,6 +49,7 @@ export interface CreateOrderData {
 
   notes?: string
   status: OrderStatus
+  isRush?: boolean
   tiers: {
     tierSizeId: number
     batterRecipeId?: number | null
@@ -126,6 +127,9 @@ export async function createOrder(data: CreateOrderData) {
       discountType: data.discountType || null,
       discountValue: data.discountValue || null,
       discountReason: data.discountReason || null,
+
+      // Rush order
+      isRush: data.isRush || false,
 
       cakeTiers: {
         create: data.tiers.map((tier, index) => ({

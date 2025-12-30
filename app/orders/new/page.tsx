@@ -112,6 +112,20 @@ export default function NewOrder() {
   const [eventDate, setEventDate] = useState('')
   const [status, setStatus] = useState<OrderStatus>(OrderStatus.DRAFT)
   const [notes, setNotes] = useState('')
+  const [isRush, setIsRush] = useState(false)
+
+  // Calculate if order qualifies as rush (event date is today or tomorrow)
+  const isRushEligible = (() => {
+    if (!eventDate) return false
+    const event = new Date(eventDate + 'T00:00:00')
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const dayAfterTomorrow = new Date(today)
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2)
+    return event >= today && event < dayAfterTomorrow
+  })()
 
   // Cake details
   const [cakeType, setCakeType] = useState<CakeType | ''>('')
@@ -477,6 +491,7 @@ export default function NewOrder() {
       discountReason: discountReason || undefined,
       notes,
       status,
+      isRush,
       tiers: validTiers.map(t => ({
         tierSizeId: parseInt(t.tierSizeId.toString()),
         batterRecipeId: t.batterRecipeId || null,
@@ -811,6 +826,45 @@ export default function NewOrder() {
                       className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
+
+                  {/* Rush Order Banner */}
+                  {isRushEligible && (
+                    <div className="col-span-6">
+                      <div className={`rounded-lg p-4 ${isRush ? 'bg-red-50 border-2 border-red-300' : 'bg-yellow-50 border border-yellow-300'}`}>
+                        <div className="flex items-start">
+                          <div className="flex-shrink-0">
+                            <svg className={`h-6 w-6 ${isRush ? 'text-red-500' : 'text-yellow-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                          </div>
+                          <div className="ml-3 flex-1">
+                            <h3 className={`text-sm font-semibold ${isRush ? 'text-red-800' : 'text-yellow-800'}`}>
+                              {isRush ? 'Rush Order Enabled' : 'Short Lead Time Detected'}
+                            </h3>
+                            <p className={`mt-1 text-sm ${isRush ? 'text-red-700' : 'text-yellow-700'}`}>
+                              {isRush
+                                ? 'This order will skip the normal batch workflow and use available stock inventory.'
+                                : 'Event date is today or tomorrow. Enable Rush Order to skip normal production batching.'}
+                            </p>
+                            <div className="mt-3">
+                              <label className="inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={isRush}
+                                  onChange={(e) => setIsRush(e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+                                <span className={`ml-3 text-sm font-medium ${isRush ? 'text-red-700' : 'text-gray-700'}`}>
+                                  Rush Order
+                                </span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="col-span-6 sm:col-span-3">
                     <label htmlFor="desiredServings" className="block text-sm font-medium text-gray-700">

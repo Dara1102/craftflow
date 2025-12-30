@@ -135,6 +135,7 @@ export async function GET(request: Request) {
     const orders = await prisma.cakeOrder.findMany({
       where: {
         status: { in: ['CONFIRMED', 'IN_PROGRESS'] },
+        isRush: false,  // Exclude rush orders from batch workflow
       },
       include: {
         Customer: { select: { name: true } },
