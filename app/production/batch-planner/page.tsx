@@ -243,10 +243,11 @@ export default function BatchPlannerPage() {
         const startDate = weekDates[0]
         const endDate = weekDates[6]
 
-        const [batchesRes, savedBatchesRes, staffRes] = await Promise.all([
+        const [batchesRes, savedBatchesRes, staffRes, batchTypesRes] = await Promise.all([
           fetch(`/api/production/batches?startDate=${startDate}&endDate=${endDate}`),
           fetch(`/api/production/batches/manage?weekStart=${startDate}&weekEnd=${endDate}`),
-          fetch('/api/staff')
+          fetch('/api/staff'),
+          fetch('/api/admin/batch-types')
         ])
 
         if (batchesRes.ok) {
@@ -262,6 +263,11 @@ export default function BatchPlannerPage() {
         if (staffRes.ok) {
           const staffData = await staffRes.json()
           setStaff(staffData.staff || [])
+        }
+
+        if (batchTypesRes.ok) {
+          const batchTypesData = await batchTypesRes.json()
+          setBatchTypeConfigs(batchTypesData.batchTypes || [])
         }
       } catch (error) {
         console.error('Failed to fetch data:', error)

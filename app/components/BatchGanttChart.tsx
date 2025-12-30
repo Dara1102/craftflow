@@ -101,7 +101,6 @@ export default function BatchGanttChart({
   // Calculate dependency arrows between batches that share tier IDs
   const dependencyArrows = useMemo(() => {
     const arrows: DependencyArrow[] = []
-    const typeOrder = ['BAKE', 'PREP', 'STACK', 'FROST', 'DECORATE']
 
     batches.forEach(batch => {
       const deps = dependencyMap[batch.batchType] || []
@@ -131,7 +130,7 @@ export default function BatchGanttChart({
     })
 
     return arrows
-  }, [batches, dependencyMap])
+  }, [batches, dependencyMap, batchTypeConfigs])
 
   // Get all batches in the same dependency chain as a given batch
   const getChainBatchIds = (batchId: number): number[] => {
@@ -162,39 +161,51 @@ export default function BatchGanttChart({
       return
     }
 
-    const container = swimLanesRef.current
-    const containerRect = container.getBoundingClientRect()
-    const calculatedArrows: typeof arrowPositions.arrows = []
+    // Use requestAnimationFrame to ensure DOM is fully rendered
+    const calculatePositions = () => {
+      const container = swimLanesRef.current
+      if (!container) return
 
-    dependencyArrows.forEach(arrow => {
-      const fromEl = container.querySelector(`[data-batch-id="${arrow.fromBatchId}"]`)
-      const toEl = container.querySelector(`[data-batch-id="${arrow.toBatchId}"]`)
+      const containerRect = container.getBoundingClientRect()
+      const calculatedArrows: typeof arrowPositions.arrows = []
 
-      if (fromEl && toEl) {
-        const fromRect = fromEl.getBoundingClientRect()
-        const toRect = toEl.getBoundingClientRect()
+      dependencyArrows.forEach(arrow => {
+        const fromEl = container.querySelector(`[data-batch-id="${arrow.fromBatchId}"]`)
+        const toEl = container.querySelector(`[data-batch-id="${arrow.toBatchId}"]`)
 
-        calculatedArrows.push({
-          from: {
-            x: fromRect.right - containerRect.left,
-            y: fromRect.top + fromRect.height / 2 - containerRect.top
-          },
-          to: {
-            x: toRect.left - containerRect.left,
-            y: toRect.top + toRect.height / 2 - containerRect.top
-          },
-          fromBatchId: arrow.fromBatchId,
-          toBatchId: arrow.toBatchId,
-          isMissing: arrow.isMissing
-        })
-      }
+        if (fromEl && toEl) {
+          const fromRect = fromEl.getBoundingClientRect()
+          const toRect = toEl.getBoundingClientRect()
+
+          calculatedArrows.push({
+            from: {
+              x: fromRect.right - containerRect.left,
+              y: fromRect.top + fromRect.height / 2 - containerRect.top
+            },
+            to: {
+              x: toRect.left - containerRect.left,
+              y: toRect.top + toRect.height / 2 - containerRect.top
+            },
+            fromBatchId: arrow.fromBatchId,
+            toBatchId: arrow.toBatchId,
+            isMissing: arrow.isMissing
+          })
+        }
+      })
+
+      setArrowPositions({
+        arrows: calculatedArrows,
+        containerHeight: containerRect.height
+      })
+    }
+
+    // Wait for DOM to be ready
+    const rafId = requestAnimationFrame(() => {
+      requestAnimationFrame(calculatePositions)
     })
 
-    setArrowPositions({
-      arrows: calculatedArrows,
-      containerHeight: containerRect.height
-    })
-  }, [dependencyArrows, batches, hoveredBatch])
+    return () => cancelAnimationFrame(rafId)
+  }, [dependencyArrows, batches, hoveredBatch, batchTypeConfigs])
 
   // Format quantity based on unit preference
   const formatQuantity = (oz: number) => {
@@ -387,7 +398,7 @@ export default function BatchGanttChart({
       </div>
 
       {/* Swim lanes by batch type */}
-      <div className="divide-y divide-gray-200 relative" ref={swimLanesRef}>
+      <div className="divide-y divide-gray-200 relative overflow-hidden" ref={swimLanesRef}>
         {/* SVG overlay for dependency arrows */}
         {showArrows && arrowPositions.arrows.length > 0 && (
           <svg
@@ -433,16 +444,31 @@ export default function BatchGanttChart({
                                    hoveredBatch === arrow.fromBatchId ||
                                    hoveredBatch === arrow.toBatchId
 
-              // Calculate bezier curve control points
-              const midX = (arrow.from.x + arrow.to.x) / 2
-              const curveOffset = Math.abs(arrow.to.y - arrow.from.y) * 0.3
-              const controlX = midX + (arrow.to.x > arrow.from.x ? curveOffset : -curveOffset)
+              // Calculate smooth bezier curve control points
+              const dx = arrow.to.x - arrow.from.x
+              const dy = arrow.to.y - arrow.from.y
 
-              // Path: from right of source batch to left of target batch
-              const path = `M ${arrow.from.x} ${arrow.from.y}
-                           C ${controlX} ${arrow.from.y},
-                             ${controlX} ${arrow.to.y},
-                             ${arrow.to.x} ${arrow.to.y}`
+              // Control point offset - creates a smooth S-curve
+              const curveStrength = Math.min(Math.abs(dx) * 0.4, 60)
+
+              // For arrows going right-to-left or same column, use vertical offset
+              const goingBackward = dx < 50
+
+              let path: string
+              if (goingBackward) {
+                // Arrow needs to curve around - go down/up first then over
+                const verticalOffset = dy > 0 ? 30 : -30
+                path = `M ${arrow.from.x} ${arrow.from.y}
+                        C ${arrow.from.x + 30} ${arrow.from.y + verticalOffset},
+                          ${arrow.to.x - 30} ${arrow.to.y - verticalOffset},
+                          ${arrow.to.x} ${arrow.to.y}`
+              } else {
+                // Normal left-to-right arrow with smooth S-curve
+                path = `M ${arrow.from.x} ${arrow.from.y}
+                        C ${arrow.from.x + curveStrength} ${arrow.from.y},
+                          ${arrow.to.x - curveStrength} ${arrow.to.y},
+                          ${arrow.to.x} ${arrow.to.y}`
+              }
 
               return (
                 <path
