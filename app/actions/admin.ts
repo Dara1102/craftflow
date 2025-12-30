@@ -522,3 +522,92 @@ export async function deleteCakeboardType(id: number) {
   })
   revalidatePath('/admin/cakeboards')
 }
+
+// Batch Type Configurations
+export async function createBatchTypeConfig(data: {
+  code: string
+  name: string
+  description?: string
+  dependsOn?: string[] | null
+  leadTimeDays?: number
+  sortOrder?: number
+  isBatchable?: boolean
+  color?: string
+}) {
+  await prisma.batchTypeConfig.create({
+    data: {
+      code: data.code.toUpperCase().replace(/\s+/g, '_'),
+      name: data.name,
+      description: data.description || null,
+      dependsOn: data.dependsOn ? JSON.stringify(data.dependsOn) : null,
+      leadTimeDays: data.leadTimeDays ?? 1,
+      sortOrder: data.sortOrder || 0,
+      isBatchable: data.isBatchable ?? true,
+      color: data.color || null,
+      isActive: true,
+    }
+  })
+  revalidatePath('/admin/batch-types')
+  revalidatePath('/production/batch-planner')
+}
+
+export async function updateBatchTypeConfig(id: number, data: {
+  code?: string
+  name: string
+  description?: string
+  dependsOn?: string[] | null
+  leadTimeDays?: number
+  sortOrder?: number
+  isBatchable?: boolean
+  color?: string
+  isActive?: boolean
+}) {
+  await prisma.batchTypeConfig.update({
+    where: { id },
+    data: {
+      code: data.code ? data.code.toUpperCase().replace(/\s+/g, '_') : undefined,
+      name: data.name,
+      description: data.description || null,
+      dependsOn: data.dependsOn !== undefined
+        ? (data.dependsOn ? JSON.stringify(data.dependsOn) : null)
+        : undefined,
+      leadTimeDays: data.leadTimeDays ?? 1,
+      sortOrder: data.sortOrder || 0,
+      isBatchable: data.isBatchable ?? true,
+      color: data.color || null,
+      isActive: data.isActive ?? true,
+    }
+  })
+  revalidatePath('/admin/batch-types')
+  revalidatePath('/production/batch-planner')
+}
+
+export async function deleteBatchTypeConfig(id: number) {
+  // Check if this is a built-in type that shouldn't be deleted
+  const batchType = await prisma.batchTypeConfig.findUnique({ where: { id } })
+  const builtInCodes = ['BAKE', 'PREP', 'STACK', 'FROST', 'DECORATE']
+
+  if (batchType && builtInCodes.includes(batchType.code)) {
+    throw new Error(`Cannot delete built-in batch type "${batchType.code}". You can deactivate it instead.`)
+  }
+
+  await prisma.batchTypeConfig.delete({
+    where: { id }
+  })
+  revalidatePath('/admin/batch-types')
+  revalidatePath('/production/batch-planner')
+}
+
+export async function reorderBatchTypes(orderedIds: number[]) {
+  // Update sort order for each batch type
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      prisma.batchTypeConfig.update({
+        where: { id },
+        data: { sortOrder: index + 1 }
+      })
+    )
+  )
+  revalidatePath('/admin/batch-types')
+  revalidatePath('/production/batch-planner')
+}

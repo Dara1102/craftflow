@@ -1031,6 +1031,26 @@ enum ProductionBatchType {
   DECORATE        // Decoration work
 }
 
+// Configurable batch types with dependencies and lead times
+// Admin can add custom types (e.g., "COLOR_BC" for coloring buttercream)
+model BatchTypeConfig {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique  // BAKE, PREP, STACK, DECORATE, or custom codes
+  name          String            // Display name (e.g., "Bake Cakes", "Make Frosting")
+  description   String?           // Optional description of this step
+  dependsOn     String?           // JSON array of dependency codes, e.g., '["BAKE", "PREP"]'
+  leadTimeDays  Int      @default(1)  // Days before event this should be scheduled
+  sortOrder     Int      @default(0)  // Order in workflow sequence
+  isBatchable   Boolean  @default(true)  // Can multiple orders be batched together?
+  isActive      Boolean  @default(true)  // Is this type currently in use?
+  color         String?           // Optional color for UI (e.g., "orange", "#FF5722")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@index([isActive])
+}
+
 // A production batch groups multiple tiers that share the same recipe/task
 // Managers manually associate tiers with batches for weekly planning
 model ProductionBatch {

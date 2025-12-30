@@ -60,9 +60,22 @@ interface RecipeBatch {
 
 interface ScheduleSuggestion {
   batchId: string
+  batchType: string
   currentDate: string | null
   suggestedDate: string
+  leadTime: number
   reason: string
+  dependencies: string[]
+  missingDependencies?: { type: string; suggestedDate: string; leadTime: number }[]
+}
+
+interface BatchTypeConfig {
+  code: string
+  name: string
+  leadTimeDays: number
+  dependsOn: string[]
+  isBatchable: boolean
+  color: string | null
 }
 
 interface Staff {
@@ -191,6 +204,7 @@ export default function BatchPlannerPage() {
   const [draggedBatch, setDraggedBatch] = useState<RecipeBatch | null>(null)
   const [suggestions, setSuggestions] = useState<ScheduleSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [batchTypeConfigs, setBatchTypeConfigs] = useState<BatchTypeConfig[]>([])
   const [showCreateBatch, setShowCreateBatch] = useState(false)
   const [creatingBatch, setCreatingBatch] = useState(false)
   const [staff, setStaff] = useState<Staff[]>([])
@@ -573,6 +587,9 @@ export default function BatchPlannerPage() {
       if (res.ok) {
         const data = await res.json()
         setSuggestions(data.suggestions || [])
+        if (data.batchTypes) {
+          setBatchTypeConfigs(data.batchTypes)
+        }
         setShowSuggestions(true)
       }
     } catch (error) {
@@ -1104,12 +1121,41 @@ export default function BatchPlannerPage() {
                           <div className="text-sm font-semibold text-green-700">
                             → {formatDate(suggestion.suggestedDate)}
                           </div>
-                          <div className="text-xs text-gray-500">{suggestion.reason}</div>
+                          <div className="text-xs text-gray-500">
+                            {suggestion.leadTime} day{suggestion.leadTime !== 1 ? 's' : ''} before event
+                          </div>
                         </div>
                       </div>
                       <div className="mt-1 text-xs text-gray-600">
                         {batch.totalTiers} tiers • {batch.totalServings} servings
+                        {suggestion.dependencies.length > 0 && (
+                          <span className="ml-2 text-gray-400">
+                            • Depends on: {suggestion.dependencies.join(', ')}
+                          </span>
+                        )}
                       </div>
+                      {/* Show missing dependency warnings */}
+                      {suggestion.missingDependencies && suggestion.missingDependencies.length > 0 && (
+                        <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                          <div className="font-medium text-amber-800 flex items-center gap-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            Suggested prerequisite batches:
+                          </div>
+                          <div className="mt-1 space-y-1">
+                            {suggestion.missingDependencies.map(dep => (
+                              <div key={dep.type} className="flex justify-between text-amber-700">
+                                <span>{dep.type} batch</span>
+                                <span>Schedule for: {formatDate(dep.suggestedDate)}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 text-amber-600 italic">
+                            You can skip these if using stock ingredients
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}

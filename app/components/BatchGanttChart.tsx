@@ -20,6 +20,14 @@ interface BatchItem {
   totalButtercream?: number  // oz for PREP/FROST batches
   eventDate?: string | null  // Derived from orders in batch
   orderIds?: number[]
+  tierIds?: number[]  // Tier IDs in this batch for dependency tracking
+}
+
+interface BatchTypeConfig {
+  code: string
+  name: string
+  dependsOn: string[]
+  color: string | null
 }
 
 interface BatchGanttChartProps {
@@ -29,6 +37,7 @@ interface BatchGanttChartProps {
   onBatchReschedule?: (batchId: number, newStartDate: string, newEndDate: string) => void
   onBatchClick?: (batch: BatchItem) => void
   useGrams?: boolean
+  batchTypeConfigs?: BatchTypeConfig[]  // For showing dependency info
 }
 
 // Batch type colors matching task types
@@ -54,7 +63,16 @@ export default function BatchGanttChart({
   onBatchReschedule,
   onBatchClick,
   useGrams = true,
+  batchTypeConfigs = [],
 }: BatchGanttChartProps) {
+  // Build dependency lookup from batch type configs
+  const dependencyMap = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const config of batchTypeConfigs) {
+      map[config.code] = config.dependsOn
+    }
+    return map
+  }, [batchTypeConfigs])
   const [hoveredBatch, setHoveredBatch] = useState<number | null>(null)
   const [draggingBatch, setDraggingBatch] = useState<BatchItem | null>(null)
 
@@ -337,6 +355,12 @@ export default function BatchGanttChart({
                             {batch.leadTimeDays !== null && (
                               <div className="text-gray-300">
                                 Day {batch.leadTimeDays} before event
+                              </div>
+                            )}
+                            {/* Show dependencies from config */}
+                            {dependencyMap[batch.batchType]?.length > 0 && (
+                              <div className="text-blue-300 mt-1 pt-1 border-t border-gray-700">
+                                Depends on: {dependencyMap[batch.batchType].join(', ')}
                               </div>
                             )}
                           </div>

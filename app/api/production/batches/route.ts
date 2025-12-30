@@ -1,9 +1,23 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
-// Task types and their sequence for batch planning
-// FROST is removed - frosting quantity is calculated in PREP
-const TASK_TYPES = ['BAKE', 'PREP'] as const
+// Helper to get active batch type configurations from database
+async function getBatchTypeConfigs() {
+  const configs = await prisma.batchTypeConfig.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' }
+  })
+  return configs
+}
+
+// Helper to get batchable types only
+async function getBatchableTypes() {
+  const configs = await prisma.batchTypeConfig.findMany({
+    where: { isActive: true, isBatchable: true },
+    orderBy: { sortOrder: 'asc' }
+  })
+  return configs.map(c => c.code)
+}
 
 // Surface area calculation for round cakes
 // Includes: outside (top + sides) + internal filling layers (2 layers for 3-layer cake)
@@ -428,6 +442,17 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { startDate, endDate } = body
 
+    // Get batch type configurations from database
+    const batchTypeConfigs = await getBatchTypeConfigs()
+
+    // Build lead times and dependencies from database configs
+    const leadTimes: Record<string, number> = {}
+    const dependencies: Record<string, string[]> = {}
+    for (const config of batchTypeConfigs) {
+      leadTimes[config.code] = config.leadTimeDays
+      dependencies[config.code] = config.dependsOn ? JSON.parse(config.dependsOn) : []
+    }
+
     // Get current batches
     const batchesRes = await fetch(
       `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/production/batches?startDate=${startDate}&endDate=${endDate}`
@@ -435,16 +460,10 @@ export async function POST(request: Request) {
     const { batches } = await batchesRes.json()
 
     // Auto-scheduling algorithm:
-    // 1. Group batches by task type
-    // 2. For each batch, calculate optimal date based on:
-    //    - Earliest due date minus lead time
-    //    - Task type sequence (BAKE needs more lead time than PACKAGE)
-    //    - Combine same-recipe batches on same day
-
-    const leadTimes: Record<string, number> = {
-      BAKE: 2,    // 2 days before
-      PREP: 2,    // 2 days before
-    }
+    // 1. For each batch, calculate optimal date based on:
+    //    - Earliest due date minus lead time (from database config)
+    //    - Check if dependencies are satisfied
+    // 2. Return suggestions with dependency warnings
 
     const suggestions = batches.map((batch: RecipeBatch) => {
       const dueDate = new Date(batch.earliestDueDate)
@@ -452,16 +471,52 @@ export async function POST(request: Request) {
       const suggestedDate = new Date(dueDate)
       suggestedDate.setDate(suggestedDate.getDate() - leadTime)
 
+      // Get dependencies for this batch type
+      const deps = dependencies[batch.taskType] || []
+
+      // Find missing dependencies (other batches for the same tiers that should be scheduled first)
+      const missingDependencies: { type: string; suggestedDate: string; leadTime: number }[] = []
+      for (const depType of deps) {
+        const depLeadTime = leadTimes[depType] || 1
+        const depSuggestedDate = new Date(dueDate)
+        depSuggestedDate.setDate(depSuggestedDate.getDate() - depLeadTime)
+
+        // Check if there's a scheduled batch for this dependency type
+        // For now, just add it as a suggestion - the UI will handle checking existing batches
+        if (depLeadTime > leadTime) {
+          missingDependencies.push({
+            type: depType,
+            suggestedDate: depSuggestedDate.toISOString().split('T')[0],
+            leadTime: depLeadTime
+          })
+        }
+      }
+
       return {
         batchId: batch.id,
+        batchType: batch.taskType,
         currentDate: batch.scheduledDate,
         suggestedDate: suggestedDate.toISOString().split('T')[0],
-        reason: `${leadTime} day(s) before earliest due date (${batch.earliestDueDate.split('T')[0]})`
+        leadTime,
+        reason: `${leadTime} day(s) before earliest due date (${batch.earliestDueDate.split('T')[0]})`,
+        dependencies: deps,
+        missingDependencies: missingDependencies.length > 0 ? missingDependencies : undefined
       }
     })
 
+    // Also return the batch type configs for the UI to use
+    const batchTypeInfo = batchTypeConfigs.map(c => ({
+      code: c.code,
+      name: c.name,
+      leadTimeDays: c.leadTimeDays,
+      dependsOn: c.dependsOn ? JSON.parse(c.dependsOn) : [],
+      isBatchable: c.isBatchable,
+      color: c.color
+    }))
+
     return NextResponse.json({
       suggestions,
+      batchTypes: batchTypeInfo,
       message: `Generated ${suggestions.length} scheduling suggestions`
     })
   } catch (error) {
