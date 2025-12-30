@@ -119,8 +119,8 @@ export default function NewOrder() {
   const batchTypeOptions = [
     { code: 'BAKE', name: 'Bake', description: 'Skip if using stock cake layers' },
     { code: 'PREP', name: 'Prep (Frosting)', description: 'Skip if using stock frosting' },
-    { code: 'STACK', name: 'Stack & Fill', description: 'Skip if using pre-assembled cakes' },
-    { code: 'FROST', name: 'Final Frost', description: 'Skip if cake is pre-frosted' },
+    { code: 'STACK', name: 'Stack & Fill', description: 'Skip if using pre-stacked cakes' },
+    { code: 'ASSEMBLE', name: 'Assemble', description: 'Skip if cake is pre-assembled' },
     { code: 'DECORATE', name: 'Decorate', description: 'Skip if minimal decoration needed' },
   ]
 

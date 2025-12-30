@@ -35,9 +35,9 @@ const defaultBatchTypes = [
     color: 'indigo'
   },
   {
-    code: 'FROST',
-    name: 'Final Frosting',
-    description: 'Apply final frosting coat and smooth finish',
+    code: 'ASSEMBLE',
+    name: 'Assemble',
+    description: 'Final assembly - attach tiers, structural support, finishing touches',
     dependsOn: JSON.stringify(['STACK']),
     leadTimeDays: 1,  // 1 day before event
     sortOrder: 4,
@@ -48,7 +48,7 @@ const defaultBatchTypes = [
     code: 'DECORATE',
     name: 'Decorate',
     description: 'Final decoration, piping, flowers, toppers',
-    dependsOn: JSON.stringify(['FROST']),  // Or STACK if FROST is skipped
+    dependsOn: JSON.stringify(['ASSEMBLE']),
     leadTimeDays: 1,  // 1 day before event
     sortOrder: 5,
     isBatchable: false,  // Usually order-specific

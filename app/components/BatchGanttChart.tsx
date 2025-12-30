@@ -53,7 +53,7 @@ const BATCH_TYPE_COLORS: Record<string, { bg: string; border: string; text: stri
   BAKE: { bg: 'bg-orange-200', border: 'border-orange-400', text: 'text-orange-800', track: 'bg-orange-50' },
   PREP: { bg: 'bg-amber-200', border: 'border-amber-400', text: 'text-amber-800', track: 'bg-amber-50' },
   STACK: { bg: 'bg-indigo-200', border: 'border-indigo-400', text: 'text-indigo-800', track: 'bg-indigo-50' },
-  FROST: { bg: 'bg-purple-200', border: 'border-purple-400', text: 'text-purple-800', track: 'bg-purple-50' },
+  ASSEMBLE: { bg: 'bg-purple-200', border: 'border-purple-400', text: 'text-purple-800', track: 'bg-purple-50' },
   DECORATE: { bg: 'bg-teal-200', border: 'border-teal-400', text: 'text-teal-800', track: 'bg-teal-50' },
 }
 
@@ -238,7 +238,7 @@ export default function BatchGanttChart({
   // Group batches by type for swim lanes
   const batchesByType = useMemo(() => {
     const grouped: Record<string, BatchItem[]> = {}
-    const typeOrder = ['BAKE', 'PREP', 'STACK', 'FROST', 'DECORATE']
+    const typeOrder = ['BAKE', 'PREP', 'STACK', 'ASSEMBLE', 'DECORATE']
 
     // Initialize all types
     typeOrder.forEach(type => {
