@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 
 interface BatchItem {
@@ -28,6 +28,19 @@ interface BatchTypeConfig {
   name: string
   dependsOn: string[]
   color: string | null
+}
+
+interface DependencyConnection {
+  fromBatchId: number
+  toBatchId: number
+  fromType: string
+  toType: string
+  // Positions as percentages
+  fromX: number  // End of source batch
+  fromY: number  // Center of source batch row
+  toX: number    // Start of target batch
+  toY: number    // Center of target batch row
+  isMissing: boolean  // True if dependency not satisfied
 }
 
 interface BatchGanttChartProps {
@@ -104,10 +117,12 @@ export default function BatchGanttChart({
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+  // Swim lane type order
+  const typeOrder = ['BAKE', 'PREP', 'STACK', 'FROST', 'DECORATE']
+
   // Group batches by type for swim lanes
   const batchesByType = useMemo(() => {
     const grouped: Record<string, BatchItem[]> = {}
-    const typeOrder = ['BAKE', 'PREP', 'STACK', 'FROST', 'DECORATE']
 
     // Initialize all types
     typeOrder.forEach(type => {
@@ -149,6 +164,97 @@ export default function BatchGanttChart({
       endDayIndex: daysDiff + duration - 1,
     }
   }
+
+  // Calculate dependency connections between batches
+  const dependencyConnections = useMemo(() => {
+    const connections: DependencyConnection[] = []
+    const SWIM_LANE_HEIGHT = 60  // min-h-[60px]
+    const BATCH_BAR_HEIGHT = 44  // Height per batch row within lane
+    const HEADER_OFFSET = 0      // Relative to swim lane container
+
+    // For each batch that has dependencies, find matching prerequisite batches
+    batches.forEach(batch => {
+      const dependencies = dependencyMap[batch.batchType]
+      if (!dependencies || dependencies.length === 0) return
+
+      const batchPos = getBatchPosition(batch)
+      if (!batchPos) return
+
+      // Find this batch's index within its type group
+      const batchTypeIndex = batchesByType[batch.batchType]?.findIndex(b => b.id === batch.id) ?? 0
+      const toRowIndex = typeOrder.indexOf(batch.batchType)
+      if (toRowIndex === -1) return
+
+      // For each dependency type, find related batches
+      dependencies.forEach(depType => {
+        const depBatches = batchesByType[depType] || []
+        const fromRowIndex = typeOrder.indexOf(depType)
+        if (fromRowIndex === -1) return
+
+        // Find batches that share tier IDs with this batch
+        const relatedBatches = depBatches.filter(depBatch => {
+          if (!batch.tierIds || !depBatch.tierIds) return false
+          return batch.tierIds.some(tid => depBatch.tierIds?.includes(tid))
+        })
+
+        if (relatedBatches.length > 0) {
+          // Draw arrows from related batches
+          relatedBatches.forEach(depBatch => {
+            const depPos = getBatchPosition(depBatch)
+            if (!depPos) return
+
+            const depBatchIndex = batchesByType[depType]?.findIndex(b => b.id === depBatch.id) ?? 0
+
+            // Calculate cumulative heights for each swim lane
+            let fromYOffset = 0
+            let toYOffset = 0
+            for (let i = 0; i < fromRowIndex; i++) {
+              const laneBatches = batchesByType[typeOrder[i]] || []
+              fromYOffset += Math.max(SWIM_LANE_HEIGHT, laneBatches.length * BATCH_BAR_HEIGHT + 8)
+            }
+            for (let i = 0; i < toRowIndex; i++) {
+              const laneBatches = batchesByType[typeOrder[i]] || []
+              toYOffset += Math.max(SWIM_LANE_HEIGHT, laneBatches.length * BATCH_BAR_HEIGHT + 8)
+            }
+
+            // Add offset for batch position within its lane
+            fromYOffset += depBatchIndex * BATCH_BAR_HEIGHT + 24  // Center of batch bar
+            toYOffset += batchTypeIndex * BATCH_BAR_HEIGHT + 24
+
+            connections.push({
+              fromBatchId: depBatch.id,
+              toBatchId: batch.id,
+              fromType: depType,
+              toType: batch.batchType,
+              fromX: depPos.left + depPos.width,  // End of source batch
+              toX: batchPos.left,                  // Start of target batch
+              fromY: fromYOffset,
+              toY: toYOffset,
+              isMissing: false,
+            })
+          })
+        }
+      })
+    })
+
+    return connections
+  }, [batches, batchesByType, dependencyMap])
+
+  // Get IDs of batches connected to the hovered batch (for chain highlighting)
+  const connectedBatchIds = useMemo(() => {
+    if (!hoveredBatch) return new Set<number>()
+    const connected = new Set<number>([hoveredBatch])
+
+    // Add all batches connected via dependencies
+    dependencyConnections.forEach(conn => {
+      if (conn.fromBatchId === hoveredBatch || conn.toBatchId === hoveredBatch) {
+        connected.add(conn.fromBatchId)
+        connected.add(conn.toBatchId)
+      }
+    })
+
+    return connected
+  }, [hoveredBatch, dependencyConnections])
 
   const handleDragStart = (e: React.DragEvent, batch: BatchItem) => {
     setDraggingBatch(batch)
@@ -245,8 +351,9 @@ export default function BatchGanttChart({
       </div>
 
       {/* Swim lanes by batch type */}
-      <div className="divide-y divide-gray-200">
-        {Object.entries(batchesByType).map(([batchType, typeBatches]) => {
+      <div className="relative">
+        <div className="divide-y divide-gray-200">
+          {Object.entries(batchesByType).map(([batchType, typeBatches]) => {
           const colors = BATCH_TYPE_COLORS[batchType] || BATCH_TYPE_COLORS.PREP
           const hasBatches = typeBatches.length > 0
 
@@ -287,6 +394,8 @@ export default function BatchGanttChart({
                     if (!position) return null
 
                     const isHovered = hoveredBatch === batch.id
+                    const isConnected = connectedBatchIds.has(batch.id)
+                    const isDimmed = hoveredBatch !== null && !isConnected
                     const statusStyle = STATUS_STYLES[batch.status] || ''
 
                     return (
@@ -295,6 +404,8 @@ export default function BatchGanttChart({
                         className={`absolute h-10 rounded border-2 cursor-pointer transition-all
                           ${colors.bg} ${colors.border} ${statusStyle}
                           ${isHovered ? 'shadow-lg scale-[1.02] z-10' : 'shadow'}
+                          ${isConnected && !isHovered ? 'ring-2 ring-indigo-400 ring-opacity-50' : ''}
+                          ${isDimmed ? 'opacity-40' : ''}
                         `}
                         style={{
                           left: `${position.left}%`,
@@ -380,6 +491,78 @@ export default function BatchGanttChart({
             </div>
           )
         })}
+        </div>
+
+        {/* Dependency arrows SVG overlay */}
+        {dependencyConnections.length > 0 && (
+          <svg
+            className="absolute inset-0 pointer-events-none print:hidden"
+            style={{ left: '128px', width: 'calc(100% - 128px)' }}
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <marker
+                id="arrowhead"
+                markerWidth="10"
+                markerHeight="7"
+                refX="9"
+                refY="3.5"
+                orient="auto"
+              >
+                <polygon
+                  points="0 0, 10 3.5, 0 7"
+                  fill="#6366f1"
+                  fillOpacity="0.7"
+                />
+              </marker>
+              <marker
+                id="arrowhead-missing"
+                markerWidth="10"
+                markerHeight="7"
+                refX="9"
+                refY="3.5"
+                orient="auto"
+              >
+                <polygon
+                  points="0 0, 10 3.5, 0 7"
+                  fill="#f59e0b"
+                  fillOpacity="0.7"
+                />
+              </marker>
+            </defs>
+            {dependencyConnections.map((conn, idx) => {
+              // Calculate bezier control points for a smooth curve
+              const x1 = `${conn.fromX}%`
+              const y1 = conn.fromY
+              const x2 = `${conn.toX}%`
+              const y2 = conn.toY
+
+              // Control points - curve out horizontally then down/up
+              const midX = (conn.fromX + conn.toX) / 2
+              const ctrlX1 = `${Math.min(conn.fromX + 5, midX)}%`
+              const ctrlX2 = `${Math.max(conn.toX - 5, midX)}%`
+
+              // Highlight if connected to hovered batch
+              const isHighlighted = hoveredBatch !== null &&
+                (conn.fromBatchId === hoveredBatch || conn.toBatchId === hoveredBatch)
+              const isDimmed = hoveredBatch !== null && !isHighlighted
+
+              return (
+                <path
+                  key={`dep-${conn.fromBatchId}-${conn.toBatchId}-${idx}`}
+                  d={`M ${x1} ${y1} C ${ctrlX1} ${y1}, ${ctrlX2} ${y2}, ${x2} ${y2}`}
+                  fill="none"
+                  stroke={conn.isMissing ? '#f59e0b' : '#6366f1'}
+                  strokeWidth={isHighlighted ? 3 : 2}
+                  strokeOpacity={isDimmed ? 0.2 : isHighlighted ? 0.9 : 0.6}
+                  strokeDasharray={conn.isMissing ? '4 2' : 'none'}
+                  markerEnd={conn.isMissing ? 'url(#arrowhead-missing)' : 'url(#arrowhead)'}
+                  className={isHighlighted ? 'transition-all duration-150' : ''}
+                />
+              )
+            })}
+          </svg>
+        )}
       </div>
 
       {/* Legend */}
@@ -401,6 +584,18 @@ export default function BatchGanttChart({
           <div className="w-4 h-4 rounded border-2 border-gray-400 opacity-50" />
           <span className="text-gray-500">Completed</span>
         </div>
+        {dependencyConnections.length > 0 && (
+          <>
+            <div className="border-l border-gray-300 mx-2" />
+            <div className="flex items-center gap-1">
+              <svg width="20" height="10">
+                <path d="M 0 5 L 15 5" stroke="#6366f1" strokeWidth="2" strokeOpacity="0.6" />
+                <polygon points="15,2 20,5 15,8" fill="#6366f1" fillOpacity="0.7" />
+              </svg>
+              <span className="text-gray-500">Dependency</span>
+            </div>
+          </>
+        )}
         <div className="ml-auto text-gray-400 print:hidden">
           Drag batches to reschedule
         </div>
