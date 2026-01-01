@@ -1,5 +1,19 @@
 import { Decimal } from '@prisma/client/runtime/library'
 import { prisma } from '@/lib/db'
+import {
+  PRODUCTION_DEFAULTS,
+  calculateTierVolumeMl,
+  getAssemblyMinutes,
+  parseTierSize,
+  type ProductionSettings
+} from '@/lib/production-settings'
+import {
+  calculatePricing,
+  calculatePricePerServing,
+  calculateRecipeMultiplier,
+  RECIPE_VOLUME_FACTORS,
+  roundCurrency,
+} from '@/lib/pricing'
 
 export interface IngredientCostDetail {
   ingredientId: number
@@ -210,37 +224,35 @@ async function findMatchingRecipe(
   return recipesOfType[0]
 }
 
+// RECIPE_VOLUME_FACTORS and calculateRecipeMultiplier are imported from @/lib/pricing
+// This is the SINGLE SOURCE OF TRUTH for recipe scaling calculations
+
 /**
- * Calculate the multiplier needed to scale a recipe for a given tier size
- * Uses volume-based calculation when both volumes are available
- * Falls back to servings-based calculation otherwise
+ * Wrapper for backwards compatibility - uses calculateRecipeMultiplier from pricing.ts
  */
 function calculateMultiplier(
   recipeYieldVolumeMl: number | null,
   tierVolumeMl: number | null,
   recipeType: 'BATTER' | 'FILLING' | 'FROSTING'
 ): number {
-  // For batter: we need the full tier volume
-  // For frosting: we need ~36% of tier volume (surface coverage)
-  // For filling: we need ~12% of tier volume (thin layer between layers)
+  return calculateRecipeMultiplier(recipeYieldVolumeMl, tierVolumeMl, recipeType)
+}
 
-  const volumeFactors: Record<string, number> = {
-    'BATTER': 1.0,      // Full volume
-    'FROSTING': 0.36,   // Surface coverage
-    'FILLING': 0.12,    // Thin layer
+/**
+ * Calculate tier volume using production-settings if not stored in database
+ * This ensures consistency with batch planner calculations.
+ */
+function getTierVolumeMl(
+  tierSize: { name: string; volumeMl: number | null }
+): number {
+  // Use database value if available
+  if (tierSize.volumeMl) {
+    return tierSize.volumeMl
   }
 
-  const factor = volumeFactors[recipeType] || 1.0
-
-  if (recipeYieldVolumeMl && tierVolumeMl) {
-    const neededVolume = tierVolumeMl * factor
-    const multiplier = neededVolume / recipeYieldVolumeMl
-    return Math.round(multiplier * 100) / 100 // Round to 2 decimal places
-  }
-
-  // Fallback: use a default multiplier of 1.0
-  // This happens when volume data is missing
-  return 1.0
+  // Calculate from tier name using production-settings (single source of truth)
+  const { diameterInches, shape } = parseTierSize(tierSize.name)
+  return calculateTierVolumeMl(diameterInches, shape, PRODUCTION_DEFAULTS)
 }
 
 /**
@@ -1063,35 +1075,33 @@ export async function calculateOrderCosting(
 
   // Calculate totals (delivery cost is NOT marked up - it's a pass-through cost)
   const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost + productCost + packagingCost
-  const suggestedPriceBeforeDelivery = totalCostBeforeDelivery * (1 + markupPercent)
   const totalCost = totalCostBeforeDelivery + deliveryCost
-  const suggestedPrice = suggestedPriceBeforeDelivery
 
-  // Calculate discount
-  let discountAmount = 0
+  // Use centralized pricing calculation (single source of truth from lib/pricing.ts)
+  const discountVal = order.discountValue ? new Decimal(order.discountValue).toNumber() : null
+  const pricing = calculatePricing(
+    totalCostBeforeDelivery,
+    markupPercent,
+    order.discountType as 'PERCENT' | 'FIXED' | null,
+    discountVal,
+    deliveryCost
+  )
+
+  const { suggestedPrice, discountAmount, finalPrice } = pricing
+
+  // Build discount detail object for return value
   let discount: DiscountDetail | null = null
-
-  if (order.discountType && order.discountValue) {
-    const discountVal = new Decimal(order.discountValue).toNumber()
-    if (order.discountType === 'PERCENT') {
-      discountAmount = suggestedPrice * (discountVal / 100)
-    } else {
-      discountAmount = discountVal
-    }
-
+  if (order.discountType && discountVal) {
     discount = {
       type: order.discountType,
       value: discountVal,
       reason: order.discountReason,
-      amount: Math.round(discountAmount * 100) / 100
+      amount: roundCurrency(discountAmount)
     }
   }
 
-  // Final price = suggested price - discount + delivery (delivery not discounted)
-  const finalPrice = suggestedPrice - discountAmount + deliveryCost
-
-  const costPerServing = totalServings > 0 ? totalCost / totalServings : 0
-  const finalPricePerServing = totalServings > 0 ? finalPrice / totalServings : 0
+  const costPerServing = calculatePricePerServing(totalCost, totalServings)
+  const finalPricePerServing = calculatePricePerServing(finalPrice, totalServings)
 
   // Build production recipes array if requested (for baker/production use)
   const productionRecipes: CostingResult['productionRecipes'] = includeFullRecipes
@@ -2065,35 +2075,33 @@ export async function calculateQuoteCost(
 
   // Calculate totals
   const totalCostBeforeDelivery = ingredientCost + decorationMaterialCost + topperCost + totalLaborCost + productCost + packagingCost
-  const suggestedPriceBeforeDelivery = totalCostBeforeDelivery * (1 + markupPercent)
   const totalCost = totalCostBeforeDelivery + deliveryCost
-  const suggestedPrice = suggestedPriceBeforeDelivery
 
-  // Calculate discount
-  let discountAmount = 0
+  // Use centralized pricing calculation (single source of truth from lib/pricing.ts)
+  const discountVal = quoteData.discountValue ? new Decimal(quoteData.discountValue).toNumber() : null
+  const pricing = calculatePricing(
+    totalCostBeforeDelivery,
+    markupPercent,
+    quoteData.discountType as 'PERCENT' | 'FIXED' | null,
+    discountVal,
+    deliveryCost
+  )
+
+  const { suggestedPrice, discountAmount, finalPrice } = pricing
+
+  // Build discount detail object for return value
   let discount: DiscountDetail | null = null
-
-  if (quoteData.discountType && quoteData.discountValue) {
-    const discountVal = new Decimal(quoteData.discountValue).toNumber()
-    if (quoteData.discountType === 'PERCENT') {
-      discountAmount = suggestedPrice * (discountVal / 100)
-    } else {
-      discountAmount = discountVal
-    }
-
+  if (quoteData.discountType && discountVal) {
     discount = {
       type: quoteData.discountType,
       value: discountVal,
       reason: quoteData.discountReason || null,
-      amount: Math.round(discountAmount * 100) / 100
+      amount: roundCurrency(discountAmount)
     }
   }
 
-  // Final price = suggested price - discount + delivery (delivery not discounted)
-  const finalPrice = suggestedPrice - discountAmount + deliveryCost
-
-  const costPerServing = totalServings > 0 ? totalCost / totalServings : 0
-  const finalPricePerServing = totalServings > 0 ? finalPrice / totalServings : 0
+  const costPerServing = calculatePricePerServing(totalCost, totalServings)
+  const finalPricePerServing = calculatePricePerServing(finalPrice, totalServings)
 
   return {
     totalServings,

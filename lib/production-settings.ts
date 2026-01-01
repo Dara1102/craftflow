@@ -12,6 +12,16 @@ export const PRODUCTION_DEFAULTS = {
   layerHeightInches: 2.5,              // Height of each cake layer (before stacking)
   standardTierHeightInches: 6,         // Standard finished tier height (including frosting)
 
+  // Assembly times (minutes) by tier size in inches
+  assemblyMinutesBySize: {
+    6: 15,
+    8: 20,
+    10: 25,
+    12: 30,
+    14: 35,
+  } as Record<number, number>,
+  defaultAssemblyMinutes: 20,          // Fallback for unknown sizes
+
   // Batter calculations
   batterGramsPerCubicInch: 14,         // ~0.5 oz = 14g per cubic inch of batter
   batterShrinkageFactor: 0.85,         // Cake shrinks ~15% when baking
@@ -52,6 +62,8 @@ export const PRODUCTION_SETTING_KEYS = {
   buttercreamFinalCoatGramsPerSqInch: 'ProductionButtercreamFinalCoatGramsPerSqInch',
   defaultSurplusPercent: 'ProductionDefaultSurplusPercent',
   defaultUnits: 'ProductionDefaultUnits',
+  defaultAssemblyMinutes: 'ProductionDefaultAssemblyMinutes',
+  assemblyMinutesBySize: 'ProductionAssemblyMinutesBySize', // JSON string
 } as const
 
 export type ProductionSettings = typeof PRODUCTION_DEFAULTS
@@ -60,6 +72,17 @@ export type ProductionSettings = typeof PRODUCTION_DEFAULTS
  * Parse settings from database format to typed ProductionSettings
  */
 export function parseProductionSettings(dbSettings: Record<string, string>): ProductionSettings {
+  // Parse assemblyMinutesBySize from JSON, or use defaults
+  let assemblyMinutesBySize = PRODUCTION_DEFAULTS.assemblyMinutesBySize
+  const assemblyJson = dbSettings[PRODUCTION_SETTING_KEYS.assemblyMinutesBySize]
+  if (assemblyJson) {
+    try {
+      assemblyMinutesBySize = JSON.parse(assemblyJson)
+    } catch {
+      // Use defaults if JSON is invalid
+    }
+  }
+
   return {
     layersPerTier: parseInt(dbSettings[PRODUCTION_SETTING_KEYS.layersPerTier]) || PRODUCTION_DEFAULTS.layersPerTier,
     layerHeightInches: parseFloat(dbSettings[PRODUCTION_SETTING_KEYS.layerHeightInches]) || PRODUCTION_DEFAULTS.layerHeightInches,
@@ -71,6 +94,8 @@ export function parseProductionSettings(dbSettings: Record<string, string>): Pro
     buttercreamFinalCoatGramsPerSqInch: parseFloat(dbSettings[PRODUCTION_SETTING_KEYS.buttercreamFinalCoatGramsPerSqInch]) || PRODUCTION_DEFAULTS.buttercreamFinalCoatGramsPerSqInch,
     defaultSurplusPercent: parseFloat(dbSettings[PRODUCTION_SETTING_KEYS.defaultSurplusPercent]) || PRODUCTION_DEFAULTS.defaultSurplusPercent,
     defaultUnits: (dbSettings[PRODUCTION_SETTING_KEYS.defaultUnits] as 'grams' | 'ounces') || PRODUCTION_DEFAULTS.defaultUnits,
+    defaultAssemblyMinutes: parseInt(dbSettings[PRODUCTION_SETTING_KEYS.defaultAssemblyMinutes]) || PRODUCTION_DEFAULTS.defaultAssemblyMinutes,
+    assemblyMinutesBySize,
     frostingComplexityMultipliers: PRODUCTION_DEFAULTS.frostingComplexityMultipliers,
     gramsPerOunce: PRODUCTION_DEFAULTS.gramsPerOunce,
     cubicInchesPerMl: PRODUCTION_DEFAULTS.cubicInchesPerMl,
@@ -102,6 +127,44 @@ export function calculateLayerVolumeCubicInches(
   }
   const radius = diameterInches / 2
   return Math.PI * radius * radius * layerHeightInches
+}
+
+/**
+ * Calculate total tier CAKE volume in ml (used for recipe scaling)
+ * This is the SINGLE SOURCE OF TRUTH for tier volume calculations.
+ *
+ * Tier structure: 3 layers × 2.5" each = 7.5" total cake height
+ * (Settings configurable via admin)
+ *
+ * @param diameterInches - Tier diameter (or side length for square)
+ * @param shape - 'round' or 'square'
+ * @param settings - Production settings (uses defaults if not provided)
+ * @returns Volume in milliliters
+ */
+export function calculateTierVolumeMl(
+  diameterInches: number,
+  shape: 'round' | 'square' = 'round',
+  settings: ProductionSettings = PRODUCTION_DEFAULTS
+): number {
+  const totalCakeHeight = settings.layersPerTier * settings.layerHeightInches
+  const volumeCubicInches = calculateLayerVolumeCubicInches(
+    diameterInches,
+    totalCakeHeight,
+    shape
+  )
+  // Convert cubic inches to ml (1 cubic inch = 16.387 ml)
+  const ML_PER_CUBIC_INCH = 16.387
+  return Math.round(volumeCubicInches * ML_PER_CUBIC_INCH)
+}
+
+/**
+ * Get assembly time in minutes for a tier size
+ */
+export function getAssemblyMinutes(
+  diameterInches: number,
+  settings: ProductionSettings = PRODUCTION_DEFAULTS
+): number {
+  return settings.assemblyMinutesBySize[diameterInches] ?? settings.defaultAssemblyMinutes
 }
 
 /**
@@ -252,6 +315,81 @@ export function calculateBatchTotals(
     tierCount: totalTiers,
     layerCount: totalLayers,
   }
+}
+
+/**
+ * Calculate frostable surface area (external + internal filling layers)
+ * This is the total area that needs frosting/filling, including between cake layers.
+ *
+ * Used by production batch calculations to estimate total buttercream needs.
+ */
+export function calculateFrostableSurfaceArea(
+  diameterInches: number,
+  tierHeightInches: number,
+  shape: 'round' | 'square' = 'round',
+  cakeLayers: number = PRODUCTION_DEFAULTS.layersPerTier
+): {
+  topArea: number
+  sideArea: number
+  internalArea: number
+  externalArea: number
+  totalFrostableArea: number
+} {
+  const { topArea, sideArea, totalArea } = calculateTierSurfaceArea(
+    diameterInches,
+    tierHeightInches,
+    shape
+  )
+
+  // Internal filling layers: (cakeLayers - 1) circular/square areas between layers
+  const fillingLayers = cakeLayers - 1
+  const internalArea = fillingLayers * topArea
+
+  return {
+    topArea,
+    sideArea,
+    internalArea,
+    externalArea: totalArea,
+    totalFrostableArea: Math.round(totalArea + internalArea)
+  }
+}
+
+/**
+ * Estimate buttercream needed in ounces (quick batch planning estimate)
+ *
+ * Uses surface area approach:
+ * - Outside: ~1 oz per 8 sq in × complexity multiplier
+ * - Internal filling: ~0.5 oz per 8 sq in (thinner layer)
+ *
+ * @param diameterInches - Tier diameter
+ * @param heightInches - Tier height (default 4")
+ * @param complexity - 1=light, 2=medium, 3=heavy (default 2)
+ * @param cakeLayers - Number of cake layers (default from settings)
+ */
+export function estimateButtercreamOunces(
+  diameterInches: number,
+  heightInches: number = 4,
+  complexity: number = 2,
+  cakeLayers: number = PRODUCTION_DEFAULTS.layersPerTier
+): number {
+  const { topArea, sideArea, internalArea } = calculateFrostableSurfaceArea(
+    diameterInches,
+    heightInches,
+    'round',
+    cakeLayers
+  )
+
+  const outsideSurfaceArea = topArea + sideArea
+
+  // Outside: ~1 oz per 8 sq in × complexity
+  const outsideOzPerSqIn = 1 / 8
+  const outsideOz = outsideSurfaceArea * outsideOzPerSqIn * complexity
+
+  // Internal filling: ~0.5 oz per 8 sq in (thinner layer)
+  const fillingOzPerSqIn = 0.5 / 8
+  const fillingOz = internalArea * fillingOzPerSqIn
+
+  return Math.round((outsideOz + fillingOz) * 10) / 10
 }
 
 /**

@@ -1,6 +1,6 @@
 import { prisma } from './db'
 
-export type TaskType = 'PREP' | 'BAKE' | 'COOL' | 'FROST' | 'DECORATE' | 'ASSEMBLE' | 'PACKAGE' | 'DELIVERY'
+export type TaskType = 'BAKE' | 'PREP' | 'STACK' | 'ASSEMBLE' | 'DECORATE' | 'PACKAGE' | 'DELIVERY'
 
 export interface GeneratedTask {
   taskType: TaskType
@@ -14,25 +14,23 @@ export interface GeneratedTask {
 
 // Task durations in minutes (configurable defaults)
 const TASK_DURATIONS: Record<TaskType, number> = {
-  PREP: 30,
   BAKE: 60,
-  COOL: 120,
-  FROST: 45,
-  DECORATE: 60,
+  PREP: 30,
+  STACK: 45,
   ASSEMBLE: 30,
+  DECORATE: 60,
   PACKAGE: 15,
   DELIVERY: 60
 }
 
 // Task dependencies - what must be done before this task
 const TASK_DEPENDENCIES: Record<TaskType, TaskType | null> = {
+  BAKE: null,
   PREP: null,
-  BAKE: 'PREP',
-  COOL: 'BAKE',
-  FROST: 'COOL',
-  DECORATE: 'FROST',
-  ASSEMBLE: 'DECORATE',
-  PACKAGE: 'ASSEMBLE',
+  STACK: 'BAKE',  // Depends on BAKE and PREP
+  ASSEMBLE: 'STACK',
+  DECORATE: 'ASSEMBLE',
+  PACKAGE: 'DECORATE',
   DELIVERY: 'PACKAGE'
 }
 
@@ -97,35 +95,37 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
       itemIndex: i,
       scheduledDate: prepDate,
       durationMinutes: TASK_DURATIONS.BAKE,
-      dependsOnTask: 'PREP'
+      dependsOnTask: null
     })
 
-    // Cool task
+    // Stack task (fill & crumb coat)
+    const stackDate = isComplex ? prepDate : eventDate
     tasks.push({
-      taskType: 'COOL',
-      taskName: `Cool ${tierName}`,
+      taskType: 'STACK',
+      taskName: `Stack & Fill ${tierName}`,
       productType: 'CAKE',
       itemIndex: i,
-      scheduledDate: prepDate,
-      durationMinutes: TASK_DURATIONS.COOL,
+      scheduledDate: stackDate,
+      durationMinutes: TASK_DURATIONS.STACK,
       dependsOnTask: 'BAKE'
-    })
-
-    // Frost task (day of event or day before)
-    const frostDate = isComplex ? prepDate : eventDate
-    tasks.push({
-      taskType: 'FROST',
-      taskName: `Frost ${tierName}`,
-      productType: 'CAKE',
-      itemIndex: i,
-      scheduledDate: frostDate,
-      durationMinutes: TASK_DURATIONS.FROST,
-      dependsOnTask: 'COOL'
     })
   }
 
-  // Decorate task (once for all tiers)
+  // Assemble task (for multi-tier cakes, or single tier final assembly)
   if (order.cakeTiers.length > 0) {
+    tasks.push({
+      taskType: 'ASSEMBLE',
+      taskName: order.cakeTiers.length > 1
+        ? `Assemble ${order.cakeTiers.length}-tier cake`
+        : `Final Assembly`,
+      productType: 'CAKE',
+      itemIndex: null,
+      scheduledDate: eventDate,
+      durationMinutes: TASK_DURATIONS.ASSEMBLE * order.cakeTiers.length,
+      dependsOnTask: 'STACK'
+    })
+
+    // Decorate task (once for all tiers)
     tasks.push({
       taskType: 'DECORATE',
       taskName: `Decorate cake`,
@@ -133,21 +133,8 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
       itemIndex: null,
       scheduledDate: eventDate,
       durationMinutes: TASK_DURATIONS.DECORATE * Math.ceil(order.cakeTiers.length / 2),
-      dependsOnTask: 'FROST'
+      dependsOnTask: 'ASSEMBLE'
     })
-
-    // Assemble task (for multi-tier cakes)
-    if (order.cakeTiers.length > 1) {
-      tasks.push({
-        taskType: 'ASSEMBLE',
-        taskName: `Assemble ${order.cakeTiers.length}-tier cake`,
-        productType: 'CAKE',
-        itemIndex: null,
-        scheduledDate: eventDate,
-        durationMinutes: TASK_DURATIONS.ASSEMBLE * order.cakeTiers.length,
-        dependsOnTask: 'DECORATE'
-      })
-    }
   }
 
   // Generate tasks for order items (cupcakes, etc.)
@@ -184,26 +171,15 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
       dependsOnTask: 'PREP'
     })
 
-    // Cool
+    // Decorate
     tasks.push({
-      taskType: 'COOL',
-      taskName: `Cool ${typeName}`,
-      productType: typeName,
-      itemIndex: null,
-      scheduledDate: prepDate,
-      durationMinutes: TASK_DURATIONS.COOL,
-      dependsOnTask: 'BAKE'
-    })
-
-    // Frost/Decorate
-    tasks.push({
-      taskType: 'FROST',
-      taskName: `Frost ${typeName} (${totalQty})`,
+      taskType: 'DECORATE',
+      taskName: `Decorate ${typeName} (${totalQty})`,
       productType: typeName,
       itemIndex: null,
       scheduledDate: eventDate,
-      durationMinutes: Math.ceil(totalQty / 12) * TASK_DURATIONS.FROST,
-      dependsOnTask: 'COOL'
+      durationMinutes: Math.ceil(totalQty / 12) * TASK_DURATIONS.DECORATE,
+      dependsOnTask: 'BAKE'
     })
   }
 
@@ -215,7 +191,7 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
     itemIndex: null,
     scheduledDate: eventDate,
     durationMinutes: TASK_DURATIONS.PACKAGE,
-    dependsOnTask: order.cakeTiers.length > 1 ? 'ASSEMBLE' : 'DECORATE'
+    dependsOnTask: 'DECORATE'
   })
 
   // Delivery task (if delivery)
