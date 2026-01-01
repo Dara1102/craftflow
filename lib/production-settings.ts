@@ -214,6 +214,43 @@ export function calculateTierSurfaceArea(
 }
 
 /**
+ * Calculate surface area from cm dimensions (for decoration scaling)
+ * Used when tier dimensions are stored in cm in the database.
+ *
+ * @param diameterCm - Tier diameter in cm (for round) or null
+ * @param heightCm - Tier height in cm
+ * @param lengthCm - Tier length in cm (for rectangular) or null
+ * @param widthCm - Tier width in cm (for rectangular) or null
+ * @returns Surface area in square cm (top + sides)
+ */
+export function calculateSurfaceAreaCm(
+  diameterCm: number | null,
+  heightCm: number | null,
+  lengthCm: number | null = null,
+  widthCm: number | null = null
+): number {
+  if (!heightCm) return 0
+
+  // Round cake
+  if (diameterCm) {
+    const radius = diameterCm / 2
+    const topArea = Math.PI * radius * radius
+    const sideArea = Math.PI * diameterCm * heightCm
+    return topArea + sideArea
+  }
+
+  // Rectangular/square cake
+  if (lengthCm && widthCm) {
+    const topArea = lengthCm * widthCm
+    const perimeter = 2 * (lengthCm + widthCm)
+    const sideArea = perimeter * heightCm
+    return topArea + sideArea
+  }
+
+  return 0
+}
+
+/**
  * Calculate buttercream needed for a tier (internal + crumb coat)
  * Note: Final frosting coat is calculated separately as it's order-level
  */

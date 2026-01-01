@@ -5,6 +5,7 @@ import {
   calculateTierVolumeMl,
   getAssemblyMinutes,
   parseTierSize,
+  calculateSurfaceAreaCm,
   type ProductionSettings
 } from '@/lib/production-settings'
 import {
@@ -802,33 +803,23 @@ export async function calculateOrderCosting(
       let baseSurfaceArea = 0
       
       for (const tier of order.cakeTiers) {
-        // Calculate surface area for this tier
-        let tierSurfaceArea = 0
-        if (tier.tierSize.shape === 'Round' && tier.tierSize.diameterCm) {
-          const radius = Number(tier.tierSize.diameterCm) / 2
-          tierSurfaceArea = Math.PI * radius * radius // Top surface
-          const circumference = Math.PI * Number(tier.tierSize.diameterCm)
-          const height = Number(tier.tierSize.heightCm)
-          tierSurfaceArea += circumference * height // Side surface
-        } else if (tier.tierSize.lengthCm && tier.tierSize.widthCm) {
-          tierSurfaceArea = Number(tier.tierSize.lengthCm) * Number(tier.tierSize.widthCm) // Top surface
-          const perimeter = 2 * (Number(tier.tierSize.lengthCm) + Number(tier.tierSize.widthCm))
-          const height = Number(tier.tierSize.heightCm)
-          tierSurfaceArea += perimeter * height // Side surface
-        }
+        // Calculate surface area using centralized function
+        const tierSurfaceArea = calculateSurfaceAreaCm(
+          tier.tierSize.shape === 'Round' ? Number(tier.tierSize.diameterCm) : null,
+          Number(tier.tierSize.heightCm),
+          Number(tier.tierSize.lengthCm) || null,
+          Number(tier.tierSize.widthCm) || null
+        )
         totalSurfaceArea += tierSurfaceArea
       }
-      
+
       // Calculate base surface area from baseCakeSize
       const baseSizeMatch = technique.baseCakeSize.match(/(\d+)"\s*(round|square)/i)
       if (baseSizeMatch) {
-        const baseDiameter = parseFloat(baseSizeMatch[1]) * 2.54 // Convert inches to cm
-        const baseRadius = baseDiameter / 2
-        baseSurfaceArea = Math.PI * baseRadius * baseRadius // Top surface
-        const baseCircumference = Math.PI * baseDiameter
-        const baseHeight = 10 // Assume 10cm height for base calculation
-        baseSurfaceArea += baseCircumference * baseHeight // Side surface
-        
+        const baseDiameterCm = parseFloat(baseSizeMatch[1]) * 2.54 // Convert inches to cm
+        const baseHeightCm = 10 // Assume 10cm height for base calculation
+        baseSurfaceArea = calculateSurfaceAreaCm(baseDiameterCm, baseHeightCm, null, null)
+
         if (baseSurfaceArea > 0) {
           const totalSurfaceMultiplier = totalSurfaceArea / baseSurfaceArea
           quantityMultiplier = quantityMultiplier * totalSurfaceMultiplier
@@ -1791,36 +1782,26 @@ export async function calculateQuoteCost(
       for (const tierInput of quoteData.tiers) {
         const tierSize = tierSizes.find(ts => ts.id === tierInput.tierSizeId)
         if (!tierSize) continue
-        
-        // Calculate surface area for this tier
-        let tierSurfaceArea = 0
-        if (tierSize.shape === 'Round' && tierSize.diameterCm) {
-          const radius = Number(tierSize.diameterCm) / 2
-          tierSurfaceArea = Math.PI * radius * radius // Top surface
-          const circumference = Math.PI * Number(tierSize.diameterCm)
-          const height = Number(tierSize.heightCm)
-          tierSurfaceArea += circumference * height // Side surface
-        } else if (tierSize.lengthCm && tierSize.widthCm) {
-          tierSurfaceArea = Number(tierSize.lengthCm) * Number(tierSize.widthCm) // Top surface
-          const perimeter = 2 * (Number(tierSize.lengthCm) + Number(tierSize.widthCm))
-          const height = Number(tierSize.heightCm)
-          tierSurfaceArea += perimeter * height // Side surface
-        }
-        
+
+        // Calculate surface area using centralized function
+        const tierSurfaceArea = calculateSurfaceAreaCm(
+          tierSize.shape === 'Round' ? Number(tierSize.diameterCm) : null,
+          Number(tierSize.heightCm),
+          Number(tierSize.lengthCm) || null,
+          Number(tierSize.widthCm) || null
+        )
+
         totalSurfaceArea += tierSurfaceArea
         validTiers++
       }
-      
+
       // Calculate base surface area from baseCakeSize
       const baseSizeMatch = technique.baseCakeSize.match(/(\d+)"\s*(round|square)/i)
       if (baseSizeMatch && validTiers > 0) {
-        const baseDiameter = parseFloat(baseSizeMatch[1]) * 2.54 // Convert inches to cm
-        const baseRadius = baseDiameter / 2
-        baseSurfaceArea = Math.PI * baseRadius * baseRadius // Top surface
-        const baseCircumference = Math.PI * baseDiameter
-        const baseHeight = 10 // Assume 10cm height for base calculation
-        baseSurfaceArea += baseCircumference * baseHeight // Side surface
-        
+        const baseDiameterCm = parseFloat(baseSizeMatch[1]) * 2.54 // Convert inches to cm
+        const baseHeightCm = 10 // Assume 10cm height for base calculation
+        baseSurfaceArea = calculateSurfaceAreaCm(baseDiameterCm, baseHeightCm, null, null)
+
         if (baseSurfaceArea > 0) {
           const totalSurfaceMultiplier = totalSurfaceArea / baseSurfaceArea
           quantityMultiplier = quantityMultiplier * totalSurfaceMultiplier

@@ -14,6 +14,7 @@ import {
   parseTierSize,
   calculateBatterForTier,
   calculateTierSurfaceArea,
+  calculateSurfaceAreaCm,
   calculateButtercreamForTier,
   calculateFrostableSurfaceArea,
   estimateButtercreamOunces,
@@ -212,6 +213,36 @@ describe('calculateButtercreamForTier', () => {
 
     // Heavy complexity should use more buttercream
     expect(heavy.crumbCoatGrams).toBeGreaterThan(light.crumbCoatGrams)
+  })
+})
+
+describe('calculateSurfaceAreaCm', () => {
+  it('calculates round cake surface area in cm', () => {
+    // 20cm diameter (8"), 10cm height
+    const area = calculateSurfaceAreaCm(20, 10, null, null)
+
+    // Top: π × 10² = 314.16 sq cm
+    // Side: π × 20 × 10 = 628.32 sq cm
+    // Total: 942.48 sq cm
+    expect(area).toBeCloseTo(942.48, 0)
+  })
+
+  it('calculates rectangular cake surface area in cm', () => {
+    // 30cm × 20cm × 10cm height
+    const area = calculateSurfaceAreaCm(null, 10, 30, 20)
+
+    // Top: 30 × 20 = 600 sq cm
+    // Side: 2 × (30 + 20) × 10 = 1000 sq cm
+    // Total: 1600 sq cm
+    expect(area).toBe(1600)
+  })
+
+  it('returns 0 when height is missing', () => {
+    expect(calculateSurfaceAreaCm(20, null, null, null)).toBe(0)
+  })
+
+  it('returns 0 when no dimensions provided', () => {
+    expect(calculateSurfaceAreaCm(null, 10, null, null)).toBe(0)
   })
 })
 

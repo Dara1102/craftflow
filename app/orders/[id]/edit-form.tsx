@@ -6,6 +6,7 @@ import { updateOrder, deleteOrder } from '@/app/actions/orders'
 import { OrderStatus, CakeType, DiscountType } from '@prisma/client'
 import useSWR from 'swr'
 import ProductSelector from '@/app/components/ProductSelector'
+import { calculateSurfaceAreaCm } from '@/lib/production-settings'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
@@ -733,30 +734,22 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
         const tierCostInfo = tierCosts?.find(tc => tc.tierSizeId === tier.tierSizeId)
         if (!tierCostInfo) continue
 
-        // Calculate surface area for this tier
-        let tierSurfaceArea = 0
-        if (tierCostInfo.shape === 'Round' && tierCostInfo.diameterCm && tierCostInfo.heightCm) {
-          const radius = tierCostInfo.diameterCm / 2
-          tierSurfaceArea = Math.PI * radius * radius // Top surface
-          const circumference = Math.PI * tierCostInfo.diameterCm
-          tierSurfaceArea += circumference * tierCostInfo.heightCm // Side surface
-        } else if (tierCostInfo.lengthCm && tierCostInfo.widthCm && tierCostInfo.heightCm) {
-          tierSurfaceArea = tierCostInfo.lengthCm * tierCostInfo.widthCm // Top surface
-          const perimeter = 2 * (tierCostInfo.lengthCm + tierCostInfo.widthCm)
-          tierSurfaceArea += perimeter * tierCostInfo.heightCm // Side surface
-        }
+        // Calculate surface area using centralized function
+        const tierSurfaceArea = calculateSurfaceAreaCm(
+          tierCostInfo.shape === 'Round' ? tierCostInfo.diameterCm : null,
+          tierCostInfo.heightCm,
+          tierCostInfo.lengthCm || null,
+          tierCostInfo.widthCm || null
+        )
         totalSurfaceMultiplier += tierSurfaceArea
       }
 
       // Calculate base surface area
       const baseSizeMatch = technique.baseCakeSize.match(/(\d+)\s*["']?\s*(round|square)?/i)
       if (baseSizeMatch && totalSurfaceMultiplier > 0) {
-        const baseDiameter = parseFloat(baseSizeMatch[1]) * 2.54
-        const baseRadius = baseDiameter / 2
-        let baseSurfaceArea = Math.PI * baseRadius * baseRadius // Top
-        const baseCircumference = Math.PI * baseDiameter
-        const baseHeight = 10 // Assume 10cm height
-        baseSurfaceArea += baseCircumference * baseHeight // Side
+        const baseDiameterCm = parseFloat(baseSizeMatch[1]) * 2.54
+        const baseHeightCm = 10 // Assume 10cm height
+        const baseSurfaceArea = calculateSurfaceAreaCm(baseDiameterCm, baseHeightCm, null, null)
 
         if (baseSurfaceArea > 0) {
           const surfaceMultiplier = totalSurfaceMultiplier / baseSurfaceArea
