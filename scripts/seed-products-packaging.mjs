@@ -4,6 +4,7 @@ const prisma = new PrismaClient()
 
 async function main() {
   console.log('Seeding products, menu items, and packaging...')
+  const now = new Date()
 
   // Get or create Baker labor role
   let bakerRole = await prisma.laborRole.findFirst({ where: { name: 'Baker' } })
@@ -48,7 +49,7 @@ async function main() {
     await prisma.ingredient.upsert({
       where: { name: ing.name },
       update: { costPerUnit: ing.costPerUnit },
-      create: ing
+      create: { ...ing, updatedAt: new Date() }
     })
   }
   console.log('✓ Ingredients created/updated')
@@ -70,17 +71,18 @@ async function main() {
       bakeMinutes: 22,
       coolMinutes: 30,
       laborMinutes: 45,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['All-Purpose Flour'], quantity: 300 },
-          { ingredientId: ingMap['Granulated Sugar'], quantity: 300 },
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 170 },
-          { ingredientId: ingMap['Eggs (large)'], quantity: 4 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 10 },
-          { ingredientId: ingMap['Baking Powder'], quantity: 12 },
-          { ingredientId: ingMap['Salt'], quantity: 3 },
-          { ingredientId: ingMap['Whole Milk'], quantity: 240 }
+          { ingredientId: ingMap['All-Purpose Flour'], quantity: 300, updatedAt: now },
+          { ingredientId: ingMap['Granulated Sugar'], quantity: 300, updatedAt: now },
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 170, updatedAt: now },
+          { ingredientId: ingMap['Eggs (large)'], quantity: 4, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 10, updatedAt: now },
+          { ingredientId: ingMap['Baking Powder'], quantity: 12, updatedAt: now },
+          { ingredientId: ingMap['Salt'], quantity: 3, updatedAt: now },
+          { ingredientId: ingMap['Whole Milk'], quantity: 240, updatedAt: now }
         ]
       }
     }
@@ -98,18 +100,19 @@ async function main() {
       bakeMinutes: 22,
       coolMinutes: 30,
       laborMinutes: 45,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['All-Purpose Flour'], quantity: 250 },
-          { ingredientId: ingMap['Granulated Sugar'], quantity: 350 },
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 115 },
-          { ingredientId: ingMap['Eggs (large)'], quantity: 3 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 10 },
-          { ingredientId: ingMap['Cocoa Powder'], quantity: 75 },
-          { ingredientId: ingMap['Baking Powder'], quantity: 8 },
-          { ingredientId: ingMap['Salt'], quantity: 5 },
-          { ingredientId: ingMap['Buttermilk'], quantity: 240 }
+          { ingredientId: ingMap['All-Purpose Flour'], quantity: 250, updatedAt: now },
+          { ingredientId: ingMap['Granulated Sugar'], quantity: 350, updatedAt: now },
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 115, updatedAt: now },
+          { ingredientId: ingMap['Eggs (large)'], quantity: 3, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 10, updatedAt: now },
+          { ingredientId: ingMap['Cocoa Powder'], quantity: 75, updatedAt: now },
+          { ingredientId: ingMap['Baking Powder'], quantity: 8, updatedAt: now },
+          { ingredientId: ingMap['Salt'], quantity: 5, updatedAt: now },
+          { ingredientId: ingMap['Buttermilk'], quantity: 240, updatedAt: now }
         ]
       }
     }
@@ -127,18 +130,19 @@ async function main() {
       bakeMinutes: 22,
       coolMinutes: 30,
       laborMinutes: 50,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['All-Purpose Flour'], quantity: 325 },
-          { ingredientId: ingMap['Granulated Sugar'], quantity: 300 },
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 115 },
-          { ingredientId: ingMap['Eggs (large)'], quantity: 2 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 10 },
-          { ingredientId: ingMap['Cocoa Powder'], quantity: 20 },
-          { ingredientId: ingMap['Salt'], quantity: 5 },
-          { ingredientId: ingMap['Buttermilk'], quantity: 240 },
-          { ingredientId: ingMap['Red Food Coloring'], quantity: 30 }
+          { ingredientId: ingMap['All-Purpose Flour'], quantity: 325, updatedAt: now },
+          { ingredientId: ingMap['Granulated Sugar'], quantity: 300, updatedAt: now },
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 115, updatedAt: now },
+          { ingredientId: ingMap['Eggs (large)'], quantity: 2, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 10, updatedAt: now },
+          { ingredientId: ingMap['Cocoa Powder'], quantity: 20, updatedAt: now },
+          { ingredientId: ingMap['Salt'], quantity: 5, updatedAt: now },
+          { ingredientId: ingMap['Buttermilk'], quantity: 240, updatedAt: now },
+          { ingredientId: ingMap['Red Food Coloring'], quantity: 30, updatedAt: now }
         ]
       }
     }
@@ -155,13 +159,14 @@ async function main() {
       yieldVolumeMl: 900,
       prepMinutes: 10,
       laborMinutes: 10,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 340 },
-          { ingredientId: ingMap['Powdered Sugar'], quantity: 500 },
-          { ingredientId: ingMap['Heavy Cream'], quantity: 60 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 15 }
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 340, updatedAt: now },
+          { ingredientId: ingMap['Powdered Sugar'], quantity: 500, updatedAt: now },
+          { ingredientId: ingMap['Heavy Cream'], quantity: 60, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 15, updatedAt: now }
         ]
       }
     }
@@ -177,14 +182,15 @@ async function main() {
       yieldVolumeMl: 950,
       prepMinutes: 12,
       laborMinutes: 12,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 340 },
-          { ingredientId: ingMap['Powdered Sugar'], quantity: 450 },
-          { ingredientId: ingMap['Cocoa Powder'], quantity: 80 },
-          { ingredientId: ingMap['Heavy Cream'], quantity: 90 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 10 }
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 340, updatedAt: now },
+          { ingredientId: ingMap['Powdered Sugar'], quantity: 450, updatedAt: now },
+          { ingredientId: ingMap['Cocoa Powder'], quantity: 80, updatedAt: now },
+          { ingredientId: ingMap['Heavy Cream'], quantity: 90, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 10, updatedAt: now }
         ]
       }
     }
@@ -200,13 +206,14 @@ async function main() {
       yieldVolumeMl: 850,
       prepMinutes: 10,
       laborMinutes: 10,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['Cream Cheese'], quantity: 450 },
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 115 },
-          { ingredientId: ingMap['Powdered Sugar'], quantity: 400 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 10 }
+          { ingredientId: ingMap['Cream Cheese'], quantity: 450, updatedAt: now },
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 115, updatedAt: now },
+          { ingredientId: ingMap['Powdered Sugar'], quantity: 400, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 10, updatedAt: now }
         ]
       }
     }
@@ -224,15 +231,16 @@ async function main() {
       prepMinutes: 30,
       coolMinutes: 60, // Chill time
       laborMinutes: 45,
-      laborRoleId: bakerRole.id,
-      recipeIngredients: {
+      LaborRole: { connect: { id: bakerRole.id } },
+      updatedAt: now,
+      RecipeIngredient: {
         create: [
-          { ingredientId: ingMap['All-Purpose Flour'], quantity: 300 },
-          { ingredientId: ingMap['Granulated Sugar'], quantity: 250 },
-          { ingredientId: ingMap['Butter (unsalted)'], quantity: 170 },
-          { ingredientId: ingMap['Eggs (large)'], quantity: 3 },
-          { ingredientId: ingMap['Cream Cheese'], quantity: 225 },
-          { ingredientId: ingMap['Vanilla Extract'], quantity: 10 }
+          { ingredientId: ingMap['All-Purpose Flour'], quantity: 300, updatedAt: now },
+          { ingredientId: ingMap['Granulated Sugar'], quantity: 250, updatedAt: now },
+          { ingredientId: ingMap['Butter (unsalted)'], quantity: 170, updatedAt: now },
+          { ingredientId: ingMap['Eggs (large)'], quantity: 3, updatedAt: now },
+          { ingredientId: ingMap['Cream Cheese'], quantity: 225, updatedAt: now },
+          { ingredientId: ingMap['Vanilla Extract'], quantity: 10, updatedAt: now }
         ]
       }
     }
@@ -292,7 +300,7 @@ async function main() {
     await prisma.packaging.upsert({
       where: { name: pkg.name },
       update: { costPerUnit: pkg.costPerUnit },
-      create: pkg
+      create: { ...pkg, updatedAt: now }
     })
   }
   console.log('✓ Packaging created')
@@ -313,7 +321,7 @@ async function main() {
       category: 'Individual',
       baseUnit: 'each',
       description: 'Standard size cupcakes with frosting',
-      sortOrder: 1
+      sortOrder: 1, updatedAt: now
     }
   })
 
@@ -325,7 +333,7 @@ async function main() {
       category: 'Dozen',
       baseUnit: 'dozen',
       description: 'Mini size cupcakes, usually sold by the dozen',
-      sortOrder: 2
+      sortOrder: 2, updatedAt: now
     }
   })
 
@@ -337,7 +345,7 @@ async function main() {
       category: 'Individual',
       baseUnit: 'each',
       description: 'Cake pops on sticks with candy coating',
-      sortOrder: 3
+      sortOrder: 3, updatedAt: now
     }
   })
 
@@ -349,7 +357,7 @@ async function main() {
       category: 'Dozen',
       baseUnit: 'dozen',
       description: 'Decorated sugar cookies',
-      sortOrder: 4
+      sortOrder: 4, updatedAt: now
     }
   })
 
@@ -361,7 +369,7 @@ async function main() {
       category: 'Individual',
       baseUnit: 'each',
       description: 'Fudgy brownies, various sizes',
-      sortOrder: 5
+      sortOrder: 5, updatedAt: now
     }
   })
 
@@ -457,21 +465,6 @@ async function main() {
     }
   ]
 
-  for (const item of menuItems) {
-    await prisma.menuItem.upsert({
-      where: {
-        id: -1 // Force create
-      },
-      update: {},
-      create: {
-        ...item,
-        laborRoleId: bakerRole.id,
-        isActive: true,
-        sortOrder: 0
-      }
-    })
-  }
-
   // Use createMany for menu items since we don't have unique constraint on name
   const existingMenuItems = await prisma.menuItem.findMany()
   if (existingMenuItems.length === 0) {
@@ -481,7 +474,8 @@ async function main() {
           ...item,
           laborRoleId: bakerRole.id,
           isActive: true,
-          sortOrder: 0
+          sortOrder: 0,
+          updatedAt: now
         }
       })
     }

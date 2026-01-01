@@ -944,8 +944,12 @@ async function main() {
           materialGrade: technique.materialGrade,
           toolsRequired: technique.toolsRequired,
           imageReference: technique.imageReference,
+          updatedAt: new Date(),
         },
-        create: technique,
+        create: {
+          ...technique,
+          updatedAt: new Date(),
+        },
       })
       console.log(`  ✓ ${technique.sku} - ${technique.name}`)
       created++

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createRecipe, updateRecipe, deleteRecipe } from '@/app/actions/admin'
+import { RECIPE_VOLUME_FACTORS } from '@/lib/pricing'
 
 interface Ingredient {
   id: number
@@ -134,11 +135,12 @@ export default function RecipeForm({ recipe, ingredients, tierSizes, laborRoles 
       const tier = tierSizes.find(t => t.id.toString() === tierId)
       if (tier?.volumeMl) {
         // Calculate appropriate volume based on recipe type
+        // Uses RECIPE_VOLUME_FACTORS from lib/pricing.ts (single source of truth)
         let volume = tier.volumeMl
         if (type === 'FROSTING') {
-          volume = Math.round(tier.volumeMl * 0.36) // Surface coverage
+          volume = Math.round(tier.volumeMl * RECIPE_VOLUME_FACTORS.FROSTING)
         } else if (type === 'FILLING') {
-          volume = Math.round(tier.volumeMl * 0.12) // Thin layer
+          volume = Math.round(tier.volumeMl * RECIPE_VOLUME_FACTORS.FILLING)
         }
         setYieldVolumeMl(volume.toString())
       }
@@ -191,8 +193,8 @@ export default function RecipeForm({ recipe, ingredients, tierSizes, laborRoles 
     const closestTier = tierSizes.find(t => {
       if (!t.volumeMl) return false
       let targetVolume = t.volumeMl
-      if (type === 'FROSTING') targetVolume = Math.round(t.volumeMl * 0.36)
-      if (type === 'FILLING') targetVolume = Math.round(t.volumeMl * 0.12)
+      if (type === 'FROSTING') targetVolume = Math.round(t.volumeMl * RECIPE_VOLUME_FACTORS.FROSTING)
+      if (type === 'FILLING') targetVolume = Math.round(t.volumeMl * RECIPE_VOLUME_FACTORS.FILLING)
       return Math.abs(targetVolume - volume) < 100 // Within 100ml
     })
 

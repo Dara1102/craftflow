@@ -198,6 +198,7 @@ async function main() {
           name,
           sortOrder: i,
           isActive: true,
+          updatedAt: new Date(),
         }
       })
       created++

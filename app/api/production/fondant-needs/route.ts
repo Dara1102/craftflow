@@ -1,15 +1,9 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-
-// Surface area calculation for round cakes (approximate)
-// Formula: top circle + side surface = π*r² + 2*π*r*h
-// Using standard heights: 4" for most tiers
-function calculateSurfaceArea(diameterInches: number, heightInches: number = 4): number {
-  const radius = diameterInches / 2
-  const topArea = Math.PI * radius * radius
-  const sideArea = 2 * Math.PI * radius * heightInches
-  return Math.round(topArea + sideArea) // sq inches
-}
+import {
+  parseTierSize,
+  calculateTierSurfaceArea,
+} from '@/lib/production-settings'
 
 // Estimate fondant weight needed (rough: 1 oz per 10 sq inches)
 function estimateFondantOunces(surfaceAreaSqIn: number): number {
@@ -73,11 +67,11 @@ export async function GET() {
         const tierSize = tier.TierSize
         const sizeName = tierSize?.name || 'Unknown'
 
-        // Parse diameter from size name (e.g., "8 inch round" -> 8)
-        const diameterMatch = sizeName.match(/(\d+)\s*inch/i)
-        const diameterInches = diameterMatch ? parseInt(diameterMatch[1]) : 8
+        // Parse tier size using centralized function
+        const { diameterInches, shape } = parseTierSize(sizeName)
 
-        const surfaceAreaSqIn = calculateSurfaceArea(diameterInches)
+        // For fondant, only external surface area matters (no internal filling layers)
+        const { totalArea: surfaceAreaSqIn } = calculateTierSurfaceArea(diameterInches, 4, shape)
         const fondantOunces = estimateFondantOunces(surfaceAreaSqIn)
 
         const tierDetail: FondantTier = {
