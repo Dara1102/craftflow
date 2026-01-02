@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import useSWR from 'swr'
+import ProductSelector from '@/app/components/ProductSelector'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
@@ -151,6 +152,16 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
   const [decorationCategoryFilter, setDecorationCategoryFilter] = useState<string>('all')
   const [showDecorationModal, setShowDecorationModal] = useState(false)
 
+  // Products (menu items like cupcakes, cake pops)
+  const [selectedProducts, setSelectedProducts] = useState<Array<{
+    menuItemId: number
+    quantity: number
+    packagingSelections: { packagingId: number; quantity: number }[]
+    packagingId?: number
+    packagingQty?: number
+    notes?: string
+  }>>([])
+
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorDropdownRef = useRef<HTMLDivElement>(null)
   const accentColorDropdownRef = useRef<HTMLDivElement>(null)
@@ -181,8 +192,11 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
   const [discountValue, setDiscountValue] = useState('')
 
   // Deposit
-  const [depositOption, setDepositOption] = useState<'default' | 'custom' | 'full'>('default')
-  const [customDepositPercent, setCustomDepositPercent] = useState<number>(50)
+  const [depositType, setDepositType] = useState<'default' | 'PERCENT' | 'FIXED'>('default')
+  const [depositValue, setDepositValue] = useState<string>('')
+
+  // Price Adjustment (round up/down)
+  const [priceAdjustment, setPriceAdjustment] = useState<string>('')
 
   // Costing
   const [costing, setCosting] = useState<CostingResult | null>(null)
@@ -236,14 +250,22 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
         if (quote.budgetMax) setBudgetMax(quote.budgetMax.toString())
 
         // Set deposit
-        if (quote.depositPercent !== null) {
-          const depositPct = parseFloat(quote.depositPercent)
-          if (depositPct === 1) {
-            setDepositOption('full')
-          } else {
-            setDepositOption('custom')
-            setCustomDepositPercent(depositPct * 100)
+        if (quote.depositType) {
+          setDepositType(quote.depositType as 'PERCENT' | 'FIXED')
+          if (quote.depositType === 'FIXED' && quote.depositAmount !== null) {
+            setDepositValue(parseFloat(quote.depositAmount).toString())
+          } else if (quote.depositType === 'PERCENT' && quote.depositPercent !== null) {
+            setDepositValue((parseFloat(quote.depositPercent) * 100).toString())
           }
+        } else if (quote.depositPercent !== null) {
+          // Legacy: convert old percent-only format
+          setDepositType('PERCENT')
+          setDepositValue((parseFloat(quote.depositPercent) * 100).toString())
+        }
+
+        // Set price adjustment
+        if (quote.priceAdjustment !== null && quote.priceAdjustment !== undefined) {
+          setPriceAdjustment(parseFloat(quote.priceAdjustment).toString())
         }
 
         // Set tiers
@@ -267,6 +289,18 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
             quantity: d.quantity,
             unitOverride: d.unitOverride,
             tierIndices: d.tierIndices || []
+          })))
+        }
+
+        // Set products (quoteItems)
+        if (quote.quoteItems && quote.quoteItems.length > 0) {
+          setSelectedProducts(quote.quoteItems.map((item: any) => ({
+            menuItemId: item.menuItemId,
+            quantity: item.quantity,
+            packagingSelections: item.packagingId ? [{ packagingId: item.packagingId, quantity: item.packagingQty || 1 }] : [],
+            packagingId: item.packagingId,
+            packagingQty: item.packagingQty,
+            notes: item.notes
           })))
         }
 
@@ -449,6 +483,13 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
               unitOverride: dec.unitOverride || undefined,
               tierIndices: dec.tierIndices && dec.tierIndices.length > 0 ? dec.tierIndices : undefined
             })),
+            products: selectedProducts.map(p => ({
+              menuItemId: p.menuItemId,
+              quantity: p.quantity || 1,
+              packagingId: p.packagingId || null,
+              packagingQty: p.packagingQty || null,
+              notes: p.notes || null
+            })),
             isDelivery,
             deliveryZoneId,
             deliveryDistance: deliveryDistance ? parseFloat(deliveryDistance) : null,
@@ -473,7 +514,7 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
 
     const debounce = setTimeout(calculateCost, 500)
     return () => clearTimeout(debounce)
-  }, [isLoading, customerName, selectedCustomer, customerId, eventDate, tiers, selectedDecorations,
+  }, [isLoading, customerName, selectedCustomer, customerId, eventDate, tiers, selectedDecorations, selectedProducts,
       isDelivery, deliveryZoneId, deliveryDistance, topperType, topperText,
       markupPercent, discountType, discountValue])
 
@@ -523,11 +564,12 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
           topperType: topperType || null,
           topperText: topperText || null,
           markupPercent: markupPercent || undefined,
-          depositPercent: depositOption === 'default' ? null :
-                          depositOption === 'full' ? 1 :
-                          customDepositPercent / 100,
+          depositType: depositType === 'default' ? null : depositType,
+          depositPercent: depositType === 'PERCENT' && depositValue ? parseFloat(depositValue) / 100 : null,
+          depositAmount: depositType === 'FIXED' && depositValue ? parseFloat(depositValue) : null,
           discountType: discountType || null,
           discountValue: discountValue ? parseFloat(discountValue) : null,
+          priceAdjustment: priceAdjustment ? parseFloat(priceAdjustment) : null,
           // Include tiers and decorations for full update
           tiers: validTiers.map(t => ({
             tierSizeId: t.tierSizeId,
@@ -544,6 +586,13 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
             quantity: dec.quantity,
             unitOverride: dec.unitOverride || undefined,
             tierIndices: dec.tierIndices && dec.tierIndices.length > 0 ? dec.tierIndices : undefined
+          })),
+          products: selectedProducts.map(p => ({
+            menuItemId: p.menuItemId,
+            quantity: p.quantity || 1,
+            packagingId: p.packagingId || null,
+            packagingQty: p.packagingQty || null,
+            notes: p.notes || null
           }))
         })
       })
@@ -1144,6 +1193,19 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
               </div>
             </div>
 
+            {/* Products Section - Cupcakes, Cake Pops, etc. */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-2">Additional Products</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Add cupcakes, cake pops, cookies, and other menu items to this order.
+              </p>
+              <ProductSelector
+                selectedProducts={selectedProducts}
+                onProductsChange={setSelectedProducts}
+                showPackaging={true}
+              />
+            </div>
+
             {/* Decorations Section */}
             <div className="bg-white shadow rounded-lg p-6">
               <div className="flex justify-between items-center mb-4">
@@ -1525,6 +1587,42 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                 )}
               </div>
             </div>
+
+            {/* Discount Section */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-4">Discount</h2>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Type
+                  </label>
+                  <select
+                    value={discountType}
+                    onChange={(e) => setDiscountType(e.target.value as 'PERCENT' | 'FIXED' | '')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="">None</option>
+                    <option value="PERCENT">Percentage</option>
+                    <option value="FIXED">Fixed Amount</option>
+                  </select>
+                </div>
+
+                {discountType && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Value {discountType === 'PERCENT' ? '(%)' : '($)'}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={discountValue}
+                      onChange={(e) => setDiscountValue(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Pricing Sidebar */}
@@ -1585,12 +1683,75 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                       <span className="font-medium">${costing.totalCost.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-lg font-bold border-t pt-2">
-                      <span>Final Price:</span>
-                      <span className="text-pink-600">${costing.finalPrice.toFixed(2)}</span>
+                      <span>Calculated Price:</span>
+                      <span className="text-gray-600">${costing.finalPrice.toFixed(2)}</span>
+                    </div>
+
+                    {/* Price Adjustment */}
+                    <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700">Adjust Price:</span>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rounded = Math.floor(costing.finalPrice)
+                              setPriceAdjustment((rounded - costing.finalPrice).toFixed(2))
+                            }}
+                            className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                            title="Round down"
+                          >
+                            ↓ Round
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rounded = Math.ceil(costing.finalPrice)
+                              setPriceAdjustment((rounded - costing.finalPrice).toFixed(2))
+                            }}
+                            className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                            title="Round up"
+                          >
+                            ↑ Round
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPriceAdjustment('')}
+                            className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                            title="Clear adjustment"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={priceAdjustment}
+                          onChange={(e) => setPriceAdjustment(e.target.value)}
+                          placeholder="0.00"
+                          className="w-24 px-2 py-1 text-sm border border-gray-300 rounded"
+                        />
+                        <span className="text-xs text-gray-500">(+/-)</span>
+                      </div>
+                      {priceAdjustment && parseFloat(priceAdjustment) !== 0 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {parseFloat(priceAdjustment) > 0 ? 'Adding' : 'Subtracting'} ${Math.abs(parseFloat(priceAdjustment)).toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-between text-lg font-bold mt-2">
+                      <span>Customer Price:</span>
+                      <span className="text-pink-600">
+                        ${(costing.finalPrice + (parseFloat(priceAdjustment) || 0)).toFixed(2)}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-500">
                       <span>Per Serving:</span>
-                      <span>${costing.suggestedPricePerServing.toFixed(2)}</span>
+                      <span>${((costing.finalPrice + (parseFloat(priceAdjustment) || 0)) / costing.totalServings).toFixed(2)}</span>
                     </div>
                     <div className="text-sm text-gray-600">
                       Total Servings: <span className="font-medium">{costing.totalServings}</span>
@@ -1604,9 +1765,9 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => setDepositOption('default')}
+                          onClick={() => { setDepositType('default'); setDepositValue(''); }}
                           className={`flex-1 px-3 py-2 text-sm rounded-md border ${
-                            depositOption === 'default'
+                            depositType === 'default'
                               ? 'border-pink-500 bg-pink-50 text-pink-700'
                               : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                           }`}
@@ -1615,51 +1776,63 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
                         </button>
                         <button
                           type="button"
-                          onClick={() => setDepositOption('full')}
+                          onClick={() => setDepositType('PERCENT')}
                           className={`flex-1 px-3 py-2 text-sm rounded-md border ${
-                            depositOption === 'full'
+                            depositType === 'PERCENT'
                               ? 'border-pink-500 bg-pink-50 text-pink-700'
                               : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                           }`}
                         >
-                          Pay in Full
+                          Custom %
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDepositType('FIXED')}
+                          className={`flex-1 px-3 py-2 text-sm rounded-md border ${
+                            depositType === 'FIXED'
+                              ? 'border-pink-500 bg-pink-50 text-pink-700'
+                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          Fixed $
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setDepositOption('custom')}
-                        className={`w-full px-3 py-2 text-sm rounded-md border ${
-                          depositOption === 'custom'
-                            ? 'border-pink-500 bg-pink-50 text-pink-700'
-                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        Custom Amount
-                      </button>
-                      {depositOption === 'custom' && (
+                      {(depositType === 'PERCENT' || depositType === 'FIXED') && (
                         <div className="flex items-center gap-2">
+                          {depositType === 'FIXED' && <span className="text-sm text-gray-600">$</span>}
                           <input
                             type="number"
                             min="0"
-                            max="100"
-                            step="5"
-                            value={customDepositPercent}
-                            onChange={(e) => setCustomDepositPercent(parseInt(e.target.value) || 0)}
-                            className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm"
+                            max={depositType === 'PERCENT' ? 100 : undefined}
+                            step={depositType === 'PERCENT' ? 5 : 0.01}
+                            value={depositValue}
+                            onChange={(e) => setDepositValue(e.target.value)}
+                            placeholder={depositType === 'PERCENT' ? '50' : '100.00'}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded-md text-sm"
                           />
-                          <span className="text-sm text-gray-600">%</span>
+                          {depositType === 'PERCENT' && <span className="text-sm text-gray-600">%</span>}
                         </div>
                       )}
                       <div className="bg-pink-50 rounded-lg p-3 mt-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-pink-800">Deposit Amount:</span>
                           <span className="font-bold text-pink-600">
-                            ${(costing.finalPrice * (
-                              depositOption === 'full' ? 1 :
-                              depositOption === 'custom' ? customDepositPercent / 100 :
-                              (settings?.DefaultDepositPercent ? parseFloat(settings.DefaultDepositPercent) : 0.5)
-                            )).toFixed(2)}
+                            ${depositType === 'FIXED' && depositValue
+                              ? parseFloat(depositValue).toFixed(2)
+                              : ((costing.finalPrice + (parseFloat(priceAdjustment) || 0)) * (
+                                  depositType === 'PERCENT' && depositValue ? parseFloat(depositValue) / 100 :
+                                  (settings?.DefaultDepositPercent ? parseFloat(settings.DefaultDepositPercent) : 0.5)
+                                )).toFixed(2)
+                            }
                           </span>
+                        </div>
+                        <div className="text-xs text-pink-700 mt-1">
+                          {depositType === 'FIXED' && depositValue
+                            ? `$${parseFloat(depositValue).toFixed(2)} fixed deposit`
+                            : depositType === 'PERCENT' && depositValue
+                              ? `${depositValue}% of total`
+                              : `${settings?.DefaultDepositPercent ? (parseFloat(settings.DefaultDepositPercent) * 100).toFixed(0) : 50}% of total`
+                          } to confirm order
                         </div>
                       </div>
                     </div>

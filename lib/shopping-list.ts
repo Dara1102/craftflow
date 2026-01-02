@@ -43,54 +43,54 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
   const orders = await prisma.cakeOrder.findMany({
     where: { id: { in: orderIds } },
     include: {
-      cakeTiers: {
+      CakeTier: {
         include: {
-          tierSize: true,
-          batterRecipe: {
+          TierSize: true,
+          Recipe_CakeTier_batterRecipeIdToRecipe: {
             include: {
-              recipeIngredients: {
-                include: { ingredient: true }
+              RecipeIngredient: {
+                include: { Ingredient: true }
               }
             }
           },
-          fillingRecipe: {
+          Recipe_CakeTier_fillingRecipeIdToRecipe: {
             include: {
-              recipeIngredients: {
-                include: { ingredient: true }
+              RecipeIngredient: {
+                include: { Ingredient: true }
               }
             }
           },
-          frostingRecipe: {
+          Recipe_CakeTier_frostingRecipeIdToRecipe: {
             include: {
-              recipeIngredients: {
-                include: { ingredient: true }
+              RecipeIngredient: {
+                include: { Ingredient: true }
               }
             }
           }
         }
       },
-      orderItems: {
+      OrderItem: {
         include: {
-          menuItem: {
+          MenuItem: {
             include: {
-              batterRecipe: {
+              Recipe_MenuItem_batterRecipeIdToRecipe: {
                 include: {
-                  recipeIngredients: {
-                    include: { ingredient: true }
+                  RecipeIngredient: {
+                    include: { Ingredient: true }
                   }
                 }
               },
-              fillingRecipe: {
+              Recipe_MenuItem_fillingRecipeIdToRecipe: {
                 include: {
-                  recipeIngredients: {
-                    include: { ingredient: true }
+                  RecipeIngredient: {
+                    include: { Ingredient: true }
                   }
                 }
               },
-              frostingRecipe: {
+              Recipe_MenuItem_frostingRecipeIdToRecipe: {
                 include: {
-                  recipeIngredients: {
-                    include: { ingredient: true }
+                  RecipeIngredient: {
+                    include: { Ingredient: true }
                   }
                 }
               }
@@ -106,19 +106,19 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
 
   for (const order of orders) {
     // Process cake tiers
-    for (const tier of order.cakeTiers) {
+    for (const tier of order.CakeTier) {
       const multiplier = Number(tier.batterMultiplier) || 1
 
       // Batter recipe ingredients
-      if (tier.batterRecipe) {
-        for (const ri of tier.batterRecipe.recipeIngredients) {
+      if (tier.Recipe_CakeTier_batterRecipeIdToRecipe) {
+        for (const ri of tier.Recipe_CakeTier_batterRecipeIdToRecipe.RecipeIngredient) {
           const qty = Number(ri.quantity) * multiplier
           const existing = ingredientTotals.get(ri.ingredientId)
           if (existing) {
             existing.quantity += qty
           } else {
             ingredientTotals.set(ri.ingredientId, {
-              ingredient: { id: ri.ingredient.id, name: ri.ingredient.name, unit: ri.ingredient.unit },
+              ingredient: { id: ri.Ingredient.id, name: ri.Ingredient.name, unit: ri.Ingredient.unit },
               quantity: qty
             })
           }
@@ -126,16 +126,16 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
       }
 
       // Filling recipe ingredients
-      if (tier.fillingRecipe) {
+      if (tier.Recipe_CakeTier_fillingRecipeIdToRecipe) {
         const fillingMultiplier = Number(tier.fillingMultiplier) || 1
-        for (const ri of tier.fillingRecipe.recipeIngredients) {
+        for (const ri of tier.Recipe_CakeTier_fillingRecipeIdToRecipe.RecipeIngredient) {
           const qty = Number(ri.quantity) * fillingMultiplier
           const existing = ingredientTotals.get(ri.ingredientId)
           if (existing) {
             existing.quantity += qty
           } else {
             ingredientTotals.set(ri.ingredientId, {
-              ingredient: { id: ri.ingredient.id, name: ri.ingredient.name, unit: ri.ingredient.unit },
+              ingredient: { id: ri.Ingredient.id, name: ri.Ingredient.name, unit: ri.Ingredient.unit },
               quantity: qty
             })
           }
@@ -143,16 +143,16 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
       }
 
       // Frosting recipe ingredients
-      if (tier.frostingRecipe) {
+      if (tier.Recipe_CakeTier_frostingRecipeIdToRecipe) {
         const frostingMultiplier = Number(tier.frostingMultiplier) || 1
-        for (const ri of tier.frostingRecipe.recipeIngredients) {
+        for (const ri of tier.Recipe_CakeTier_frostingRecipeIdToRecipe.RecipeIngredient) {
           const qty = Number(ri.quantity) * frostingMultiplier
           const existing = ingredientTotals.get(ri.ingredientId)
           if (existing) {
             existing.quantity += qty
           } else {
             ingredientTotals.set(ri.ingredientId, {
-              ingredient: { id: ri.ingredient.id, name: ri.ingredient.name, unit: ri.ingredient.unit },
+              ingredient: { id: ri.Ingredient.id, name: ri.Ingredient.name, unit: ri.Ingredient.unit },
               quantity: qty
             })
           }
@@ -161,22 +161,22 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
     }
 
     // Process order items (cupcakes, etc.)
-    for (const item of order.orderItems) {
-      if (!item.menuItem) continue
+    for (const item of order.OrderItem) {
+      if (!item.MenuItem) continue
 
-      const yieldsPerRecipe = item.menuItem.yieldsPerRecipe || 1
+      const yieldsPerRecipe = item.MenuItem.yieldsPerRecipe || 1
       const batchesNeeded = Math.ceil(item.quantity / yieldsPerRecipe)
 
       // Batter recipe
-      if (item.menuItem.batterRecipe) {
-        for (const ri of item.menuItem.batterRecipe.recipeIngredients) {
+      if (item.MenuItem.Recipe_MenuItem_batterRecipeIdToRecipe) {
+        for (const ri of item.MenuItem.Recipe_MenuItem_batterRecipeIdToRecipe.RecipeIngredient) {
           const qty = Number(ri.quantity) * batchesNeeded
           const existing = ingredientTotals.get(ri.ingredientId)
           if (existing) {
             existing.quantity += qty
           } else {
             ingredientTotals.set(ri.ingredientId, {
-              ingredient: { id: ri.ingredient.id, name: ri.ingredient.name, unit: ri.ingredient.unit },
+              ingredient: { id: ri.Ingredient.id, name: ri.Ingredient.name, unit: ri.Ingredient.unit },
               quantity: qty
             })
           }
@@ -184,15 +184,15 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
       }
 
       // Filling recipe
-      if (item.menuItem.fillingRecipe) {
-        for (const ri of item.menuItem.fillingRecipe.recipeIngredients) {
+      if (item.MenuItem.Recipe_MenuItem_fillingRecipeIdToRecipe) {
+        for (const ri of item.MenuItem.Recipe_MenuItem_fillingRecipeIdToRecipe.RecipeIngredient) {
           const qty = Number(ri.quantity) * batchesNeeded
           const existing = ingredientTotals.get(ri.ingredientId)
           if (existing) {
             existing.quantity += qty
           } else {
             ingredientTotals.set(ri.ingredientId, {
-              ingredient: { id: ri.ingredient.id, name: ri.ingredient.name, unit: ri.ingredient.unit },
+              ingredient: { id: ri.Ingredient.id, name: ri.Ingredient.name, unit: ri.Ingredient.unit },
               quantity: qty
             })
           }
@@ -200,15 +200,15 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
       }
 
       // Frosting recipe
-      if (item.menuItem.frostingRecipe) {
-        for (const ri of item.menuItem.frostingRecipe.recipeIngredients) {
+      if (item.MenuItem.Recipe_MenuItem_frostingRecipeIdToRecipe) {
+        for (const ri of item.MenuItem.Recipe_MenuItem_frostingRecipeIdToRecipe.RecipeIngredient) {
           const qty = Number(ri.quantity) * batchesNeeded
           const existing = ingredientTotals.get(ri.ingredientId)
           if (existing) {
             existing.quantity += qty
           } else {
             ingredientTotals.set(ri.ingredientId, {
-              ingredient: { id: ri.ingredient.id, name: ri.ingredient.name, unit: ri.ingredient.unit },
+              ingredient: { id: ri.Ingredient.id, name: ri.Ingredient.name, unit: ri.Ingredient.unit },
               quantity: qty
             })
           }
@@ -221,7 +221,7 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
   const ingredientIds = Array.from(ingredientTotals.keys())
   const vendorLinks = await prisma.ingredientVendor.findMany({
     where: { ingredientId: { in: ingredientIds } },
-    include: { vendor: true },
+    include: { Vendor: true },
     orderBy: [
       { isPreferred: 'desc' },
       { pricePerPack: 'asc' }
@@ -257,7 +257,7 @@ export async function generateShoppingList(orderIds: number[]): Promise<Shopping
       ingredientUnit: data.ingredient.unit,
       totalQuantityNeeded: data.quantity,
       vendorId: vendorLink?.vendorId || null,
-      vendorName: vendorLink?.vendor.name || null,
+      vendorName: vendorLink?.Vendor.name || null,
       vendorSku: vendorLink?.vendorSku || null,
       packSize: vendorLink ? Number(vendorLink.packSize) : null,
       packUnit: vendorLink?.packUnit || null,

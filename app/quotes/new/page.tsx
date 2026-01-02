@@ -149,6 +149,7 @@ export default function NewQuote() {
   const [selectedProducts, setSelectedProducts] = useState<Array<{
     menuItemId: number
     quantity: number
+    packagingSelections: { packagingId: number; quantity: number }[]
     packagingId?: number
     packagingQty?: number
     notes?: string
@@ -197,8 +198,11 @@ export default function NewQuote() {
   const [discountValue, setDiscountValue] = useState('')
 
   // Deposit
-  const [depositOption, setDepositOption] = useState<'default' | 'custom' | 'full'>('default')
-  const [customDepositPercent, setCustomDepositPercent] = useState<number>(50)
+  const [depositType, setDepositType] = useState<'default' | 'PERCENT' | 'FIXED'>('default')
+  const [depositValue, setDepositValue] = useState<string>('')
+
+  // Price Adjustment (round up/down)
+  const [priceAdjustment, setPriceAdjustment] = useState<string>('')
 
   // Costing
   const [costing, setCosting] = useState<CostingResult | null>(null)
@@ -368,6 +372,13 @@ export default function NewQuote() {
               unitOverride: dec.unitOverride || undefined,
               tierIndices: dec.tierIndices && dec.tierIndices.length > 0 ? dec.tierIndices : undefined
             })),
+            products: selectedProducts.map(p => ({
+              menuItemId: p.menuItemId,
+              quantity: p.quantity,
+              packagingId: p.packagingId || null,
+              packagingQty: p.packagingQty || null,
+              notes: p.notes || null
+            })),
             isDelivery,
             deliveryZoneId,
             deliveryDistance: deliveryDistance ? parseFloat(deliveryDistance) : null,
@@ -394,7 +405,7 @@ export default function NewQuote() {
     const timer = setTimeout(calculateCost, 500)
     return () => clearTimeout(timer)
   }, [
-    customerId, selectedCustomer, customerName, eventDate, tiers, selectedDecorations,
+    customerId, selectedCustomer, customerName, eventDate, tiers, selectedDecorations, selectedProducts,
     isDelivery, deliveryZoneId, deliveryDistance, topperType, topperText,
     markupPercent, discountType, discountValue
   ])
@@ -647,11 +658,12 @@ export default function NewQuote() {
           topperType: topperType || null,
           topperText: topperText || null,
           markupPercent: markupPercent || undefined,
-          depositPercent: depositOption === 'default' ? null :
-                          depositOption === 'full' ? 1 :
-                          customDepositPercent / 100,
+          depositType: depositType === 'default' ? null : depositType,
+          depositPercent: depositType === 'PERCENT' && depositValue ? parseFloat(depositValue) / 100 : null,
+          depositAmount: depositType === 'FIXED' && depositValue ? parseFloat(depositValue) : null,
           discountType: discountType || null,
           discountValue: discountValue ? parseFloat(discountValue) : null,
+          priceAdjustment: priceAdjustment ? parseFloat(priceAdjustment) : null,
           products: selectedProducts.map(p => ({
             menuItemId: p.menuItemId,
             quantity: p.quantity,
@@ -1838,12 +1850,75 @@ export default function NewQuote() {
                       </div>
                     )}
                     <div className="flex justify-between text-lg font-bold border-t pt-2">
-                      <span>Final Price:</span>
-                      <span className="text-pink-600">${costing.finalPrice.toFixed(2)}</span>
+                      <span>Calculated Price:</span>
+                      <span className="text-gray-600">${costing.finalPrice.toFixed(2)}</span>
+                    </div>
+
+                    {/* Price Adjustment */}
+                    <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700">Adjust Price:</span>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rounded = Math.floor(costing.finalPrice)
+                              setPriceAdjustment((rounded - costing.finalPrice).toFixed(2))
+                            }}
+                            className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                            title="Round down"
+                          >
+                            ↓ Round
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rounded = Math.ceil(costing.finalPrice)
+                              setPriceAdjustment((rounded - costing.finalPrice).toFixed(2))
+                            }}
+                            className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                            title="Round up"
+                          >
+                            ↑ Round
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPriceAdjustment('')}
+                            className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                            title="Clear adjustment"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={priceAdjustment}
+                          onChange={(e) => setPriceAdjustment(e.target.value)}
+                          placeholder="0.00"
+                          className="w-24 px-2 py-1 text-sm border border-gray-300 rounded"
+                        />
+                        <span className="text-xs text-gray-500">(+/-)</span>
+                      </div>
+                      {priceAdjustment && parseFloat(priceAdjustment) !== 0 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {parseFloat(priceAdjustment) > 0 ? 'Adding' : 'Subtracting'} ${Math.abs(parseFloat(priceAdjustment)).toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-between text-lg font-bold mt-2">
+                      <span>Customer Price:</span>
+                      <span className="text-pink-600">
+                        ${(costing.finalPrice + (parseFloat(priceAdjustment) || 0)).toFixed(2)}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-500">
                       <span>Per Serving:</span>
-                      <span>${costing.suggestedPricePerServing.toFixed(2)}</span>
+                      <span>${((costing.finalPrice + (parseFloat(priceAdjustment) || 0)) / costing.totalServings).toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -1854,9 +1929,9 @@ export default function NewQuote() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => setDepositOption('default')}
+                          onClick={() => { setDepositType('default'); setDepositValue(''); }}
                           className={`flex-1 px-3 py-2 text-sm rounded-md border ${
-                            depositOption === 'default'
+                            depositType === 'default'
                               ? 'border-pink-500 bg-pink-50 text-pink-700'
                               : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                           }`}
@@ -1865,56 +1940,63 @@ export default function NewQuote() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setDepositOption('full')}
+                          onClick={() => setDepositType('PERCENT')}
                           className={`flex-1 px-3 py-2 text-sm rounded-md border ${
-                            depositOption === 'full'
+                            depositType === 'PERCENT'
                               ? 'border-pink-500 bg-pink-50 text-pink-700'
                               : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                           }`}
                         >
-                          Pay in Full
+                          Custom %
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDepositType('FIXED')}
+                          className={`flex-1 px-3 py-2 text-sm rounded-md border ${
+                            depositType === 'FIXED'
+                              ? 'border-pink-500 bg-pink-50 text-pink-700'
+                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          Fixed $
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setDepositOption('custom')}
-                        className={`w-full px-3 py-2 text-sm rounded-md border ${
-                          depositOption === 'custom'
-                            ? 'border-pink-500 bg-pink-50 text-pink-700'
-                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        Custom Amount
-                      </button>
-                      {depositOption === 'custom' && (
+                      {(depositType === 'PERCENT' || depositType === 'FIXED') && (
                         <div className="flex items-center gap-2">
+                          {depositType === 'FIXED' && <span className="text-sm text-gray-600">$</span>}
                           <input
                             type="number"
                             min="0"
-                            max="100"
-                            step="5"
-                            value={customDepositPercent}
-                            onChange={(e) => setCustomDepositPercent(parseInt(e.target.value) || 0)}
-                            className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm"
+                            max={depositType === 'PERCENT' ? 100 : undefined}
+                            step={depositType === 'PERCENT' ? 5 : 0.01}
+                            value={depositValue}
+                            onChange={(e) => setDepositValue(e.target.value)}
+                            placeholder={depositType === 'PERCENT' ? '50' : '100.00'}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded-md text-sm"
                           />
-                          <span className="text-sm text-gray-600">%</span>
+                          {depositType === 'PERCENT' && <span className="text-sm text-gray-600">%</span>}
                         </div>
                       )}
                       <div className="bg-pink-50 rounded-lg p-3 mt-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-pink-800">Deposit Amount:</span>
                           <span className="font-bold text-pink-600">
-                            ${(costing.finalPrice * (
-                              depositOption === 'full' ? 1 :
-                              depositOption === 'custom' ? customDepositPercent / 100 :
-                              (settings?.DefaultDepositPercent ? parseFloat(settings.DefaultDepositPercent) : 0.5)
-                            )).toFixed(2)}
+                            ${depositType === 'FIXED' && depositValue
+                              ? parseFloat(depositValue).toFixed(2)
+                              : ((costing.finalPrice + (parseFloat(priceAdjustment) || 0)) * (
+                                  depositType === 'PERCENT' && depositValue ? parseFloat(depositValue) / 100 :
+                                  (settings?.DefaultDepositPercent ? parseFloat(settings.DefaultDepositPercent) : 0.5)
+                                )).toFixed(2)
+                            }
                           </span>
                         </div>
                         <div className="text-xs text-pink-700 mt-1">
-                          {depositOption === 'full' ? '100%' :
-                           depositOption === 'custom' ? `${customDepositPercent}%` :
-                           `${settings?.DefaultDepositPercent ? (parseFloat(settings.DefaultDepositPercent) * 100).toFixed(0) : 50}%`} of total to confirm order
+                          {depositType === 'FIXED' && depositValue
+                            ? `$${parseFloat(depositValue).toFixed(2)} fixed deposit`
+                            : depositType === 'PERCENT' && depositValue
+                              ? `${depositValue}% of total`
+                              : `${settings?.DefaultDepositPercent ? (parseFloat(settings.DefaultDepositPercent) * 100).toFixed(0) : 50}% of total`
+                          } to confirm order
                         </div>
                       </div>
                     </div>

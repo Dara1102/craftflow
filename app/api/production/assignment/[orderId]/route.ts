@@ -76,7 +76,7 @@ export async function GET(
         deliveryAddress: order.deliveryAddress,
         theme: order.theme,
         colors: order.colors,
-        notes: order.specialInstructions,
+        notes: order.notes,
         status: order.status
       },
       isLead,
@@ -93,7 +93,6 @@ export async function GET(
       decorations: order.OrderDecoration.map(dec => ({
         id: dec.id,
         techniqueName: dec.DecorationTechnique?.name || 'Unknown',
-        customText: dec.customText,
         quantity: dec.quantity,
         notes: dec.notes
       })),

@@ -12,12 +12,12 @@ export async function GET(
     const vendor = await prisma.vendor.findUnique({
       where: { id: parseInt(id) },
       include: {
-        ingredientVendors: {
+        IngredientVendor: {
           include: {
-            ingredient: true,
+            Ingredient: true,
           },
           orderBy: {
-            ingredient: { name: 'asc' },
+            Ingredient: { name: 'asc' },
           },
         },
       },
@@ -33,14 +33,14 @@ export async function GET(
     // Convert Decimal fields to numbers
     const plainVendor = {
       ...vendor,
-      ingredientVendors: vendor.ingredientVendors.map(iv => ({
+      ingredientVendors: vendor.IngredientVendor.map(iv => ({
         ...iv,
         packSize: Number(iv.packSize),
         pricePerPack: Number(iv.pricePerPack),
         costPerIngredientUnit: iv.costPerIngredientUnit ? Number(iv.costPerIngredientUnit) : null,
         ingredient: {
-          ...iv.ingredient,
-          costPerUnit: Number(iv.ingredient.costPerUnit),
+          ...iv.Ingredient,
+          costPerUnit: Number(iv.Ingredient.costPerUnit),
         },
       })),
     }
@@ -126,7 +126,7 @@ export async function DELETE(
     // Check if vendor has ingredient links
     const vendor = await prisma.vendor.findUnique({
       where: { id: parseInt(id) },
-      include: { _count: { select: { ingredientVendors: true } } },
+      include: { _count: { select: { IngredientVendor: true } } },
     })
 
     if (!vendor) {
@@ -136,7 +136,7 @@ export async function DELETE(
       )
     }
 
-    if (vendor._count.ingredientVendors > 0) {
+    if (vendor._count.IngredientVendor > 0) {
       return NextResponse.json(
         { error: 'Cannot delete vendor with linked ingredients. Remove ingredient links first or deactivate the vendor.' },
         { status: 400 }

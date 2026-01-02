@@ -74,10 +74,10 @@ export async function POST(request: NextRequest) {
         imageUrl: data.imageUrl || null
       },
       include: {
-        productType: true,
-        batterRecipe: true,
-        fillingRecipe: true,
-        frostingRecipe: true
+        ProductType: true,
+        Recipe_MenuItem_batterRecipeIdToRecipe: true,
+        Recipe_MenuItem_fillingRecipeIdToRecipe: true,
+        Recipe_MenuItem_frostingRecipeIdToRecipe: true
       }
     })
 

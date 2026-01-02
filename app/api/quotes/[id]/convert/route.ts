@@ -18,14 +18,14 @@ export async function POST(
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        quoteTiers: {
+        QuoteTier: {
           include: {
-            batterRecipe: true,
-            fillingRecipe: true,
-            frostingRecipe: true
+            Recipe_QuoteTier_batterRecipeIdToRecipe: true,
+            Recipe_QuoteTier_fillingRecipeIdToRecipe: true,
+            Recipe_QuoteTier_frostingRecipeIdToRecipe: true
           }
         },
-        quoteDecorations: true
+        QuoteDecoration: true
       }
     })
 
@@ -57,7 +57,7 @@ export async function POST(
       customerId: quote.customerId,
       customerName: quote.customerName,
       eventDate: quote.eventDate,
-      tiers: quote.quoteTiers.map(tier => ({
+      tiers: quote.QuoteTier.map(tier => ({
         tierSizeId: tier.tierSizeId,
         tierIndex: tier.tierIndex,
         batterRecipeId: tier.batterRecipeId,
@@ -70,7 +70,7 @@ export async function POST(
         filling: tier.filling,
         finishType: tier.finishType
       })),
-      decorations: quote.quoteDecorations.map(dec => ({
+      decorations: quote.QuoteDecoration.map(dec => ({
         decorationTechniqueId: dec.decorationTechniqueId,
         quantity: dec.quantity
       })),
@@ -131,11 +131,11 @@ export async function POST(
 
       // Create CakeTiers from QuoteTiers
       // Use recipe names as fallback for legacy flavor/filling/finishType fields
-      for (const tier of quote.quoteTiers) {
+      for (const tier of quote.QuoteTier) {
         // Derive values: use legacy field if set, otherwise use recipe name
-        const derivedFlavor = tier.flavor || tier.batterRecipe?.name || null
-        const derivedFilling = tier.filling || tier.fillingRecipe?.name || null
-        const derivedFinishType = tier.finishType || tier.frostingRecipe?.name || null
+        const derivedFlavor = tier.flavor || tier.Recipe_QuoteTier_batterRecipeIdToRecipe?.name || null
+        const derivedFilling = tier.filling || tier.Recipe_QuoteTier_fillingRecipeIdToRecipe?.name || null
+        const derivedFinishType = tier.finishType || tier.Recipe_QuoteTier_frostingRecipeIdToRecipe?.name || null
 
         await tx.cakeTier.create({
           data: {
@@ -156,7 +156,7 @@ export async function POST(
       }
 
       // Create OrderDecorations from QuoteDecorations
-      for (const dec of quote.quoteDecorations) {
+      for (const dec of quote.QuoteDecoration) {
         await tx.orderDecoration.create({
           data: {
             cakeOrderId: newOrder.id,

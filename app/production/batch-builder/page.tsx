@@ -631,7 +631,7 @@ export default function BatchBuilderPage() {
                     <div className="bg-gradient-to-br from-pink-50 to-rose-50 rounded-xl p-4 mb-4 border-2 border-pink-200">
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
-                          <div className="text-3xl font-bold text-pink-600">{bucketTotals.tiers + bucketTotals.stockItems}</div>
+                          <div className="text-3xl font-bold text-pink-600">{bucketTotals.tiers + (bucketTotals.stockItems || 0)}</div>
                           <div className="text-xs text-gray-600 uppercase tracking-wide">Items</div>
                         </div>
                         <div>

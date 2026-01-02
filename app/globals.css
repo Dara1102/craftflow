@@ -55,3 +55,10 @@ body {
   background-color: rgba(0, 0, 0, 0.05);
   color: rgb(55, 65, 81);
 }
+
+/* Print styles */
+@media print {
+  body {
+    font-size: 11px;
+  }
+}

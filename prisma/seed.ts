@@ -1,4 +1,4 @@
-import { PrismaClient, RecipeType, UsageRuleType, OrderStatus } from '@prisma/client'
+import { PrismaClient, RecipeType, OrderStatus } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
@@ -76,7 +76,7 @@ async function main() {
       name: 'Vanilla Sponge Batter',
       type: RecipeType.BATTER,
       yieldDescription: 'For one 8-inch round layer',
-      recipeIngredients: {
+      RecipeIngredient: {
         create: [
           { ingredientId: flour.id, quantity: 250 },
           { ingredientId: sugar.id, quantity: 200 },
@@ -94,7 +94,7 @@ async function main() {
       name: 'Chocolate Sponge Batter',
       type: RecipeType.BATTER,
       yieldDescription: 'For one 8-inch round layer',
-      recipeIngredients: {
+      RecipeIngredient: {
         create: [
           { ingredientId: flour.id, quantity: 200 },
           { ingredientId: cocoa.id, quantity: 50 },
@@ -113,7 +113,7 @@ async function main() {
       name: 'Vanilla Buttercream',
       type: RecipeType.FROSTING,
       yieldDescription: 'For frosting one 8-inch round cake',
-      recipeIngredients: {
+      RecipeIngredient: {
         create: [
           { ingredientId: butter.id, quantity: 250 },
           { ingredientId: powderedSugar.id, quantity: 500 },
@@ -129,7 +129,7 @@ async function main() {
       name: 'Chocolate Buttercream',
       type: RecipeType.FROSTING,
       yieldDescription: 'For frosting one 8-inch round cake',
-      recipeIngredients: {
+      RecipeIngredient: {
         create: [
           { ingredientId: butter.id, quantity: 250 },
           { ingredientId: powderedSugar.id, quantity: 400 },
@@ -146,7 +146,7 @@ async function main() {
       name: 'Strawberry Jam Filling',
       type: RecipeType.FILLING,
       yieldDescription: 'For filling between 8-inch layers',
-      recipeIngredients: {
+      RecipeIngredient: {
         create: [] // Could add strawberry jam as ingredient
       }
     }
@@ -159,10 +159,6 @@ async function main() {
       diameterCm: 15.24,
       heightCm: 10.16,
       servings: 12,
-      batterRecipeId: vanillaSponge.id,
-      batterMultiplier: 0.5,
-      frostingRecipeId: vanillaButtercream.id,
-      frostingMultiplier: 0.5,
     }
   })
 
@@ -172,10 +168,6 @@ async function main() {
       diameterCm: 20.32,
       heightCm: 10.16,
       servings: 24,
-      batterRecipeId: vanillaSponge.id,
-      batterMultiplier: 1.0,
-      frostingRecipeId: vanillaButtercream.id,
-      frostingMultiplier: 1.0,
     }
   })
 
@@ -185,10 +177,6 @@ async function main() {
       diameterCm: 25.40,
       heightCm: 10.16,
       servings: 38,
-      batterRecipeId: vanillaSponge.id,
-      batterMultiplier: 1.5,
-      frostingRecipeId: vanillaButtercream.id,
-      frostingMultiplier: 1.5,
     }
   })
 
@@ -198,81 +186,6 @@ async function main() {
       diameterCm: 30.48,
       heightCm: 10.16,
       servings: 56,
-      batterRecipeId: vanillaSponge.id,
-      batterMultiplier: 2.0,
-      frostingRecipeId: vanillaButtercream.id,
-      frostingMultiplier: 2.0,
-    }
-  })
-
-  // Create decoration materials
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'White fondant',
-      unit: 'g',
-      costPerUnit: 0.01, // $10 per kg
-      usageRuleType: UsageRuleType.FONDANT_PER_SURFACE_AREA,
-      usageRuleValue: 0.5, // 0.5g per cm²
-    }
-  })
-
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'Cake board (8 inch)',
-      unit: 'piece',
-      costPerUnit: 2.50,
-      usageRuleType: UsageRuleType.MANUAL,
-      usageRuleValue: 1,
-    }
-  })
-
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'Cake board (10 inch)',
-      unit: 'piece',
-      costPerUnit: 3.00,
-      usageRuleType: UsageRuleType.MANUAL,
-      usageRuleValue: 1,
-    }
-  })
-
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'Cake board (12 inch)',
-      unit: 'piece',
-      costPerUnit: 3.50,
-      usageRuleType: UsageRuleType.MANUAL,
-      usageRuleValue: 1,
-    }
-  })
-
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'Wooden dowel',
-      unit: 'piece',
-      costPerUnit: 0.25,
-      usageRuleType: UsageRuleType.PER_TIER,
-      usageRuleValue: 4, // 4 dowels per tier (except top)
-    }
-  })
-
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'Edible pearls',
-      unit: 'g',
-      costPerUnit: 0.05, // $50 per kg
-      usageRuleType: UsageRuleType.MANUAL,
-      usageRuleValue: 50, // Default 50g per cake
-    }
-  })
-
-  await prisma.decorationMaterial.create({
-    data: {
-      name: 'Ribbon',
-      unit: 'meter',
-      costPerUnit: 1.50,
-      usageRuleType: UsageRuleType.PER_TIER,
-      usageRuleValue: 0.75, // 0.75 meters per tier
     }
   })
 
@@ -300,7 +213,7 @@ async function main() {
       servingsTarget: 75,
       estimatedHours: 8,
       status: OrderStatus.DRAFT,
-      cakeTiers: {
+      CakeTier: {
         create: [
           {
             tierIndex: 1,

@@ -170,7 +170,6 @@ export async function GET(request: Request) {
           filling: string | null
           boardSize: string | null
           drumSize: string | null
-          color: string | null
           notes: string | null
           // Cakeboard fields
           cakeboardTypeId: number | null

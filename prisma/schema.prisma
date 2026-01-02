@@ -16,7 +16,7 @@ model CakeOrder {
   estimatedHours   Decimal           @db.Decimal(10, 2)
   status           OrderStatus       @default(DRAFT)
   createdAt        DateTime          @default(now())
-  updatedAt        DateTime
+  updatedAt        DateTime @updatedAt
   customerId       Int?
   size             String?
   cakeType         CakeType?
@@ -74,7 +74,7 @@ model CakeTier {
   filling                                  String?
   finishType                               String?
   createdAt                                DateTime       @default(now())
-  updatedAt                                DateTime
+  updatedAt                                DateTime @updatedAt
   batterMultiplier                         Decimal?       @db.Decimal(10, 3)
   batterRecipeId                           Int?
   fillingMultiplier                        Decimal?       @db.Decimal(10, 3)
@@ -122,7 +122,7 @@ model Customer {
   address   String?
   notes     String?
   createdAt DateTime    @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt
   birthday  DateTime?
   company   String?
   CakeOrder CakeOrder[]
@@ -151,7 +151,7 @@ model DecorationTechnique {
   imageReference     String?
   isActive           Boolean           @default(true)
   createdAt          DateTime          @default(now())
-  updatedAt          DateTime
+  updatedAt          DateTime @updatedAt
   baseCakeSize       String            @default("6\" round")
   laborRoleId        Int?
   LaborRole          LaborRole?        @relation(fields: [laborRoleId], references: [id])
@@ -169,7 +169,7 @@ model DeliveryStartPoint {
   isActive  Boolean  @default(true)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt
 }
 
 model DeliveryZone {
@@ -183,7 +183,7 @@ model DeliveryZone {
   isActive    Boolean     @default(true)
   sortOrder   Int         @default(0)
   createdAt   DateTime    @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt
   CakeOrder   CakeOrder[]
   Quote       Quote[]
 }
@@ -195,7 +195,7 @@ model FieldOption {
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt
 
   @@unique([category, name])
   @@index([category])
@@ -207,7 +207,7 @@ model Ingredient {
   unit             String
   costPerUnit      Decimal            @db.Decimal(10, 6)
   createdAt        DateTime           @default(now())
-  updatedAt        DateTime
+  updatedAt        DateTime @updatedAt
   IngredientVendor IngredientVendor[]
   RecipeIngredient RecipeIngredient[]
 }
@@ -227,7 +227,7 @@ model IngredientVendor {
   lastPurchaseDate      DateTime?
   notes                 String?
   createdAt             DateTime   @default(now())
-  updatedAt             DateTime
+  updatedAt             DateTime @updatedAt
   Ingredient            Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
   Vendor                Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
@@ -350,7 +350,7 @@ model MenuItem {
   sortOrder                                Int         @default(0)
   imageUrl                                 String?
   createdAt                                DateTime    @default(now())
-  updatedAt                                DateTime
+  updatedAt                                DateTime @updatedAt
   Recipe_MenuItem_batterRecipeIdToRecipe   Recipe?     @relation("MenuItem_batterRecipeIdToRecipe", fields: [batterRecipeId], references: [id])
   Packaging                                Packaging?  @relation(fields: [defaultPackagingId], references: [id])
   Recipe_MenuItem_fillingRecipeIdToRecipe  Recipe?     @relation("MenuItem_fillingRecipeIdToRecipe", fields: [fillingRecipeId], references: [id])
@@ -391,7 +391,7 @@ model OrderDecoration {
   quantity              Int                 @default(1)
   notes                 String?
   createdAt             DateTime            @default(now())
-  updatedAt             DateTime
+  updatedAt             DateTime @updatedAt
   tierIndices           Int[]               @default([])
   unitOverride          DecorationUnit?
   CakeOrder             CakeOrder           @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
@@ -413,7 +413,7 @@ model OrderItem {
   packagingId        Int?
   packagingQty       Int?
   createdAt          DateTime             @default(now())
-  updatedAt          DateTime
+  updatedAt          DateTime @updatedAt
   CakeOrder          CakeOrder            @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
   MenuItem           MenuItem?            @relation(fields: [menuItemId], references: [id])
   Packaging          Packaging?           @relation(fields: [packagingId], references: [id])
@@ -447,7 +447,7 @@ model OrderPackaging {
   quantity    Int       @default(1)
   notes       String?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt
   CakeOrder   CakeOrder @relation(fields: [cakeOrderId], references: [id], onDelete: Cascade)
   Packaging   Packaging @relation(fields: [packagingId], references: [id])
 
@@ -468,7 +468,7 @@ model Packaging {
   isActive           Boolean              @default(true)
   sortOrder          Int                  @default(0)
   createdAt          DateTime             @default(now())
-  updatedAt          DateTime
+  updatedAt          DateTime @updatedAt
   MenuItem           MenuItem[]
   OrderItem          OrderItem[]
   OrderItemPackaging OrderItemPackaging[]
@@ -489,7 +489,7 @@ model ProductType {
   isActive        Boolean     @default(true)
   sortOrder       Int         @default(0)
   createdAt       DateTime    @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime @updatedAt
   MenuItem         MenuItem[]
   OrderItem        OrderItem[]
   Recipe           Recipe?     @relation(fields: [defaultRecipeId], references: [id])
@@ -524,7 +524,7 @@ model ProductionTask {
   scheduledEndDate     DateTime?                      // End date for multi-day tasks
 
   createdAt            DateTime         @default(now())
-  updatedAt            DateTime
+  updatedAt            DateTime @updatedAt
   ProductionTask       ProductionTask?  @relation("ProductionTaskToProductionTask", fields: [dependsOnId], references: [id])
   other_ProductionTask ProductionTask[] @relation("ProductionTaskToProductionTask")
   CakeOrder            CakeOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -574,15 +574,18 @@ model Quote {
   termsAndConditions String?
   convertedOrderId   Int?              @unique
   createdAt          DateTime          @default(now())
-  updatedAt          DateTime
+  updatedAt          DateTime @updatedAt
   sentAt             DateTime?
   lockedAt           DateTime?
   lockedCosting      String?
   depositPercent     Decimal?          @db.Decimal(5, 2)
+  depositType        String?           // 'PERCENT' or 'FIXED'
+  depositAmount      Decimal?          @db.Decimal(10, 2) // Fixed dollar amount for deposit
   originalQuoteId    Int?
   version            Int               @default(1)
   budgetMax          Decimal?          @db.Decimal(10, 2)
   budgetMin          Decimal?          @db.Decimal(10, 2)
+  priceAdjustment    Decimal?          @db.Decimal(10, 2) // +/- adjustment to round price (internal only shows both, customer sees adjusted)
   CakeOrder          CakeOrder?        @relation(fields: [convertedOrderId], references: [id])
   Customer           Customer?         @relation(fields: [customerId], references: [id])
   DeliveryZone       DeliveryZone?     @relation(fields: [deliveryZoneId], references: [id])
@@ -606,7 +609,7 @@ model QuoteDecoration {
   quantity              Int                 @default(1)
   notes                 String?
   createdAt             DateTime            @default(now())
-  updatedAt             DateTime
+  updatedAt             DateTime @updatedAt
   unitOverride          DecorationUnit?
   tierIndices           Int[]               @default([])
   DecorationTechnique   DecorationTechnique @relation(fields: [decorationTechniqueId], references: [id])
@@ -628,7 +631,7 @@ model QuoteItem {
   packagingId   Int?
   packagingQty  Int?
   createdAt     DateTime      @default(now())
-  updatedAt     DateTime
+  updatedAt     DateTime @updatedAt
   MenuItem      MenuItem?     @relation(fields: [menuItemId], references: [id])
   Packaging     Packaging?    @relation(fields: [packagingId], references: [id])
   ProductType   ProductType?  @relation(fields: [productTypeId], references: [id])
@@ -644,7 +647,7 @@ model QuotePackaging {
   quantity    Int       @default(1)
   notes       String?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt
   Packaging   Packaging @relation(fields: [packagingId], references: [id])
   Quote       Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
@@ -666,7 +669,7 @@ model QuoteTier {
   filling                                   String?
   finishType                                String?
   createdAt                                 DateTime @default(now())
-  updatedAt                                 DateTime
+  updatedAt                                 DateTime @updatedAt
   Recipe_QuoteTier_batterRecipeIdToRecipe   Recipe?  @relation("QuoteTier_batterRecipeIdToRecipe", fields: [batterRecipeId], references: [id])
   Recipe_QuoteTier_fillingRecipeIdToRecipe  Recipe?  @relation("QuoteTier_fillingRecipeIdToRecipe", fields: [fillingRecipeId], references: [id])
   Recipe_QuoteTier_frostingRecipeIdToRecipe Recipe?  @relation("QuoteTier_frostingRecipeIdToRecipe", fields: [frostingRecipeId], references: [id])
@@ -682,7 +685,7 @@ model Recipe {
   type                                         RecipeType
   yieldDescription                             String
   createdAt                                    DateTime           @default(now())
-  updatedAt                                    DateTime
+  updatedAt                                    DateTime @updatedAt
   laborMinutes                                 Int?
   laborRoleId                                  Int?
   bakeMinutes                                  Int?
@@ -712,7 +715,7 @@ model RecipeIngredient {
   ingredientId Int
   quantity     Decimal    @db.Decimal(10, 3)
   createdAt    DateTime   @default(now())
-  updatedAt    DateTime
+  updatedAt    DateTime @updatedAt
   Ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
   Recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
@@ -724,7 +727,7 @@ model Setting {
   key       String   @unique
   value     String
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt
 }
 
 model TaskSignoff {
@@ -749,7 +752,7 @@ model TierSize {
   heightCm        Decimal         @db.Decimal(10, 2)
   servings        Int
   createdAt       DateTime        @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime @updatedAt
   shape           String          @default("Round")
   lengthCm        Decimal?        @db.Decimal(10, 2)
   assemblyMinutes Int?
@@ -772,7 +775,7 @@ model Vendor {
   notes            String?
   isActive         Boolean            @default(true)
   createdAt        DateTime           @default(now())
-  updatedAt        DateTime
+  updatedAt        DateTime @updatedAt
   CakeboardType    CakeboardType[]
   IngredientVendor IngredientVendor[]
 }

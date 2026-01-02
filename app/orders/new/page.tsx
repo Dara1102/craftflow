@@ -191,6 +191,7 @@ export default function NewOrder() {
   const [selectedProducts, setSelectedProducts] = useState<Array<{
     menuItemId: number
     quantity: number
+    packagingSelections: { packagingId: number; quantity: number }[]
     packagingId?: number
     packagingQty?: number
     notes?: string

@@ -118,7 +118,6 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
     discountValue: order.discountValue ? Number(order.discountValue) : null,
     deliveryDistance: order.deliveryDistance ? Number(order.deliveryDistance) : null,
     markupPercent: order.markupPercent ? Number(order.markupPercent) : null,
-    deliveryFee: order.deliveryFee ? Number(order.deliveryFee) : null,
     cakeTiers: order.cakeTiers.map(tier => ({
       ...tier,
       tierSize: {
@@ -149,7 +148,7 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
           id: item.menuItem!.id,
           name: item.menuItem!.name,
           menuPrice: Number(item.menuItem!.menuPrice),
-          productType: { name: item.menuItem!.productType.name }
+          productType: { name: item.menuItem!.productType?.name || '' }
         },
         packaging: item.packaging ? {
           id: item.packaging.id,

@@ -615,7 +615,7 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     setTiers(tiers.filter((_, i) => i !== index))
   }
 
-  const updateTier = (index: number, field: string, value: string | number) => {
+  const updateTier = (index: number, field: string, value: string | number | null) => {
     const newTiers = [...tiers]
     newTiers[index] = { ...newTiers[index], [field]: value }
     setTiers(newTiers)

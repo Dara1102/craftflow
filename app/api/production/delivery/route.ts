@@ -87,7 +87,6 @@ export async function GET(request: Request) {
         eventDate: string
         eventTime: string | null
         deliveryMethod: string
-        deliveryFee: number | null
         venue: {
           name: string
           address: string | null
@@ -118,8 +117,8 @@ export async function GET(request: Request) {
       const dateGroup = dateMap.get(dateKey)!
 
       // Determine delivery method
-      const deliveryMethod = order.deliveryMethod || 'pickup'
-      if (deliveryMethod === 'delivery') {
+      const deliveryMethod = order.isDelivery ? 'delivery' : 'pickup'
+      if (order.isDelivery) {
         totalDeliveries++
       } else {
         totalPickups++
@@ -142,21 +141,25 @@ export async function GET(request: Request) {
         items.push(`${item.quantity}× ${name}`)
       }
 
+      // Determine event time based on delivery/pickup
+      const eventTime = order.isDelivery
+        ? (order.deliveryTime ? new Date(order.deliveryTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null)
+        : (order.pickupTime ? new Date(order.pickupTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null)
+
       dateGroup.deliveries.push({
         orderId: order.id,
         customerName: order.customer?.name || 'Unknown Customer',
         customerPhone: order.customer?.phone || null,
         eventDate: order.eventDate.toISOString(),
-        eventTime: order.eventTime || null,
+        eventTime,
         deliveryMethod,
-        deliveryFee: order.deliveryFee ? Number(order.deliveryFee) : null,
         venue: order.venue ? {
           name: order.venue.name,
-          address: order.venue.address || null
+          address: order.venue.description || null
         } : null,
         customAddress: order.deliveryAddress || null,
         items,
-        notes: order.deliveryNotes || order.notes || null
+        notes: order.notes || null
       })
     }
 

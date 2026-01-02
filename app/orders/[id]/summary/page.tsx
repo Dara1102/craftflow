@@ -11,18 +11,18 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
   const order = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      customer: true,
-      cakeTiers: {
+      Customer: true,
+      CakeTier: {
         include: {
-          tierSize: true
+          TierSize: true
         },
         orderBy: {
           tierIndex: 'asc'
         }
       },
-      orderDecorations: {
+      OrderDecoration: {
         include: {
-          decorationTechnique: true
+          DecorationTechnique: true
         }
       }
     }
@@ -33,7 +33,7 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
   }
 
   const costing = await calculateOrderCosting(orderId)
-  const customerName = order.customer?.name || order.customerName || 'Valued Customer'
+  const customerName = order.Customer?.name || order.customerName || 'Valued Customer'
 
   // Format topper display
   const formatTopper = () => {
@@ -54,11 +54,11 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
   const getCakeDescription = () => {
     const parts: string[] = []
 
-    if (order.cakeTiers.length > 1) {
-      parts.push(`${order.cakeTiers.length}-tier`)
+    if (order.CakeTier.length > 1) {
+      parts.push(`${order.CakeTier.length}-tier`)
     }
 
-    const mainTier = order.cakeTiers[0]
+    const mainTier = order.CakeTier[0]
     if (mainTier?.flavor) {
       parts.push(mainTier.flavor.toLowerCase())
     }
@@ -131,7 +131,7 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-gray-500">Tiers</p>
-                  <p className="text-lg font-semibold text-gray-900">{order.cakeTiers.length}</p>
+                  <p className="text-lg font-semibold text-gray-900">{order.CakeTier.length}</p>
                 </div>
               </div>
             </div>
@@ -140,11 +140,11 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
             <div className="mb-6">
               <h3 className="text-sm font-medium text-gray-700 mb-2">Tier Details</h3>
               <div className="space-y-2">
-                {order.cakeTiers.map((tier, index) => (
+                {order.CakeTier.map((tier, index) => (
                   <div key={tier.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                     <div>
                       <span className="font-medium text-gray-900">Tier {index + 1}: </span>
-                      <span className="text-gray-600">{tier.tierSize.name}</span>
+                      <span className="text-gray-600">{tier.TierSize.name}</span>
                     </div>
                     <div className="text-sm text-gray-500">
                       {tier.flavor} • {tier.filling}
@@ -183,16 +183,16 @@ export default async function OrderSummary({ params }: { params: Promise<{ id: s
             </div>
 
             {/* Decorations */}
-            {order.orderDecorations.length > 0 && (
+            {order.OrderDecoration.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-gray-700 mb-2">Decorations</h3>
                 <div className="flex flex-wrap gap-2">
-                  {order.orderDecorations.map((dec) => (
+                  {order.OrderDecoration.map((dec) => (
                     <span
                       key={dec.id}
                       className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-purple-100 text-purple-800"
                     >
-                      {dec.decorationTechnique.name}
+                      {dec.DecorationTechnique.name}
                       {dec.quantity > 1 && ` (x${dec.quantity})`}
                     </span>
                   ))}

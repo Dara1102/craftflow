@@ -224,7 +224,7 @@ export async function GET(
       decorations: order.OrderDecoration.map(d => ({
         id: d.id,
         techniqueName: d.DecorationTechnique?.name || 'Unknown',
-        customText: d.customText,
+        notes: d.notes,
         quantity: d.quantity
       })),
       prepStatus: prepSignoff?.status || 'NOT_STARTED',

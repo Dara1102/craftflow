@@ -26,10 +26,10 @@ export async function GET(
     const order = await prisma.cakeOrder.findUnique({
       where: { id: orderId },
       include: {
-        customer: true,
-        cakeTiers: {
+        Customer: true,
+        CakeTier: {
           include: {
-            tierSize: true
+            TierSize: true
           }
         }
       }
@@ -48,7 +48,7 @@ export async function GET(
     return NextResponse.json({
       order: {
         id: order.id,
-        customerName: order.customer?.name || order.customerName,
+        customerName: order.Customer?.name || order.customerName,
         eventDate: order.eventDate,
         status: order.status,
         notes: order.notes

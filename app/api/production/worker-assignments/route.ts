@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     const leadOrders = await prisma.orderAssignment.findMany({
       where: {
         staffId,
-        Order: {
+        CakeOrder: {
           eventDate: {
             gte: startDate,
             lte: endDate
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
         }
       },
       include: {
-        Order: {
+        CakeOrder: {
           include: {
             Customer: { select: { name: true } },
             CakeTier: { select: { id: true } },
@@ -89,7 +89,7 @@ export async function GET(request: Request) {
         }
       },
       include: {
-        Order: {
+        CakeOrder: {
           include: {
             Customer: { select: { name: true } }
           }
@@ -102,6 +102,7 @@ export async function GET(request: Request) {
     })
 
     // Build order assignments map
+    // Use any[] for tasks since they come from different queries with different includes
     const orderMap = new Map<number, {
       orderId: number
       customerName: string
@@ -111,12 +112,12 @@ export async function GET(request: Request) {
       status: string
       isLead: boolean
       tierCount: number
-      tasks: typeof assignedTasks
+      tasks: any[]
     }>()
 
     // Add lead orders
     for (const assignment of leadOrders) {
-      const order = assignment.Order
+      const order = assignment.CakeOrder
       orderMap.set(order.id, {
         orderId: order.id,
         customerName: order.Customer?.name || order.customerName || 'Unknown',
@@ -132,7 +133,7 @@ export async function GET(request: Request) {
 
     // Add/update with assigned tasks
     for (const task of assignedTasks) {
-      const order = task.Order
+      const order = task.CakeOrder
       const existing = orderMap.get(order.id)
 
       if (existing) {

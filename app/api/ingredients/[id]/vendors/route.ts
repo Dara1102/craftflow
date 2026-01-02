@@ -12,13 +12,13 @@ export async function GET(
     const ingredient = await prisma.ingredient.findUnique({
       where: { id: parseInt(id) },
       include: {
-        ingredientVendors: {
+        IngredientVendor: {
           include: {
-            vendor: true,
+            Vendor: true,
           },
           orderBy: [
             { isPreferred: 'desc' },
-            { vendor: { name: 'asc' } },
+            { Vendor: { name: 'asc' } },
           ],
         },
       },
@@ -32,10 +32,10 @@ export async function GET(
     }
 
     // Convert Decimal fields to numbers
-    const vendors = ingredient.ingredientVendors.map(iv => ({
+    const vendors = ingredient.IngredientVendor.map(iv => ({
       id: iv.id,
       vendorId: iv.vendorId,
-      vendorName: iv.vendor.name,
+      vendorName: iv.Vendor.name,
       vendorSku: iv.vendorSku,
       vendorProductName: iv.vendorProductName,
       packSize: Number(iv.packSize),
@@ -155,14 +155,14 @@ export async function POST(
         notes: notes?.trim() || null,
       },
       include: {
-        vendor: true,
+        Vendor: true,
       },
     })
 
     return NextResponse.json({
       id: ingredientVendor.id,
       vendorId: ingredientVendor.vendorId,
-      vendorName: ingredientVendor.vendor.name,
+      vendorName: ingredientVendor.Vendor.name,
       vendorSku: ingredientVendor.vendorSku,
       vendorProductName: ingredientVendor.vendorProductName,
       packSize: Number(ingredientVendor.packSize),
@@ -281,7 +281,7 @@ export async function PATCH(
     }
 
     // Calculate cost per ingredient unit if pack size or price changed
-    let costPerIngredientUnit = existing.costPerIngredientUnit
+    let costPerIngredientUnit: number | null = existing.costPerIngredientUnit ? Number(existing.costPerIngredientUnit) : null
     if (packSize !== undefined || pricePerPack !== undefined) {
       const newPackSize = packSize ?? existing.packSize
       const newPrice = pricePerPack ?? existing.pricePerPack
@@ -319,14 +319,14 @@ export async function PATCH(
         ...(notes !== undefined && { notes: notes?.trim() || null }),
       },
       include: {
-        vendor: true,
+        Vendor: true,
       },
     })
 
     return NextResponse.json({
       id: updated.id,
       vendorId: updated.vendorId,
-      vendorName: updated.vendor.name,
+      vendorName: updated.Vendor.name,
       vendorSku: updated.vendorSku,
       vendorProductName: updated.vendorProductName,
       packSize: Number(updated.packSize),

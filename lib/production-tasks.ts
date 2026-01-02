@@ -42,16 +42,16 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
   const order = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      cakeTiers: {
+      CakeTier: {
         include: {
-          tierSize: true,
-          batterRecipe: true
+          TierSize: true,
+          Recipe_CakeTier_batterRecipeIdToRecipe: true
         }
       },
-      orderItems: {
+      OrderItem: {
         include: {
-          productType: true,
-          menuItem: true
+          ProductType: true,
+          MenuItem: true
         }
       }
     }
@@ -65,16 +65,16 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
   const eventDate = new Date(order.eventDate)
 
   // Calculate prep day (1 day before event by default, or 2 days for complex orders)
-  const isComplex = order.cakeTiers.length >= 3 || order.orderItems.length > 5
+  const isComplex = order.CakeTier.length >= 3 || order.OrderItem.length > 5
   const prepDays = isComplex ? 2 : 1
   const prepDate = new Date(eventDate)
   prepDate.setDate(prepDate.getDate() - prepDays)
 
   // Generate tasks for cake tiers
-  for (let i = 0; i < order.cakeTiers.length; i++) {
-    const tier = order.cakeTiers[i]
-    const tierName = tier.tierSize?.name || `Tier ${i + 1}`
-    const flavorName = tier.batterRecipe?.name || 'cake'
+  for (let i = 0; i < order.CakeTier.length; i++) {
+    const tier = order.CakeTier[i]
+    const tierName = tier.TierSize?.name || `Tier ${i + 1}`
+    const flavorName = tier.Recipe_CakeTier_batterRecipeIdToRecipe?.name || 'cake'
 
     // Prep task
     tasks.push({
@@ -112,16 +112,16 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
   }
 
   // Assemble task (for multi-tier cakes, or single tier final assembly)
-  if (order.cakeTiers.length > 0) {
+  if (order.CakeTier.length > 0) {
     tasks.push({
       taskType: 'ASSEMBLE',
-      taskName: order.cakeTiers.length > 1
-        ? `Assemble ${order.cakeTiers.length}-tier cake`
+      taskName: order.CakeTier.length > 1
+        ? `Assemble ${order.CakeTier.length}-tier cake`
         : `Final Assembly`,
       productType: 'CAKE',
       itemIndex: null,
       scheduledDate: eventDate,
-      durationMinutes: TASK_DURATIONS.ASSEMBLE * order.cakeTiers.length,
+      durationMinutes: TASK_DURATIONS.ASSEMBLE * order.CakeTier.length,
       dependsOnTask: 'STACK'
     })
 
@@ -132,15 +132,15 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
       productType: 'CAKE',
       itemIndex: null,
       scheduledDate: eventDate,
-      durationMinutes: TASK_DURATIONS.DECORATE * Math.ceil(order.cakeTiers.length / 2),
+      durationMinutes: TASK_DURATIONS.DECORATE * Math.ceil(order.CakeTier.length / 2),
       dependsOnTask: 'ASSEMBLE'
     })
   }
 
   // Generate tasks for order items (cupcakes, etc.)
-  const itemsByType = new Map<string, typeof order.orderItems>()
-  for (const item of order.orderItems) {
-    const typeName = item.productType?.name || 'Item'
+  const itemsByType = new Map<string, typeof order.OrderItem>()
+  for (const item of order.OrderItem) {
+    const typeName = item.ProductType?.name || 'Item'
     const existing = itemsByType.get(typeName) || []
     existing.push(item)
     itemsByType.set(typeName, existing)
@@ -195,7 +195,7 @@ export async function generateTasksForOrder(orderId: number): Promise<GeneratedT
   })
 
   // Delivery task (if delivery)
-  if (order.deliveryMethod === 'delivery') {
+  if (order.isDelivery) {
     tasks.push({
       taskType: 'DELIVERY',
       taskName: `Deliver order #${orderId}`,

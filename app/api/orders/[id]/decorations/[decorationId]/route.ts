@@ -18,7 +18,7 @@ export async function PATCH(
         ...(notes !== undefined && { notes })
       },
       include: {
-        decorationTechnique: true
+        DecorationTechnique: true
       }
     })
 

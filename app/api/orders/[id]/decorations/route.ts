@@ -19,7 +19,7 @@ export async function POST(
         quantity
       },
       include: {
-        decorationTechnique: true
+        DecorationTechnique: true
       }
     })
 

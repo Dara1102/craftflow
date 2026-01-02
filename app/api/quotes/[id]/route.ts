@@ -230,14 +230,14 @@ export async function PUT(
     const existingQuote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        quoteTiers: {
+        QuoteTier: {
           include: {
-            tierSize: true
+            TierSize: true
           }
         },
-        quoteDecorations: {
+        QuoteDecoration: {
           include: {
-            decorationTechnique: true
+            DecorationTechnique: true
           }
         }
       }
@@ -260,7 +260,7 @@ export async function PUT(
         customerId: body.customerId !== undefined ? body.customerId : existingQuote.customerId,
         customerName: body.customerName !== undefined ? body.customerName : existingQuote.customerName,
         eventDate: body.eventDate ? new Date(body.eventDate) : existingQuote.eventDate,
-        tiers: existingQuote.quoteTiers.map(tier => ({
+        tiers: existingQuote.QuoteTier.map(tier => ({
           tierSizeId: tier.tierSizeId,
           tierIndex: tier.tierIndex,
           batterRecipeId: tier.batterRecipeId,
@@ -273,7 +273,7 @@ export async function PUT(
           filling: tier.filling,
           finishType: tier.finishType
         })),
-        decorations: existingQuote.quoteDecorations.map(dec => ({
+        decorations: existingQuote.QuoteDecoration.map(dec => ({
           decorationTechniqueId: dec.decorationTechniqueId,
           quantity: dec.quantity
         })),
@@ -346,6 +346,27 @@ export async function PUT(
         }
       }
 
+      // If products are provided, delete existing and create new ones
+      if (body.products && Array.isArray(body.products)) {
+        await tx.quoteItem.deleteMany({
+          where: { quoteId }
+        })
+
+        for (const product of body.products) {
+          await tx.quoteItem.create({
+            data: {
+              quoteId,
+              itemType: 'MENU_ITEM',
+              menuItemId: product.menuItemId,
+              quantity: product.quantity || 1,
+              packagingId: product.packagingId || null,
+              packagingQty: product.packagingQty || null,
+              notes: product.notes || null
+            }
+          })
+        }
+      }
+
       // Build update data object, only including fields that are provided
       // Helper to safely parse float, returning null for invalid/empty values
       const safeParseFloat = (value: any): number | null => {
@@ -359,18 +380,18 @@ export async function PUT(
       // Handle customer relation
       if (body.customerId !== undefined) {
         if (body.customerId === null) {
-          updateData.customer = { disconnect: true }
+          updateData.Customer = { disconnect: true }
         } else {
-          updateData.customer = { connect: { id: body.customerId } }
+          updateData.Customer = { connect: { id: body.customerId } }
         }
       }
 
       // Handle delivery zone relation
       if (body.deliveryZoneId !== undefined) {
         if (body.deliveryZoneId === null) {
-          updateData.deliveryZone = { disconnect: true }
+          updateData.DeliveryZone = { disconnect: true }
         } else {
-          updateData.deliveryZone = { connect: { id: body.deliveryZoneId } }
+          updateData.DeliveryZone = { connect: { id: body.deliveryZoneId } }
         }
       }
 
@@ -401,9 +422,16 @@ export async function PUT(
       if (body.depositPercent !== undefined) {
         updateData.depositPercent = body.depositPercent === null ? null : safeParseFloat(body.depositPercent)
       }
+      if (body.depositType !== undefined) updateData.depositType = body.depositType
+      if (body.depositAmount !== undefined) {
+        updateData.depositAmount = body.depositAmount === null ? null : safeParseFloat(body.depositAmount)
+      }
       if (body.discountType !== undefined) updateData.discountType = body.discountType
       if (body.discountValue !== undefined) updateData.discountValue = safeParseFloat(body.discountValue)
       if (body.discountReason !== undefined) updateData.discountReason = body.discountReason
+      if (body.priceAdjustment !== undefined) {
+        updateData.priceAdjustment = body.priceAdjustment === null ? null : safeParseFloat(body.priceAdjustment)
+      }
       if (body.status !== undefined) updateData.status = body.status
       if (body.expiresAt) updateData.expiresAt = new Date(body.expiresAt)
       if (body.notes !== undefined) updateData.notes = body.notes
@@ -419,22 +447,22 @@ export async function PUT(
         where: { id: quoteId },
         data: updateData,
         include: {
-          customer: true,
-          deliveryZone: true,
-          quoteTiers: {
+          Customer: true,
+          DeliveryZone: true,
+          QuoteTier: {
             include: {
-              tierSize: true,
-              batterRecipe: true,
-              fillingRecipe: true,
-              frostingRecipe: true
+              TierSize: true,
+              Recipe_QuoteTier_batterRecipeIdToRecipe: true,
+              Recipe_QuoteTier_fillingRecipeIdToRecipe: true,
+              Recipe_QuoteTier_frostingRecipeIdToRecipe: true
             },
             orderBy: {
               tierIndex: 'asc'
             }
           },
-          quoteDecorations: {
+          QuoteDecoration: {
             include: {
-              decorationTechnique: true
+              DecorationTechnique: true
             }
           }
         }

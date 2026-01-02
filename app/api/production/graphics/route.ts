@@ -85,14 +85,12 @@ export async function GET(request: Request) {
         id: number
         techniqueName: string
         category: string | null
-        customText: string | null
         quantity: number
         notes: string | null
       }[]
       topper: {
         type: string | null
         text: string | null
-        customText: string | null
       } | null
       cakeStyle: string | null
       cakeTheme: string | null
@@ -114,7 +112,6 @@ export async function GET(request: Request) {
         id: d.id,
         techniqueName: d.decorationTechnique.name,
         category: d.decorationTechnique.category || null,
-        customText: d.customText || null,
         quantity: d.quantity || 1,
         notes: d.notes || null
       }))
@@ -126,15 +123,12 @@ export async function GET(request: Request) {
         totalToppers++
         topper = {
           type: order.topperType,
-          text: order.topperText || null,
-          customText: order.customTopperText || null
+          text: order.topperText || null
         }
       }
 
-      // Collect colors from tiers
-      const colors = order.cakeTiers
-        .map(t => t.color)
-        .filter((c): c is string => !!c)
+      // Get colors from order (stored as comma-separated string)
+      const colors = order.colors ? order.colors.split(',').map(c => c.trim()).filter(Boolean) : []
 
       // Get appropriate time based on delivery/pickup
       let eventTime: string | null = null
@@ -152,8 +146,8 @@ export async function GET(request: Request) {
         isDelivery: order.isDelivery,
         decorations,
         topper,
-        cakeStyle: order.cakeStyle || null,
-        cakeTheme: order.cakeTheme || null,
+        cakeStyle: order.cakeType || null,
+        cakeTheme: order.theme || null,
         colors: [...new Set(colors)],
         notes: order.notes || null
       })

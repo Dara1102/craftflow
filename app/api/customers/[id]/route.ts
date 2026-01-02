@@ -12,11 +12,11 @@ export async function GET(
     const customer = await prisma.customer.findUnique({
       where: { id: parseInt(id) },
       include: {
-        orders: {
+        CakeOrder: {
           orderBy: { eventDate: 'desc' },
           include: {
-            cakeTiers: {
-              include: { tierSize: true },
+            CakeTier: {
+              include: { TierSize: true },
             },
           },
         },
@@ -83,7 +83,7 @@ export async function DELETE(
     // Check if customer has orders
     const customer = await prisma.customer.findUnique({
       where: { id: parseInt(id) },
-      include: { _count: { select: { orders: true } } },
+      include: { _count: { select: { CakeOrder: true } } },
     })
 
     if (!customer) {
@@ -93,7 +93,7 @@ export async function DELETE(
       )
     }
 
-    if (customer._count.orders > 0) {
+    if (customer._count.CakeOrder > 0) {
       return NextResponse.json(
         { error: 'Cannot delete customer with existing orders' },
         { status: 400 }

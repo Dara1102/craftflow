@@ -52,22 +52,22 @@ export async function GET(request: Request) {
     const orders = await prisma.cakeOrder.findMany({
       where: { id: { in: orderIds } },
       include: {
-        customer: true,
-        orderItems: {
+        Customer: true,
+        OrderItem: {
           where: {
             itemType: 'MENU_ITEM',
             ...productTypeFilter
           },
           include: {
-            menuItem: {
+            MenuItem: {
               include: {
-                batterRecipe: true,
-                fillingRecipe: true,
-                frostingRecipe: true
+                Recipe_MenuItem_batterRecipeIdToRecipe: true,
+                Recipe_MenuItem_fillingRecipeIdToRecipe: true,
+                Recipe_MenuItem_frostingRecipeIdToRecipe: true
               }
             },
-            productType: true,
-            packaging: true
+            ProductType: true,
+            Packaging: true
           }
         },
         OrderDecoration: {
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
     })
 
     // Filter to only orders that have matching items
-    const ordersWithItems = orders.filter(o => o.orderItems.length > 0)
+    const ordersWithItems = orders.filter(o => o.OrderItem.length > 0)
 
     // Group items by event date
     const itemsByDate: {
@@ -126,7 +126,7 @@ export async function GET(request: Request) {
 
       const dateGroup = dateMap.get(dateKey)!
 
-      for (const item of order.orderItems) {
+      for (const item of order.OrderItem) {
         totalQuantity += item.quantity
         totalItems++
 
@@ -147,17 +147,17 @@ export async function GET(request: Request) {
         dateGroup.items.push({
           orderId: order.id,
           orderItemId: item.id,
-          customerName: order.customer?.name || 'Unknown Customer',
+          customerName: order.Customer?.name || 'Unknown Customer',
           eventDate: order.eventDate.toISOString(),
           eventTime,
           isDelivery: order.isDelivery,
-          productTypeName: item.productType?.name || 'Unknown',
-          menuItemName: item.menuItem?.name || item.itemName || null,
+          productTypeName: item.ProductType?.name || 'Unknown',
+          menuItemName: item.MenuItem?.name || item.itemName || null,
           quantity: item.quantity,
-          batterRecipe: item.menuItem?.batterRecipe?.name || null,
-          fillingRecipe: item.menuItem?.fillingRecipe?.name || null,
-          frostingRecipe: item.menuItem?.frostingRecipe?.name || null,
-          packaging: item.packaging?.name || null,
+          batterRecipe: item.MenuItem?.Recipe_MenuItem_batterRecipeIdToRecipe?.name || null,
+          fillingRecipe: item.MenuItem?.Recipe_MenuItem_fillingRecipeIdToRecipe?.name || null,
+          frostingRecipe: item.MenuItem?.Recipe_MenuItem_frostingRecipeIdToRecipe?.name || null,
+          packaging: item.Packaging?.name || null,
           packagingQty: item.packagingQty || null,
           notes: item.notes || null,
           style: order.theme || null,

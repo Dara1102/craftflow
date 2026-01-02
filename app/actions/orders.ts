@@ -56,9 +56,9 @@ export interface CreateOrderData {
     batterRecipeId?: number | null
     fillingRecipeId?: number | null
     frostingRecipeId?: number | null
-    flavor: string
-    filling: string
-    finishType: string
+    flavor: string | null
+    filling: string | null
+    finishType: string | null
     frostingComplexity?: number
   }[]
   decorations: {
@@ -133,7 +133,7 @@ export async function createOrder(data: CreateOrderData) {
       isRush: data.isRush || false,
       rushSkipBatchTypes: data.rushSkipBatchTypes ? JSON.stringify(data.rushSkipBatchTypes) : null,
 
-      cakeTiers: {
+      CakeTier: {
         create: data.tiers.map((tier, index) => ({
           tierIndex: index + 1,
           tierSizeId: tier.tierSizeId,
@@ -146,7 +146,7 @@ export async function createOrder(data: CreateOrderData) {
           frostingComplexity: tier.frostingComplexity || 2,
         }))
       },
-      orderDecorations: {
+      OrderDecoration: {
         create: data.decorations.map((dec) => ({
           decorationTechniqueId: dec.decorationTechniqueId,
           quantity: dec.quantity,
@@ -155,7 +155,7 @@ export async function createOrder(data: CreateOrderData) {
           tierIndices: dec.tierIndices || [],
         }))
       },
-      orderItems: {
+      OrderItem: {
         create: (data.products || []).map((product) => ({
           itemType: 'MENU_ITEM',
           menuItemId: product.menuItemId,

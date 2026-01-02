@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
@@ -38,7 +38,31 @@ interface DeliveryResult {
   }
 }
 
+function LoadingFallback() {
+  return (
+    <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div className="px-4 py-6 sm:px-0">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
+          <div className="space-y-4">
+            <div className="h-32 bg-gray-200 rounded"></div>
+            <div className="h-32 bg-gray-200 rounded"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DeliveryReportPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <DeliveryReportPageInner />
+    </Suspense>
+  )
+}
+
+function DeliveryReportPageInner() {
   const searchParams = useSearchParams()
   const [data, setData] = useState<DeliveryResult | null>(null)
   const [loading, setLoading] = useState(true)

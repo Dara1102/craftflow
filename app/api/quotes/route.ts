@@ -144,25 +144,29 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const year = new Date().getFullYear()
-    const lastQuote = await prisma.quote.findFirst({
-      where: {
-        quoteNumber: {
-          startsWith: `Q-${year}-`
+    // Helper function to generate next quote number
+    const generateQuoteNumber = async (): Promise<string> => {
+      const year = new Date().getFullYear()
+      const lastQuote = await prisma.quote.findFirst({
+        where: {
+          quoteNumber: {
+            startsWith: `Q-${year}-`
+          }
+        },
+        orderBy: {
+          quoteNumber: 'desc'
         }
-      },
-      orderBy: {
-        quoteNumber: 'desc'
-      }
-    })
+      })
 
-    let quoteNumber: string
-    if (lastQuote) {
-      const lastNum = parseInt(lastQuote.quoteNumber.split('-')[2])
-      quoteNumber = `Q-${year}-${String(lastNum + 1).padStart(3, '0')}`
-    } else {
-      quoteNumber = `Q-${year}-001`
+      if (lastQuote) {
+        const lastNum = parseInt(lastQuote.quoteNumber.split('-')[2])
+        return `Q-${year}-${String(lastNum + 1).padStart(3, '0')}`
+      } else {
+        return `Q-${year}-001`
+      }
     }
+
+    let quoteNumber = await generateQuoteNumber()
 
     // Calculate costing
     const quoteInput: QuoteInput = {
@@ -357,12 +361,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Create quote with tiers and decorations
-    // Wrap in try-catch to get more specific error details
+    // Retry up to 3 times if quote number conflict occurs (P2002)
     let quote
-    try {
-      quote = await prisma.quote.create({
+    let retryCount = 0
+    const maxRetries = 3
+    let usedQuoteNumber = quoteNumber
+
+    while (retryCount < maxRetries) {
+      try {
+        quote = await prisma.quote.create({
       data: {
-        quoteNumber,
+        quoteNumber: usedQuoteNumber,
         customerId: body.customerId || null,
         customerName: trimmedCustomerName,
         eventDate: new Date(body.eventDate),
@@ -389,9 +398,16 @@ export async function POST(request: NextRequest) {
         depositPercent: body.depositPercent !== undefined && body.depositPercent !== null
           ? parseFloat(body.depositPercent.toString())
           : null,
+        depositType: body.depositType || null,
+        depositAmount: body.depositAmount !== undefined && body.depositAmount !== null
+          ? parseFloat(body.depositAmount.toString())
+          : null,
         discountType: body.discountType || null,
         discountValue: body.discountValue ? parseFloat(body.discountValue.toString()) : null,
         discountReason: body.discountReason || null,
+        priceAdjustment: body.priceAdjustment !== undefined && body.priceAdjustment !== null
+          ? parseFloat(body.priceAdjustment.toString())
+          : null,
         status: body.status || 'DRAFT',
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
         notes: body.notes || null,
@@ -402,13 +418,13 @@ export async function POST(request: NextRequest) {
         budgetMax: body.budgetMax !== undefined && body.budgetMax !== null
           ? parseFloat(body.budgetMax.toString())
           : null,
-        quoteTiers: {
+        QuoteTier: {
           create: tiersToCreate
         },
-        quoteDecorations: {
+        QuoteDecoration: {
           create: decorationsToCreate
         },
-        quoteItems: {
+        QuoteItem: {
           create: productsToCreate
         }
       },
@@ -466,27 +482,49 @@ export async function POST(request: NextRequest) {
         packaging: item.Packaging
       }))
     } as any
-    } catch (createError) {
-      // Log the specific Prisma create error with full details
-      console.error('Prisma create error details:', {
-        error: createError,
-        errorType: typeof createError,
-        errorString: String(createError),
-        errorKeys: createError && typeof createError === 'object' ? Object.keys(createError) : [],
-        ...(createError && typeof createError === 'object' && 'code' in createError ? {
-          prismaCode: (createError as any).code,
-          prismaMeta: (createError as any).meta,
-          prismaMessage: (createError as any).message
-        } : {})
-      })
-      // Re-throw to be caught by outer catch
-      throw createError
+        // Successfully created - break out of retry loop
+        break
+      } catch (createError: any) {
+        // Check if it's a quote number conflict (P2002 unique constraint)
+        if (createError?.code === 'P2002' && createError?.meta?.target?.includes('quoteNumber')) {
+          retryCount++
+          if (retryCount < maxRetries) {
+            // Generate a new quote number and retry
+            usedQuoteNumber = await generateQuoteNumber()
+            console.log(`Quote number conflict, retrying with: ${usedQuoteNumber}`)
+            continue
+          }
+        }
+
+        // Log the specific Prisma create error with full details
+        console.error('Prisma create error details:', {
+          error: createError,
+          errorType: typeof createError,
+          errorString: String(createError),
+          errorKeys: createError && typeof createError === 'object' ? Object.keys(createError) : [],
+          ...(createError && typeof createError === 'object' && 'code' in createError ? {
+            prismaCode: createError.code,
+            prismaMeta: createError.meta,
+            prismaMessage: createError.message
+          } : {})
+        })
+        // Re-throw to be caught by outer catch
+        throw createError
+      }
     }
 
-    return NextResponse.json({
-      quote,
-      costing
-    })
+    // Check if we successfully created the quote
+    if (!quote) {
+      throw new Error('Failed to create quote after retries')
+    }
+
+    // Build response with optional message about quote number change
+    const response: any = { quote, costing }
+    if (usedQuoteNumber !== quoteNumber) {
+      response.message = `Quote number ${quoteNumber} was already taken. Your quote was assigned number ${usedQuoteNumber}.`
+    }
+
+    return NextResponse.json(response)
   } catch (error) {
     console.error('Error creating quote:', error)
     

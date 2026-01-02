@@ -12,30 +12,30 @@ export async function GET(
     const menuItem = await prisma.menuItem.findUnique({
       where: { id: menuItemId },
       include: {
-        productType: true,
-        batterRecipe: {
+        ProductType: true,
+        Recipe_MenuItem_batterRecipeIdToRecipe: {
           include: {
-            recipeIngredients: {
-              include: { ingredient: true }
+            RecipeIngredient: {
+              include: { Ingredient: true }
             }
           }
         },
-        fillingRecipe: {
+        Recipe_MenuItem_fillingRecipeIdToRecipe: {
           include: {
-            recipeIngredients: {
-              include: { ingredient: true }
+            RecipeIngredient: {
+              include: { Ingredient: true }
             }
           }
         },
-        frostingRecipe: {
+        Recipe_MenuItem_frostingRecipeIdToRecipe: {
           include: {
-            recipeIngredients: {
-              include: { ingredient: true }
+            RecipeIngredient: {
+              include: { Ingredient: true }
             }
           }
         },
-        laborRole: true,
-        defaultPackaging: true
+        LaborRole: true,
+        Packaging: true
       }
     })
 
@@ -85,10 +85,10 @@ export async function PATCH(
         ...(data.imageUrl !== undefined && { imageUrl: data.imageUrl })
       },
       include: {
-        productType: true,
-        batterRecipe: true,
-        fillingRecipe: true,
-        frostingRecipe: true
+        ProductType: true,
+        Recipe_MenuItem_batterRecipeIdToRecipe: true,
+        Recipe_MenuItem_fillingRecipeIdToRecipe: true,
+        Recipe_MenuItem_frostingRecipeIdToRecipe: true
       }
     })
 

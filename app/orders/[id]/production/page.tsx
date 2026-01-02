@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { prisma } from '@/lib/db'
 import { calculateOrderCosting } from '@/lib/costing'
+import PrintButton from '@/app/components/PrintButton'
 
 export default async function ProductionSheet({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -10,26 +11,26 @@ export default async function ProductionSheet({ params }: { params: Promise<{ id
   const order = await prisma.cakeOrder.findUnique({
     where: { id: orderId },
     include: {
-      customer: true,
-      cakeTiers: {
+      Customer: true,
+      CakeTier: {
         include: {
-          tierSize: true
+          TierSize: true
         },
         orderBy: { tierIndex: 'asc' }
       },
-      orderDecorations: {
+      OrderDecoration: {
         include: {
-          decorationTechnique: true
+          DecorationTechnique: true
         }
       },
-      orderItems: {
+      OrderItem: {
         include: {
-          menuItem: {
+          MenuItem: {
             include: {
-              productType: true
+              ProductType: true
             }
           },
-          packaging: true
+          Packaging: true
         }
       }
     }
@@ -71,7 +72,7 @@ export default async function ProductionSheet({ params }: { params: Promise<{ id
       {/* Print Header - Only shows when printing */}
       <div className="hidden print:block mb-4 border-b-2 border-black pb-2">
         <h1 className="text-2xl font-bold">Production Sheet - Order #{order.id}</h1>
-        <p className="text-sm">{order.customer?.name || order.customerName} | {new Date(order.eventDate).toLocaleDateString()}</p>
+        <p className="text-sm">{order.Customer?.name || order.customerName} | {new Date(order.eventDate).toLocaleDateString()}</p>
       </div>
 
       {/* Screen Header */}
@@ -82,7 +83,7 @@ export default async function ProductionSheet({ params }: { params: Promise<{ id
           <svg className="mx-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
-          <Link href={`/orders/${order.id}`} className="hover:text-pink-600">{order.customer?.name || order.customerName}</Link>
+          <Link href={`/orders/${order.id}`} className="hover:text-pink-600">{order.Customer?.name || order.customerName}</Link>
           <svg className="mx-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
@@ -93,16 +94,11 @@ export default async function ProductionSheet({ params }: { params: Promise<{ id
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Production Sheet</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Order #{order.id} | {order.customer?.name || order.customerName} | {new Date(order.eventDate).toLocaleDateString()}
+              Order #{order.id} | {order.Customer?.name || order.customerName} | {new Date(order.eventDate).toLocaleDateString()}
             </p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={() => window.print()}
-              className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition text-sm font-medium print:hidden"
-            >
-              Print Sheet
-            </button>
+            <PrintButton className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition text-sm font-medium print:hidden" />
             <Link
               href={`/orders/${order.id}/costing`}
               className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium"
@@ -119,7 +115,7 @@ export default async function ProductionSheet({ params }: { params: Promise<{ id
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-gray-500">Customer:</span>
-            <p className="font-medium">{order.customer?.name || order.customerName}</p>
+            <p className="font-medium">{order.Customer?.name || order.customerName}</p>
           </div>
           <div>
             <span className="text-gray-500">Event Date:</span>
@@ -413,21 +409,6 @@ export default async function ProductionSheet({ params }: { params: Promise<{ id
           </label>
         </div>
       </div>
-
-      {/* Print styles */}
-      <style jsx global>{`
-        @media print {
-          body {
-            font-size: 11px;
-          }
-          .print\\:hidden {
-            display: none !important;
-          }
-          .print\\:block {
-            display: block !important;
-          }
-        }
-      `}</style>
     </div>
   )
 }

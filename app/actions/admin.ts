@@ -59,7 +59,7 @@ export async function createRecipe(data: {
       coolMinutes: recipeData.coolMinutes || null,
       laborMinutes: recipeData.laborMinutes || null,
       laborRoleId: recipeData.laborRoleId || null,
-      recipeIngredients: {
+      RecipeIngredient: {
         create: ingredients
       }
     }

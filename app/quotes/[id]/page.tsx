@@ -123,6 +123,17 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
           DecorationTechnique: true
         }
       },
+      QuoteItem: {
+        include: {
+          MenuItem: {
+            include: {
+              ProductType: true,
+              LaborRole: true
+            }
+          },
+          Packaging: true
+        }
+      },
       CakeOrder: true,
       Quote: {
         select: {
@@ -176,6 +187,13 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
       unitOverride: dec.unitOverride || undefined,
       tierIndices: dec.tierIndices && dec.tierIndices.length > 0 ? dec.tierIndices : undefined
     })),
+    products: quote.QuoteItem.map((item: typeof quote.QuoteItem[0]) => ({
+      menuItemId: item.menuItemId!,
+      quantity: item.quantity,
+      packagingId: item.packagingId || undefined,
+      packagingQty: item.packagingQty || undefined,
+      notes: item.notes || undefined
+    })),
     isDelivery: quote.isDelivery,
     deliveryZoneId: quote.deliveryZoneId,
     deliveryDistance: quote.deliveryDistance ? Number(quote.deliveryDistance) : null,
@@ -198,6 +216,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     totalServings: costingRaw.totalServings,
     ingredients: costingRaw.ingredients,
     decorations: costingRaw.decorations,
+    products: costingRaw.products,
     topper: costingRaw.topper,
     delivery: costingRaw.delivery,
     discount: costingRaw.discount,
@@ -256,6 +275,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     notes: quote.notes,
     convertedOrderId: quote.convertedOrderId,
     depositPercent: quote.depositPercent ? Number(quote.depositPercent) : null,
+    depositType: quote.depositType || null,
+    depositAmount: quote.depositAmount ? Number(quote.depositAmount) : null,
+    priceAdjustment: quote.priceAdjustment ? Number(quote.priceAdjustment) : null,
     version: quote.version,
     originalQuoteId: quote.originalQuoteId,
     revisionHistory: buildRevisionHistory(quote),
@@ -284,6 +306,28 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
         name: dec.DecorationTechnique.name,
         category: dec.DecorationTechnique.category
       }
+    })),
+    quoteItems: quote.QuoteItem.map((item: typeof quote.QuoteItem[0]) => ({
+      id: item.id,
+      menuItemId: item.menuItemId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice ? Number(item.unitPrice) : null,
+      notes: item.notes,
+      packagingId: item.packagingId,
+      packagingQty: item.packagingQty,
+      menuItem: item.MenuItem ? {
+        id: item.MenuItem.id,
+        name: item.MenuItem.name,
+        menuPrice: Number(item.MenuItem.menuPrice),
+        productType: item.MenuItem.ProductType ? {
+          id: item.MenuItem.ProductType.id,
+          name: item.MenuItem.ProductType.name
+        } : null
+      } : null,
+      packaging: item.Packaging ? {
+        id: item.Packaging.id,
+        name: item.Packaging.name
+      } : null
     }))
   }
 

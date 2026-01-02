@@ -9,6 +9,7 @@ interface CostingData {
   totalServings: number
   ingredients: { ingredientId: number; name: string; quantity: number; unit: string; cost: number }[]
   decorations: { techniqueId: number; sku: string; name: string; category: string; quantity: number; unit: string; materialCost: number; laborMinutes: number; laborRole: string; laborRate: number; laborCost: number; totalCost: number }[]
+  products: { menuItemId: number; name: string; productType: string; quantity: number; unitPrice: number; subtotal: number; laborMinutes: number | null; laborCost: number }[]
   topper: { type: string; text: string | null; cost: number } | null
   delivery: { zoneName: string; baseFee: number; perMileFee: number | null; estimatedDistance: number | null; totalFee: number } | null
   discount: { type: 'PERCENT' | 'FIXED'; value: number; reason: string | null; amount: number } | null
@@ -71,6 +72,9 @@ interface QuoteData {
   notes: string | null
   convertedOrderId: number | null
   depositPercent: number | null
+  depositType: string | null
+  depositAmount: number | null
+  priceAdjustment: number | null
   version: number
   originalQuoteId: number | null
   revisionHistory: RevisionInfo[]
@@ -90,6 +94,22 @@ interface QuoteData {
     quantity: number
     notes: string | null
     decorationTechnique: { id: number; name: string; category: string }
+  }[]
+  quoteItems: {
+    id: number
+    menuItemId: number | null
+    quantity: number
+    unitPrice: number | null
+    notes: string | null
+    packagingId: number | null
+    packagingQty: number | null
+    menuItem: {
+      id: number
+      name: string
+      menuPrice: number
+      productType: { id: number; name: string } | null
+    } | null
+    packaging: { id: number; name: string } | null
   }[]
 }
 
@@ -568,6 +588,36 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                   </div>
                 )}
 
+                {/* Additional Products */}
+                {quote.quoteItems.length > 0 && (
+                  <div className="bg-white shadow rounded-lg p-6">
+                    <h2 className="text-xl font-semibold mb-4">Additional Products</h2>
+                    <div className="space-y-2">
+                      {quote.quoteItems.map(item => (
+                        <div key={item.id} className="flex justify-between items-center p-3 border border-gray-200 rounded">
+                          <div>
+                            <span className="font-medium">{item.menuItem?.name || 'Unknown Item'}</span>
+                            {item.menuItem?.productType && (
+                              <span className="text-gray-500 text-sm ml-2">({item.menuItem.productType.name})</span>
+                            )}
+                            {item.packaging && (
+                              <span className="text-gray-500 text-sm ml-2">- {item.packaging.name}</span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-gray-600">Qty: {item.quantity}</span>
+                            {viewMode === 'customer' && item.menuItem && (
+                              <span className="text-pink-600 font-medium ml-4">
+                                ${(item.menuItem.menuPrice * item.quantity).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Topper */}
                 {quote.topperType && quote.topperType !== 'none' && (
                   <div className="bg-white shadow rounded-lg p-6">
@@ -587,6 +637,58 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                   </div>
                 )}
 
+                {/* Quote Total - Print Only (appears before Terms & Conditions in PDF) */}
+                <div className="hidden print-only bg-white shadow rounded-lg p-6">
+                  <h2 className="text-xl font-semibold mb-4">Quote Summary</h2>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Servings:</span>
+                      <span className="font-medium">{costing.totalServings}</span>
+                    </div>
+
+                    {costing.deliveryCost > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Delivery:</span>
+                        <span>${costing.deliveryCost.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {costing.discount && (
+                      <div className="flex justify-between text-green-600">
+                        <span>Discount ({costing.discount.type === 'PERCENT' ? `${costing.discount.value}%` : 'Fixed'}):</span>
+                        <span>-${costing.discountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex justify-between font-bold text-2xl text-pink-600">
+                        <span>Total:</span>
+                        <span>${((quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice)).toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    {/* Deposit Info */}
+                    {(() => {
+                      const customerPrice = quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice
+                      const depositPct = quote.depositPercent !== null ? quote.depositPercent : defaultDepositPercent
+                      const depositAmt = quote.depositType === 'FIXED' && quote.depositAmount
+                        ? parseFloat(quote.depositAmount.toString())
+                        : customerPrice * depositPct
+                      return (
+                        <div className="bg-pink-50 rounded-lg p-4 mt-4">
+                          <p className="text-sm font-medium text-pink-800">Deposit Required</p>
+                          <p className="text-lg font-bold text-pink-600">
+                            ${depositAmt.toFixed(2)}
+                          </p>
+                          <p className="text-xs text-pink-700 mt-1">
+                            {quote.depositType === 'FIXED' ? 'Fixed deposit' : depositPct === 1 ? 'Full payment' : `${(depositPct * 100).toFixed(0)}%`} to confirm order
+                          </p>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+
                 {/* Terms & Conditions */}
                 <div className="bg-white shadow rounded-lg p-6">
                   <h2 className="text-xl font-semibold mb-4">Terms & Conditions</h2>
@@ -596,8 +698,8 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                 </div>
               </div>
 
-              {/* Pricing Sidebar */}
-              <div className="lg:col-span-1">
+              {/* Pricing Sidebar - hidden in print (print version is above Terms & Conditions) */}
+              <div className="lg:col-span-1 no-print">
                 <div className="bg-white shadow rounded-lg p-6 sticky top-6">
                   <h2 className="text-xl font-semibold mb-4">
                     {viewMode === 'internal' ? 'Cost & Pricing' : 'Quote Summary'}
@@ -610,6 +712,29 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                         <span className="text-gray-600">Total Servings:</span>
                         <span className="font-medium">{costing.totalServings}</span>
                       </div>
+
+                      {/* Price Breakdown for Customer */}
+                      {(quote.quoteTiers.length > 0 || costing.products.length > 0) && (
+                        <div className="border-t pt-3 mt-3">
+                          <p className="font-medium text-gray-900 mb-2">Price Breakdown</p>
+                          <div className="space-y-2 text-gray-600 text-sm">
+                            {/* Cake price (total minus products and delivery) */}
+                            {quote.quoteTiers.length > 0 && (
+                              <div className="flex justify-between">
+                                <span>{quote.quoteTiers.length > 1 ? `${quote.quoteTiers.length}-Tier Cake` : 'Cake'}:</span>
+                                <span>${(costing.suggestedPrice - costing.products.reduce((sum, p) => sum + p.subtotal + p.laborCost, 0) - costing.deliveryCost).toFixed(2)}</span>
+                              </div>
+                            )}
+                            {/* Individual products */}
+                            {costing.products.map((product, idx) => (
+                              <div key={idx} className="flex justify-between">
+                                <span>{product.name} x{product.quantity}:</span>
+                                <span>${(product.subtotal + product.laborCost).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       {costing.deliveryCost > 0 && (
                         <div className="flex justify-between">
@@ -628,21 +753,25 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                       <div className="border-t pt-4 mt-4">
                         <div className="flex justify-between font-bold text-2xl text-pink-600">
                           <span>Total:</span>
-                          <span>${costing.finalPrice.toFixed(2)}</span>
+                          <span>${((quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice)).toFixed(2)}</span>
                         </div>
                       </div>
 
                       {/* Deposit Info */}
                       {(() => {
+                        const customerPrice = quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice
                         const depositPct = quote.depositPercent !== null ? quote.depositPercent : defaultDepositPercent
+                        const depositAmt = quote.depositType === 'FIXED' && quote.depositAmount
+                          ? parseFloat(quote.depositAmount.toString())
+                          : customerPrice * depositPct
                         return (
                           <div className="bg-pink-50 rounded-lg p-4 mt-4">
                             <p className="text-sm font-medium text-pink-800">Deposit Required</p>
                             <p className="text-lg font-bold text-pink-600">
-                              ${(costing.finalPrice * depositPct).toFixed(2)}
+                              ${depositAmt.toFixed(2)}
                             </p>
                             <p className="text-xs text-pink-700 mt-1">
-                              {depositPct === 1 ? 'Full payment' : `${(depositPct * 100).toFixed(0)}%`} to confirm order
+                              {quote.depositType === 'FIXED' ? 'Fixed deposit' : depositPct === 1 ? 'Full payment' : `${(depositPct * 100).toFixed(0)}%`} to confirm order
                             </p>
                           </div>
                         )
@@ -728,8 +857,18 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
 
                       <div className="border-t pt-3 mt-3 space-y-2">
                         <div className="flex justify-between font-bold text-lg">
-                          <span>Final Price:</span>
-                          <span className="text-pink-600">${costing.finalPrice.toFixed(2)}</span>
+                          <span>Calculated Price:</span>
+                          <span className="text-gray-600">${costing.finalPrice.toFixed(2)}</span>
+                        </div>
+                        {quote.priceAdjustment && parseFloat(quote.priceAdjustment.toString()) !== 0 && (
+                          <div className="flex justify-between text-sm text-blue-600">
+                            <span>Adjustment:</span>
+                            <span>{parseFloat(quote.priceAdjustment.toString()) > 0 ? '+' : ''}${parseFloat(quote.priceAdjustment.toString()).toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold text-lg">
+                          <span>Customer Price:</span>
+                          <span className="text-pink-600">${((quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice)).toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-xs text-gray-500">
                           <span>Cost per serving:</span>
@@ -742,8 +881,8 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                         <div className="flex justify-between text-xs font-medium text-green-600">
                           <span>Profit Margin:</span>
                           <span>
-                            ${(costing.finalPrice - costing.totalCost).toFixed(2)}
-                            ({((costing.finalPrice - costing.totalCost) / costing.finalPrice * 100).toFixed(0)}%)
+                            ${((quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice) - costing.totalCost).toFixed(2)}
+                            ({(((quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice) - costing.totalCost) / (quote.priceAdjustment ? costing.finalPrice + parseFloat(quote.priceAdjustment.toString()) : costing.finalPrice) * 100).toFixed(0)}%)
                           </span>
                         </div>
                       </div>

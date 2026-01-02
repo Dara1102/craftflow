@@ -18,8 +18,8 @@ export async function POST(
     const originalQuote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        quoteTiers: true,
-        quoteDecorations: true
+        QuoteTier: true,
+        QuoteDecoration: true
       }
     })
 
@@ -96,7 +96,7 @@ export async function POST(
       })
 
       // Copy all tiers
-      for (const tier of originalQuote.quoteTiers) {
+      for (const tier of originalQuote.QuoteTier) {
         await tx.quoteTier.create({
           data: {
             quoteId: newQuote.id,
@@ -116,7 +116,7 @@ export async function POST(
       }
 
       // Copy all decorations
-      for (const dec of originalQuote.quoteDecorations) {
+      for (const dec of originalQuote.QuoteDecoration) {
         await tx.quoteDecoration.create({
           data: {
             quoteId: newQuote.id,

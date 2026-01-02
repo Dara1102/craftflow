@@ -37,6 +37,13 @@ export async function POST(request: NextRequest) {
         finishType: tier.finishType || null
       })),
       decorations: body.decorations || [],
+      products: (body.products || []).map((p: any) => ({
+        menuItemId: p.menuItemId,
+        quantity: p.quantity || 1,
+        packagingId: p.packagingId || null,
+        packagingQty: p.packagingQty || null,
+        notes: p.notes || null
+      })),
       isDelivery: body.isDelivery || false,
       deliveryZoneId: body.deliveryZoneId || null,
       deliveryDistance: body.deliveryDistance || null,

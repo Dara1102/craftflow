@@ -568,7 +568,7 @@ export async function calculateOrderCosting(
       multiplier: batterMultiplier || 1,
       // Include scaled ingredients for production
       ...(includeFullRecipes && batterMultiplier ? {
-        scaledIngredients: batterRecipe.recipeIngredients.map(ri => ({
+        scaledIngredients: batterRecipe.recipeIngredients.map((ri: any) => ({
           ingredientId: ri.ingredientId,
           name: ri.ingredient.name,
           quantity: Math.round(Number(ri.quantity) * batterMultiplier * 100) / 100,
@@ -590,7 +590,7 @@ export async function calculateOrderCosting(
       },
       multiplier: fillingMultiplier || 1,
       ...(includeFullRecipes && fillingMultiplier ? {
-        scaledIngredients: fillingRecipe.recipeIngredients.map(ri => ({
+        scaledIngredients: fillingRecipe.recipeIngredients.map((ri: any) => ({
           ingredientId: ri.ingredientId,
           name: ri.ingredient.name,
           quantity: Math.round(Number(ri.quantity) * fillingMultiplier * 100) / 100,
@@ -612,7 +612,7 @@ export async function calculateOrderCosting(
       },
       multiplier: frostingMultiplier || 1,
       ...(includeFullRecipes && frostingMultiplier ? {
-        scaledIngredients: frostingRecipe.recipeIngredients.map(ri => ({
+        scaledIngredients: frostingRecipe.recipeIngredients.map((ri: any) => ({
           ingredientId: ri.ingredientId,
           name: ri.ingredient.name,
           quantity: Math.round(Number(ri.quantity) * frostingMultiplier * 100) / 100,
@@ -1524,7 +1524,7 @@ export async function calculateQuoteCost(
     if (tierInput.batterRecipeId) {
       batterRecipe = allRecipes.find(r => r.id === tierInput.batterRecipeId) || null
     } else if (tierInput.flavor) {
-      batterRecipe = await findMatchingRecipe(tierInput.flavor, 'BATTER', allRecipes)
+      batterRecipe = await findMatchingRecipe(tierInput.flavor, 'BATTER', allRecipes as any) as typeof batterRecipe
     }
 
     if (batterRecipe && !batterMultiplier) {
@@ -1538,7 +1538,7 @@ export async function calculateQuoteCost(
     if (tierInput.fillingRecipeId) {
       fillingRecipe = allRecipes.find(r => r.id === tierInput.fillingRecipeId) || null
     } else if (tierInput.filling) {
-      fillingRecipe = await findMatchingRecipe(tierInput.filling, 'FILLING', allRecipes)
+      fillingRecipe = await findMatchingRecipe(tierInput.filling, 'FILLING', allRecipes as any) as typeof fillingRecipe
     }
 
     if (fillingRecipe && !fillingMultiplier) {
@@ -1552,7 +1552,7 @@ export async function calculateQuoteCost(
     if (tierInput.frostingRecipeId) {
       frostingRecipe = allRecipes.find(r => r.id === tierInput.frostingRecipeId) || null
     } else if (tierInput.finishType) {
-      frostingRecipe = await findMatchingRecipe(tierInput.finishType, 'FROSTING', allRecipes)
+      frostingRecipe = await findMatchingRecipe(tierInput.finishType, 'FROSTING', allRecipes as any) as typeof frostingRecipe
     }
 
     if (frostingRecipe && !frostingMultiplier) {

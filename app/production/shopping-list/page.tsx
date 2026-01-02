@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
@@ -36,7 +36,32 @@ interface ShoppingListResult {
   unlinkedIngredients: ShoppingListItem[]
 }
 
+function LoadingFallback() {
+  return (
+    <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div className="px-4 py-6 sm:px-0">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2 mb-8"></div>
+          <div className="space-y-4">
+            <div className="h-32 bg-gray-200 rounded"></div>
+            <div className="h-32 bg-gray-200 rounded"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ShoppingListPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ShoppingListPageInner />
+    </Suspense>
+  )
+}
+
+function ShoppingListPageInner() {
   const searchParams = useSearchParams()
   const [data, setData] = useState<ShoppingListResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,7 +100,7 @@ export default function ShoppingListPage() {
       setData(result)
 
       // Expand all vendors by default
-      const allVendorIds = new Set(result.vendorGroups.map((g: VendorShoppingGroup) => g.vendorId))
+      const allVendorIds = new Set<number | null>(result.vendorGroups.map((g: VendorShoppingGroup) => g.vendorId))
       setExpandedVendors(allVendorIds)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load shopping list')
