@@ -146,6 +146,7 @@ interface CostingResult {
   markupPercent: number
   suggestedPrice: number
   discountAmount: number
+  priceAdjustment: number
   finalPrice: number
   costPerServing: number
   suggestedPricePerServing: number
@@ -850,37 +851,96 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
     return STANDARD_TOPPER_COST
   }, [topperType, customTopperFee])
 
-  // Create a live costing object that uses local calculations
-  const liveCosting = useMemo(() => {
-    if (!costing) return null
+  // Live costing state - updated via debounced API calls
+  const [liveCosting, setLiveCosting] = useState<CostingResult | null>(null)
+  const [isCalculating, setIsCalculating] = useState(false)
 
-    // Calculate differences between local and API costs
-    const decorationDiff = localDecorationCost - costing.decorationMaterialCost
-    const productDiff = localProductCost - (costing.productCost || 0)
-    const packagingDiff = localPackagingCost - (costing.packagingCost || 0)
-    const topperDiff = localTopperCost - (costing.topperCost || 0)
-    const totalDiff = decorationDiff + productDiff + packagingDiff + topperDiff
-
-    // Adjust totals based on the differences
-    const newTotalCost = costing.totalCost + totalDiff
-    const newSuggestedPrice = costing.suggestedPrice + (totalDiff * (1 + costing.markupPercent))
-    const newFinalPrice = newSuggestedPrice - costing.discountAmount + costing.deliveryCost
-
-    const roundedSuggestedPrice = Math.round(newSuggestedPrice * 100) / 100
-    const servings = costing.totalServings || 1
-
-    return {
-      ...costing,
-      decorationMaterialCost: Math.round(localDecorationCost * 100) / 100,
-      productCost: Math.round(localProductCost * 100) / 100,
-      packagingCost: Math.round(localPackagingCost * 100) / 100,
-      topperCost: Math.round(localTopperCost * 100) / 100,
-      totalCost: Math.round(newTotalCost * 100) / 100,
-      suggestedPrice: roundedSuggestedPrice,
-      finalPrice: Math.round(newFinalPrice * 100) / 100,
-      suggestedPricePerServing: Math.round((roundedSuggestedPrice / servings) * 100) / 100,
+  // Calculate live costing via API when form data changes (debounced)
+  // This ensures the sidebar updates in real-time while using centralized server calculations
+  useEffect(() => {
+    const customerName = selectedCustomer?.name || ''
+    if (!customerName || !eventDate || tiers.length === 0) {
+      return
     }
-  }, [costing, localDecorationCost, localProductCost, localPackagingCost, localTopperCost])
+
+    // Only calculate if we have at least one valid tier
+    const validTiers = tiers.filter(t => t.tierSizeId > 0)
+    if (validTiers.length === 0) {
+      return
+    }
+
+    const calculateCost = async () => {
+      setIsCalculating(true)
+      try {
+        const response = await fetch('/api/orders/calculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId: selectedCustomer?.id || null,
+            customerName,
+            eventDate,
+            tiers: validTiers.map((t, index) => ({
+              tierSizeId: t.tierSizeId,
+              tierIndex: index + 1,
+              batterRecipeId: t.batterRecipeId || null,
+              fillingRecipeId: t.fillingRecipeId || null,
+              frostingRecipeId: t.frostingRecipeId || null,
+              flavor: t.flavor || null,
+              filling: t.filling || null,
+              finishType: t.finishType || null
+            })),
+            decorations: selectedDecorations.map(dec => ({
+              decorationTechniqueId: dec.decorationTechniqueId,
+              quantity: dec.quantity,
+              unitOverride: dec.unitOverride || undefined,
+              tierIndices: dec.tierIndices || undefined
+            })),
+            products: selectedProducts.map(p => ({
+              menuItemId: p.menuItemId,
+              quantity: p.quantity || 1,
+              packagingSelections: p.packagingSelections || []
+            })),
+            isDelivery,
+            deliveryZoneId,
+            deliveryDistance: deliveryDistance ? parseFloat(deliveryDistance) : null,
+            topperType: topperType || null,
+            topperText: topperText || null,
+            customTopperFee: customTopperFee ? parseFloat(customTopperFee) : null,
+            // markupPercent: undefined means server will use default from settings
+            discountType: discountType || null,
+            discountValue: discountValue ? parseFloat(discountValue) : null,
+            discountReason: discountReason || null,
+            // priceAdjustment comes from the initial costing (set when quote was approved)
+            priceAdjustment: costing?.priceAdjustment || 0
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          setLiveCosting(data)
+        }
+      } catch (error) {
+        console.error('Cost calculation failed:', error)
+      } finally {
+        setIsCalculating(false)
+      }
+    }
+
+    const debounce = setTimeout(calculateCost, 500)
+    return () => clearTimeout(debounce)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedCustomer, eventDate, tiers, selectedDecorations, selectedProducts,
+    isDelivery, deliveryZoneId, deliveryDistance, topperType, topperText,
+    customTopperFee, discountType, discountValue, discountReason
+  ])
+
+  // Initialize liveCosting from API data when it first loads
+  useEffect(() => {
+    if (costing && !liveCosting) {
+      setLiveCosting(costing)
+    }
+  }, [costing, liveCosting])
 
   const filteredDecorations = decorations?.filter(d =>
     decorationSearch.length >= 2 &&
@@ -2458,18 +2518,21 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
             {/* Costing Breakdown - Full Costing from API */}
             <div className="bg-white rounded-lg p-4 border border-pink-100">
               <div className="flex justify-between items-center mb-3">
-                <h4 className="text-sm font-medium text-gray-700">Order Costing</h4>
+                <h4 className="text-sm font-medium text-gray-700">
+                  Order Costing
+                  {isCalculating && <span className="ml-2 text-xs text-gray-400">(updating...)</span>}
+                </h4>
                 <button
                   type="button"
                   onClick={() => mutateCosting()}
                   className="text-xs text-pink-600 hover:text-pink-800"
-                  disabled={costingLoading}
+                  disabled={costingLoading || isCalculating}
                 >
                   {costingLoading ? 'Loading...' : 'Refresh'}
                 </button>
               </div>
 
-              {costingLoading ? (
+              {costingLoading && !liveCosting ? (
                 <div className="text-center py-4 text-gray-500 text-sm">
                   Loading costing...
                 </div>
@@ -2546,6 +2609,14 @@ export default function EditOrderForm({ order, tierSizes }: Props) {
                         {liveCosting.delivery?.zoneName && ` (${liveCosting.delivery.zoneName})`}
                       </span>
                       <span className="text-gray-900">+${liveCosting.deliveryCost.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Price Adjustment */}
+                  {liveCosting.priceAdjustment !== 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Price Adjustment</span>
+                      <span className="text-gray-900">{liveCosting.priceAdjustment > 0 ? '+' : ''}${liveCosting.priceAdjustment.toFixed(2)}</span>
                     </div>
                   )}
 

@@ -1,13 +1,14 @@
 # Regression Assessment: Current State & Fixes Needed
 
-**Date:** December 31, 2024
+**Date:** January 2, 2025
+**Last Updated:** January 2, 2025 - Added Issue 8 (Costing Consistency)
 **Status:** Partial compliance with AVOIDING_REGRESSIONS.md strategy
 
 ---
 
 ## Executive Summary
 
-The codebase has **partial** implementation of single source of truth patterns. Key calculation files exist (`lib/costing.ts`, `lib/production-settings.ts`) but there are still duplicated calculations and **zero automated tests**.
+The codebase has **partial** implementation of single source of truth patterns. Key calculation files exist (`lib/costing.ts`, `lib/production-settings.ts`). Some automated tests now exist but coverage is incomplete.
 
 | Category | Status | Priority |
 |----------|--------|----------|
@@ -15,9 +16,10 @@ The codebase has **partial** implementation of single source of truth patterns. 
 | Single source of truth | ⚠️ Mixed | High |
 | Pure functions | ✅ Yes | - |
 | TypeScript types | ✅ Yes | - |
-| Unit tests | ❌ Missing | Critical |
+| Unit tests | ⚠️ Partial (3 files) | High |
 | Integration tests | ❌ Missing | Critical |
 | Pre-commit hooks | ❌ Missing | Medium |
+| Costing consistency | ✅ Fixed (Issue 8) | - |
 
 ---
 
@@ -272,6 +274,92 @@ Add husky + lint-staged:
 
 ---
 
+## Issue 8: Costing Consistency Across Pages (CRITICAL)
+
+**Added:** January 2, 2025
+**Status:** FIXED - but tests needed to prevent regression
+
+### Problem
+
+Different pages displayed **different prices for the same order** because they used different calculation methods:
+
+| Page | Calculation Method | Order #62 Price |
+|------|-------------------|-----------------|
+| Order Summary | `calculateOrderCosting()` server-side | $1,878.00 |
+| Order Edit | Local JS calculations | $1,881.05 |
+| Order Costing | `calculateOrderCosting()` server-side | $1,878.00 |
+
+**Root Cause:** The Order Edit form had local `useMemo` calculations that attempted to replicate server-side costing but used simplified formulas:
+
+```typescript
+// ❌ BAD - Local calculation didn't match server
+const localDecorationCost = selectedDecorations.reduce((sum, sd) => {
+  const dec = decorations.find(d => d.id === sd.decorationTechniqueId)
+  return sum + (dec ? Number(dec.defaultCostPerUnit) * sd.quantity : 0)
+}, 0)
+// This produced $137.50
+
+// Server calculation (lib/costing.ts) includes:
+// - Material scaling based on cake size
+// - Labor costs per decoration
+// - Volume-based adjustments
+// Server produced $134.45
+```
+
+The **$3.05 difference** cascaded through markup calculations, causing the final price to differ.
+
+### Fix Applied
+
+1. **Created `/api/orders/calculate`** - New endpoint that accepts form data and uses centralized `calculateQuoteCost()`
+
+2. **Updated Order Edit form** - Now uses debounced API calls (same pattern as Quote Edit/New):
+```typescript
+// ✅ GOOD - Uses centralized API
+useEffect(() => {
+  const calculateCost = async () => {
+    const response = await fetch('/api/orders/calculate', {
+      method: 'POST',
+      body: JSON.stringify({ ...currentFormState })
+    })
+    setLiveCosting(await response.json())
+  }
+  const debounce = setTimeout(calculateCost, 500)
+  return () => clearTimeout(debounce)
+}, [formDependencies])
+```
+
+3. **Fixed markup formula errors** in display components:
+```typescript
+// ❌ BAD - Wrong formula (added deliveryCost)
+${(costing.suggestedPrice - costing.totalCost + costing.deliveryCost).toFixed(2)}
+
+// ✅ GOOD - Correct formula
+${(costing.suggestedPrice - costing.totalCost).toFixed(2)}
+```
+
+### Architecture After Fix
+
+| Page | Real-time Updates | Calculation Source |
+|------|------------------|-------------------|
+| Quote New | Yes (debounced API) | `/api/quotes/calculate` → `calculateQuoteCost()` |
+| Quote Edit | Yes (debounced API) | `/api/quotes/calculate` → `calculateQuoteCost()` |
+| Order Edit | Yes (debounced API) | `/api/orders/calculate` → `calculateQuoteCost()` |
+| Order Costing | Static page | `calculateOrderCosting()` |
+| Order Summary | Static page | `calculateOrderCosting()` |
+
+### Prevention Rules
+
+1. **NEVER duplicate calculation logic in UI components** - Always call the centralized API
+2. **NEVER use local reduce/sum for costs** - These will drift from server calculations
+3. **Use debounced API calls for real-time updates** - 500ms debounce is sufficient
+4. **All pricing flows through `lib/costing.ts`** - Single source of truth
+
+### Test Cases Required
+
+See `lib/__tests__/costing-consistency.test.ts` for automated tests.
+
+---
+
 ## Priority Action Plan
 
 ### Phase 1: Critical (Do First)
@@ -340,6 +428,7 @@ Add husky + lint-staged:
 
 These are the critical calculations that MUST have tests:
 
+### Core Calculations
 | Calculation | Input | Expected Output | File |
 |-------------|-------|-----------------|------|
 | 6" tier volume | 6, round | 3475 ml | production-settings |
@@ -352,15 +441,54 @@ These are the critical calculations that MUST have tests:
 | Discount (fixed) | $170, $20 | $20 | costing |
 | Final price | cost $100, markup 70%, discount $10 | $160 | costing |
 
+### Costing Consistency Tests (Issue 8)
+| Test | Description | File |
+|------|-------------|------|
+| Quote cost idempotent | Same input → same output | costing-consistency |
+| Markup formula | suggestedPrice = totalCost * (1 + markup) | costing-consistency |
+| Final price formula | finalPrice = suggestedPrice - discount + delivery | costing-consistency |
+| Markup display | Markup = suggestedPrice - totalCost (NOT + deliveryCost) | costing-consistency |
+| API consistency | /api/orders/calculate = /api/quotes/calculate | costing-consistency |
+| No local calculations | UI uses API, not reduce/sum | manual code review |
+
+### How to Run Consistency Tests
+```bash
+# Run all costing tests
+npm test -- --testPathPattern=costing
+
+# Run consistency tests specifically
+npm test -- --testPathPattern=costing-consistency
+
+# Manual API verification for Order 62
+curl -s http://localhost:3000/api/orders/62/costing | jq '.finalPrice'
+# Should match the Order Edit sidebar, Order Summary, and Quote detail
+```
+
 ---
 
 ## Summary
 
-The AVOIDING_REGRESSIONS.md document outlines an excellent strategy. The codebase is **partially compliant** but needs:
+The AVOIDING_REGRESSIONS.md document outlines an excellent strategy. The codebase is **partially compliant**:
 
-1. **Test infrastructure** (most critical - zero tests exist)
-2. **Consolidation of duplicated calculations** (7+ files with surface area)
-3. **Extraction of inline calculations** from UI components
-4. **Pre-commit hooks** to prevent regressions
+### Completed
+- ✅ Test infrastructure set up (Jest)
+- ✅ Core calculation tests (`pricing.test.ts`, `production-settings.test.ts`)
+- ✅ Costing consistency tests (`costing-consistency.test.ts`)
+- ✅ Issue 8 fixed: All pages now use centralized API for costing
 
-Estimated effort: 2-3 days for Phase 1 (critical), 1-2 days for Phase 2.
+### Still Needed
+1. **Consolidation of duplicated calculations** (7+ files with surface area)
+2. **Pre-commit hooks** to prevent regressions
+3. **Integration tests** for API endpoints
+4. **Code review checklist** for pricing-related PRs
+
+### Key Lesson from Issue 8
+
+**Never duplicate calculation logic in UI components.** Even simple `reduce()` or `sum()` operations will drift from server calculations because:
+- Server includes material scaling, labor costs, volume adjustments
+- Local calculations use simplified formulas (e.g., `defaultCostPerUnit * quantity`)
+- Small differences cascade through markup calculations
+
+**Solution:** Always use debounced API calls for real-time updates, never local calculations.
+
+Estimated remaining effort: 1-2 days for consolidation, 1 day for pre-commit hooks.

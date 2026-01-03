@@ -172,7 +172,7 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
               <div className="flex justify-between">
                 <dt className="text-sm text-gray-500">Markup ({(costing.markupPercent * 100).toFixed(0)}%)</dt>
                 <dd className="text-sm font-medium text-gray-900">
-                  ${(costing.suggestedPrice - costing.totalCost + costing.deliveryCost).toFixed(2)}
+                  ${(costing.suggestedPrice - costing.totalCost).toFixed(2)}
                 </dd>
               </div>
               <div className="flex justify-between pt-3 border-t border-gray-200">
@@ -207,6 +207,14 @@ export default async function OrderCosting({ params }: { params: Promise<{ id: s
                   </dt>
                   <dd className="text-sm font-medium text-gray-900">
                     ${costing.deliveryCost.toFixed(2)}
+                  </dd>
+                </div>
+              )}
+              {costing.priceAdjustment !== 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">Price Adjustment</dt>
+                  <dd className="text-sm font-medium text-gray-900">
+                    {costing.priceAdjustment > 0 ? '+' : ''}${costing.priceAdjustment.toFixed(2)}
                   </dd>
                 </div>
               )}

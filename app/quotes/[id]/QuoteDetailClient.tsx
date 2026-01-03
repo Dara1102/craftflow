@@ -17,6 +17,8 @@ interface CostingData {
   ingredientCost: number
   decorationMaterialCost: number
   decorationLaborCost: number
+  productCost: number
+  packagingCost: number
   topperCost: number
   deliveryCost: number
   baseLaborCost: number
@@ -802,6 +804,18 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                             <span>Decoration Labor:</span>
                             <span>${costing.decorationLaborCost.toFixed(2)}</span>
                           </div>
+                          {costing.productCost > 0 && (
+                            <div className="flex justify-between">
+                              <span>Products:</span>
+                              <span>${costing.productCost.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {costing.packagingCost > 0 && (
+                            <div className="flex justify-between">
+                              <span>Packaging:</span>
+                              <span>${costing.packagingCost.toFixed(2)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between">
                             <span>Base Labor:</span>
                             <span>${costing.baseLaborCost.toFixed(2)}</span>
@@ -837,7 +851,7 @@ export default function QuoteDetailClient({ quote, costing, defaultPolicy, defau
                         </div>
                         <div className="flex justify-between text-gray-500 text-xs mt-1">
                           <span>Markup ({(costing.markupPercent * 100).toFixed(0)}%):</span>
-                          <span>+${(costing.suggestedPrice - costing.totalCost + costing.deliveryCost).toFixed(2)}</span>
+                          <span>+${(costing.suggestedPrice - costing.totalCost).toFixed(2)}</span>
                         </div>
                       </div>
 
