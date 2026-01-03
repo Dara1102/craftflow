@@ -140,6 +140,7 @@ export interface CostingResult {
   markupPercent: number
   suggestedPrice: number
   discountAmount: number
+  priceAdjustment: number
   finalPrice: number
   costPerServing: number
   suggestedPricePerServing: number
@@ -783,9 +784,8 @@ export async function calculateOrderCosting(
   for (const orderDec of order.orderDecorations) {
     const technique = orderDec.decorationTechnique
 
-    // Use unit override if stored in order decoration (future: add unitOverride field to OrderDecoration)
-    // For now, use technique's default unit
-    const effectiveUnit = technique.unit
+    // Use unit override if stored in order decoration, otherwise use technique's default unit
+    const effectiveUnit = orderDec.unitOverride || technique.unit
 
     // Determine quantity multiplier based on unit type
     let quantityMultiplier = orderDec.quantity
@@ -1078,7 +1078,11 @@ export async function calculateOrderCosting(
     deliveryCost
   )
 
-  const { suggestedPrice, discountAmount, finalPrice } = pricing
+  const { suggestedPrice, discountAmount, finalPrice: baseFinalPrice } = pricing
+
+  // Apply price adjustment (rounding adjustment from quote)
+  const priceAdjustmentVal = order.priceAdjustment ? new Decimal(order.priceAdjustment).toNumber() : 0
+  const finalPrice = baseFinalPrice + priceAdjustmentVal
 
   // Build discount detail object for return value
   let discount: DiscountDetail | null = null
@@ -1303,6 +1307,7 @@ export async function calculateOrderCosting(
     markupPercent,
     suggestedPrice: Math.round(suggestedPrice * 100) / 100,
     discountAmount: Math.round(discountAmount * 100) / 100,
+    priceAdjustment: Math.round(priceAdjustmentVal * 100) / 100,
     finalPrice: Math.round(finalPrice * 100) / 100,
     costPerServing: Math.round(costPerServing * 100) / 100,
     suggestedPricePerServing: Math.round(finalPricePerServing * 100) / 100,
@@ -1349,9 +1354,18 @@ export interface QuoteInput {
   products?: {
     menuItemId: number
     quantity: number
+    // Legacy single packaging (for backwards compatibility)
     packagingId?: number | null
     packagingQty?: number | null
+    // Multiple packaging selections (preferred)
+    packagingSelections?: { packagingId: number; quantity: number }[]
     notes?: string | null
+  }[]
+
+  // Standalone packaging (not tied to products, e.g., cake boxes)
+  orderPackaging?: {
+    packagingId: number
+    quantity: number
   }[]
 
   // Delivery
@@ -1452,8 +1466,22 @@ export async function calculateQuoteCost(
     laborRole: mi.LaborRole
   }))
 
-  // Get all packaging for products
-  const packagingIds = quoteData.products?.filter(p => p.packagingId).map(p => p.packagingId!) || []
+  // Get all packaging for products (from both legacy and packagingSelections)
+  const packagingIds: number[] = []
+  for (const p of quoteData.products || []) {
+    // Add legacy packaging ID if present
+    if (p.packagingId) {
+      packagingIds.push(p.packagingId)
+    }
+    // Add all packaging IDs from packagingSelections
+    if (p.packagingSelections && p.packagingSelections.length > 0) {
+      for (const ps of p.packagingSelections) {
+        if (!packagingIds.includes(ps.packagingId)) {
+          packagingIds.push(ps.packagingId)
+        }
+      }
+    }
+  }
   const packagingList = packagingIds.length > 0
     ? await prisma.packaging.findMany({
         where: { id: { in: packagingIds } }
@@ -1843,9 +1871,10 @@ export async function calculateQuoteCost(
       }
       if (validTiers > 0) {
         const avgSizeMultiplier = totalSizeMultiplier / validTiers
-        // Scale the quantity by size multiplier
-        // e.g., if tiers are 2x larger than base, need 2x material/labor
-        quantityMultiplier = quantityMultiplier * avgSizeMultiplier
+        // Scale the quantity by size multiplier AND tier count
+        // e.g., if 3 tiers are 2x larger than base, need 6x material/labor
+        // Cost = quantity × avgSizeMultiplier × tierCount
+        quantityMultiplier = quantityMultiplier * avgSizeMultiplier * validTiers
       }
     }
 
@@ -1944,7 +1973,30 @@ export async function calculateQuoteCost(
     productCost += subtotal
 
     // Calculate packaging cost for this item
-    if (productInput.packagingId && productInput.packagingQty) {
+    // First check packagingSelections (preferred), then fall back to legacy fields
+    if (productInput.packagingSelections && productInput.packagingSelections.length > 0) {
+      // Process all packaging selections
+      for (const ps of productInput.packagingSelections) {
+        const packaging = packagingList.find(p => p.id === ps.packagingId)
+        if (packaging) {
+          const packagingQty = ps.quantity
+          const packagingUnitCost = new Decimal(packaging.costPerUnit).toNumber()
+          const packagingSubtotal = packagingUnitCost * packagingQty
+
+          packagingItems.push({
+            packagingId: packaging.id,
+            name: packaging.name,
+            type: packaging.type,
+            quantity: packagingQty,
+            unitCost: packagingUnitCost,
+            subtotal: Math.round(packagingSubtotal * 100) / 100
+          })
+
+          packagingCost += packagingSubtotal
+        }
+      }
+    } else if (productInput.packagingId && productInput.packagingQty) {
+      // Legacy single packaging support
       const packaging = packagingList.find(p => p.id === productInput.packagingId)
       if (packaging) {
         const packagingQty = productInput.packagingQty
@@ -1962,6 +2014,27 @@ export async function calculateQuoteCost(
 
         packagingCost += packagingSubtotal
       }
+    }
+  }
+
+  // Process standalone order-level packaging (not tied to products)
+  for (const op of quoteData.orderPackaging || []) {
+    const packaging = packagingList.find(p => p.id === op.packagingId)
+    if (packaging) {
+      const packagingQty = op.quantity
+      const packagingUnitCost = new Decimal(packaging.costPerUnit).toNumber()
+      const packagingSubtotal = packagingUnitCost * packagingQty
+
+      packagingItems.push({
+        packagingId: packaging.id,
+        name: packaging.name,
+        type: packaging.type,
+        quantity: packagingQty,
+        unitCost: packagingUnitCost,
+        subtotal: Math.round(packagingSubtotal * 100) / 100
+      })
+
+      packagingCost += packagingSubtotal
     }
   }
 
@@ -2107,6 +2180,7 @@ export async function calculateQuoteCost(
     markupPercent,
     suggestedPrice: Math.round(suggestedPrice * 100) / 100,
     discountAmount: Math.round(discountAmount * 100) / 100,
+    priceAdjustment: 0, // Quote adjustments are applied separately by the UI
     finalPrice: Math.round(finalPrice * 100) / 100,
     costPerServing: Math.round(costPerServing * 100) / 100,
     suggestedPricePerServing: Math.round(finalPricePerServing * 100) / 100,

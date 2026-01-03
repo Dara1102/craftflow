@@ -9,7 +9,7 @@ import { calculateQuoteCost, QuoteInput } from '@/lib/costing'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    
+
     // Validate required fields
     if (!body.customerName || !body.eventDate || !body.tiers || body.tiers.length === 0) {
       return NextResponse.json(
@@ -40,9 +40,16 @@ export async function POST(request: NextRequest) {
       products: (body.products || []).map((p: any) => ({
         menuItemId: p.menuItemId,
         quantity: p.quantity || 1,
+        // Support multiple packaging selections (preferred)
+        packagingSelections: p.packagingSelections || [],
+        // Also include legacy fields for backwards compatibility
         packagingId: p.packagingId || null,
         packagingQty: p.packagingQty || null,
         notes: p.notes || null
+      })),
+      orderPackaging: (body.orderPackaging || []).map((op: any) => ({
+        packagingId: op.packagingId,
+        quantity: op.quantity
       })),
       isDelivery: body.isDelivery || false,
       deliveryZoneId: body.deliveryZoneId || null,
@@ -69,4 +76,7 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
+
+
 

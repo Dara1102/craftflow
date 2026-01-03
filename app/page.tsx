@@ -45,7 +45,7 @@ export default async function Dashboard() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Cake Orders</h1>
           <Link
-            href="/orders/new"
+            href="/quotes/new"
             className="bg-pink-600 text-white px-4 py-2 rounded-md hover:bg-pink-700 transition"
           >
             Create New Cake Order
@@ -74,7 +74,7 @@ export default async function Dashboard() {
                     Total Servings
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Suggested Price
+                    Price
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
@@ -102,7 +102,7 @@ export default async function Dashboard() {
                       {order.costing?.totalServings || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {order.costing ? `$${order.costing.suggestedPrice.toFixed(2)}` : '-'}
+                      {order.costing ? `$${order.costing.finalPrice.toFixed(2)}` : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">

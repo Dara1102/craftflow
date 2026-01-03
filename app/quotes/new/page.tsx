@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import useSWR from 'swr'
 import ProductSelector from '@/app/components/ProductSelector'
+import { createOrder } from '@/app/actions/orders'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
@@ -82,6 +83,8 @@ interface CostingResult {
   ingredientCost: number
   decorationMaterialCost: number
   decorationLaborCost: number
+  productCost: number
+  packagingCost: number
   topperCost: number
   deliveryCost: number
   totalLaborCost: number
@@ -89,6 +92,7 @@ interface CostingResult {
   markupPercent: number
   suggestedPrice: number
   discountAmount: number
+  priceAdjustment: number
   finalPrice: number
   costPerServing: number
   suggestedPricePerServing: number
@@ -102,7 +106,10 @@ interface CostingResult {
 
 export default function NewQuote() {
   const router = useRouter()
-  
+
+  // Mode: Quote vs Confirmed Order
+  const [isOrderMode, setIsOrderMode] = useState(false)
+
   // Customer state
   const [customerId, setCustomerId] = useState<number | null>(null)
   const [customerName, setCustomerName] = useState('')
@@ -153,6 +160,12 @@ export default function NewQuote() {
     packagingId?: number
     packagingQty?: number
     notes?: string
+  }>>([])
+
+  // Order-level packaging (standalone packaging like cake boxes, not tied to products)
+  const [orderLevelPackaging, setOrderLevelPackaging] = useState<Array<{
+    packagingId: number
+    quantity: number
   }>>([])
 
   // Decorations
@@ -222,6 +235,12 @@ export default function NewQuote() {
   const { data: batterRecipes } = useSWR<Recipe[]>('/api/recipes?type=BATTER', fetcher)
   const { data: fillingRecipes } = useSWR<Recipe[]>('/api/recipes?type=FILLING', fetcher)
   const { data: frostingRecipes } = useSWR<Recipe[]>('/api/recipes?type=FROSTING', fetcher)
+  const { data: packaging } = useSWR<Array<{
+    id: number
+    name: string
+    type: string
+    costPerUnit: number
+  }>>('/api/packaging', fetcher)
   
   // Filter decorations
   const filteredDecorations = allDecorations?.filter(dec => {
@@ -375,10 +394,16 @@ export default function NewQuote() {
             products: selectedProducts.map(p => ({
               menuItemId: p.menuItemId,
               quantity: p.quantity,
-              // Use packagingSelections if available, fallback to legacy fields
+              // Send full packagingSelections array for multi-packaging support
+              packagingSelections: p.packagingSelections || [],
+              // Also include legacy fields for backwards compatibility
               packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
               packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
               notes: p.notes || null
+            })),
+            orderPackaging: orderLevelPackaging.map(op => ({
+              packagingId: op.packagingId,
+              quantity: op.quantity
             })),
             isDelivery,
             deliveryZoneId,
@@ -407,7 +432,7 @@ export default function NewQuote() {
     return () => clearTimeout(timer)
   }, [
     customerId, selectedCustomer, customerName, eventDate, tiers, selectedDecorations, selectedProducts,
-    isDelivery, deliveryZoneId, deliveryDistance, topperType, topperText,
+    orderLevelPackaging, isDelivery, deliveryZoneId, deliveryDistance, topperType, topperText,
     markupPercent, discountType, discountValue
   ])
   
@@ -581,7 +606,7 @@ export default function NewQuote() {
     }
   }
   
-  const handleSaveQuote = async () => {
+  const handleSave = async () => {
     const finalCustomerName = selectedCustomer?.name || customerName.trim()
     if (!finalCustomerName) {
       alert('Please select or enter a customer name')
@@ -591,13 +616,13 @@ export default function NewQuote() {
       alert('Please fill in event date')
       return
     }
-    
+
     const validTiers = tiers.filter(t => t.tierSizeId > 0)
-    if (validTiers.length === 0) {
-      alert('Please add at least one tier with a size selected')
+    if (validTiers.length === 0 && selectedProducts.length === 0) {
+      alert('Please add at least one tier or product')
       return
     }
-    
+
     // Validate TIER unit decorations have at least one tier selected
     const invalidDecorations = selectedDecorations.filter(dec => {
       const technique = allDecorations?.find(d => d.id === dec.decorationTechniqueId)
@@ -607,7 +632,7 @@ export default function NewQuote() {
       }
       return false
     })
-    
+
     if (invalidDecorations.length > 0) {
       const decorationNames = invalidDecorations.map(dec => {
         const technique = allDecorations?.find(d => d.id === dec.decorationTechniqueId)
@@ -616,7 +641,70 @@ export default function NewQuote() {
       alert(`Please select at least one tier for the following TIER unit decoration(s): ${decorationNames}`)
       return
     }
-    
+
+    // ORDER MODE: Use createOrder server action
+    if (isOrderMode) {
+      try {
+        await createOrder({
+          customerId: selectedCustomer?.id || undefined,
+          customerName: finalCustomerName,
+          eventDate,
+          desiredServings: desiredServings ? parseInt(desiredServings) : undefined,
+          occasion: occasion || undefined,
+          theme: theme || undefined,
+          colors: colors || undefined,
+          accentColors: accentColors || undefined,
+          isDelivery,
+          deliveryZoneId: isDelivery ? deliveryZoneId : null,
+          deliveryDistance: isDelivery && deliveryDistance ? parseFloat(deliveryDistance) : null,
+          deliveryAddress: isDelivery ? deliveryAddress : undefined,
+          deliveryContact: isDelivery ? deliveryContact : undefined,
+          deliveryPhone: isDelivery ? deliveryPhone : undefined,
+          deliveryTime: isDelivery && deliveryTime ? deliveryTime : undefined,
+          topperType: topperType || undefined,
+          topperText: topperText || undefined,
+          discountType: discountType as 'PERCENT' | 'FIXED' | undefined,
+          discountValue: discountValue ? parseFloat(discountValue) : undefined,
+          estimatedHours: 2, // Default value
+          status: 'CONFIRMED' as const,
+          tiers: validTiers.map(t => ({
+            tierSizeId: t.tierSizeId,
+            batterRecipeId: t.batterRecipeId || null,
+            fillingRecipeId: t.fillingRecipeId || null,
+            frostingRecipeId: t.frostingRecipeId || null,
+            flavor: t.flavor || null,
+            filling: t.filling || null,
+            finishType: t.finishType || null,
+            frostingComplexity: 2
+          })),
+          decorations: selectedDecorations.map(dec => ({
+            decorationTechniqueId: dec.decorationTechniqueId,
+            quantity: dec.quantity,
+            unitOverride: dec.unitOverride as 'SINGLE' | 'CAKE' | 'TIER' | 'SET' | undefined,
+            tierIndices: dec.tierIndices
+          })),
+          products: selectedProducts.map(p => ({
+            menuItemId: p.menuItemId,
+            quantity: p.quantity,
+            packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
+            packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
+            packagingSelections: p.packagingSelections,
+            notes: p.notes || null
+          })),
+          orderPackaging: orderLevelPackaging.map(op => ({
+            packagingId: op.packagingId,
+            quantity: op.quantity
+          }))
+        })
+        // createOrder redirects automatically
+      } catch (error) {
+        console.error('Failed to create order:', error)
+        alert('Failed to create order. Please try again.')
+      }
+      return
+    }
+
+    // QUOTE MODE: Use API endpoint
     try {
       const response = await fetch('/api/quotes', {
         method: 'POST',
@@ -668,10 +756,16 @@ export default function NewQuote() {
           products: selectedProducts.map(p => ({
             menuItemId: p.menuItemId,
             quantity: p.quantity,
-            // Use packagingSelections if available, fallback to legacy fields
+            // Send full packagingSelections array for multi-packaging support
+            packagingSelections: p.packagingSelections || [],
+            // Also include legacy fields for backwards compatibility (for database storage)
             packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
             packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
             notes: p.notes || null
+          })),
+          orderPackaging: orderLevelPackaging.map(op => ({
+            packagingId: op.packagingId,
+            quantity: op.quantity
           })),
           status: 'DRAFT'
         })
@@ -734,14 +828,67 @@ export default function NewQuote() {
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Create New Quote</h1>
+        {/* Header */}
+        <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold text-gray-900">
+                {isOrderMode ? 'New Order' : 'New Quote'}
+              </h1>
+              <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
+                isOrderMode
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-gray-100 text-gray-800'
+              }`}>
+                {isOrderMode ? 'CONFIRMED' : 'DRAFT'}
+              </span>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              {isOrderMode
+                ? 'This order will go directly to production'
+                : 'This quote will be sent to customer for approval'}
+            </p>
+          </div>
           <Link
-            href="/quotes"
-            className="text-gray-600 hover:text-gray-900"
+            href={isOrderMode ? '/' : '/quotes'}
+            className="text-gray-600 hover:text-gray-900 px-3 py-2"
           >
-            ← Back to Quotes
+            &larr; Back
           </Link>
+        </div>
+
+        {/* Mode Toggle & Actions Bar */}
+        <div className="bg-white shadow rounded-lg p-4 mb-6">
+          <div className="flex flex-wrap justify-between items-center gap-4">
+            {/* Mode Toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Type:</span>
+              <div className="inline-flex rounded-md shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setIsOrderMode(false)}
+                  className={`px-4 py-2 text-sm font-medium rounded-l-md border ${
+                    !isOrderMode
+                      ? 'bg-pink-600 text-white border-pink-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Quote
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOrderMode(true)}
+                  className={`px-4 py-2 text-sm font-medium rounded-r-md border-t border-b border-r ${
+                    isOrderMode
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Confirmed Order
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -955,39 +1102,42 @@ export default function NewQuote() {
                   <p className="mt-1 text-xs text-gray-500">Target number of servings for this order</p>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Budget Range
-                  </label>
-                  <div className="flex gap-2 items-center">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={budgetMin}
-                        onChange={(e) => setBudgetMin(e.target.value)}
-                        placeholder="Min"
-                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-pink-500 focus:border-pink-500"
-                      />
+                {/* Budget Range - Quote mode only */}
+                {!isOrderMode && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Budget Range
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={budgetMin}
+                          onChange={(e) => setBudgetMin(e.target.value)}
+                          placeholder="Min"
+                          className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+                        />
+                      </div>
+                      <span className="text-gray-500">to</span>
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={budgetMax}
+                          onChange={(e) => setBudgetMax(e.target.value)}
+                          placeholder="Max"
+                          className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+                        />
+                      </div>
                     </div>
-                    <span className="text-gray-500">to</span>
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={budgetMax}
-                        onChange={(e) => setBudgetMax(e.target.value)}
-                        placeholder="Max"
-                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-pink-500 focus:border-pink-500"
-                      />
-                    </div>
+                    <p className="mt-1 text-xs text-gray-500">Customer&apos;s desired budget (optional)</p>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">Customer&apos;s desired budget (optional)</p>
-                </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1329,6 +1479,109 @@ export default function NewQuote() {
                 onProductsChange={setSelectedProducts}
                 showPackaging={true}
               />
+            </div>
+
+            {/* Additional Packaging Section */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-xl font-semibold">Additional Packaging</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Add standalone packaging like cake boxes, boards, or wraps (not tied to specific products).
+                  </p>
+                </div>
+                <Link
+                  href="/admin/menu/packaging"
+                  target="_blank"
+                  className="inline-flex items-center text-sm text-pink-600 hover:text-pink-700"
+                >
+                  Manage packaging
+                  <svg className="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </Link>
+              </div>
+
+              {/* Add packaging dropdown */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Add Packaging</label>
+                <select
+                  className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                  value=""
+                  onChange={(e) => {
+                    const packagingId = parseInt(e.target.value)
+                    if (packagingId && !orderLevelPackaging.some(p => p.packagingId === packagingId)) {
+                      setOrderLevelPackaging([...orderLevelPackaging, { packagingId, quantity: 1 }])
+                    }
+                  }}
+                >
+                  <option value="">Select packaging to add...</option>
+                  {packaging?.filter(p => !orderLevelPackaging.some(op => op.packagingId === p.id)).map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.type}) - ${Number(p.costPerUnit).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selected packaging list */}
+              {orderLevelPackaging.length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Selected Packaging</label>
+                  {orderLevelPackaging.map((op) => {
+                    const pkg = packaging?.find(p => p.id === op.packagingId)
+                    if (!pkg) return null
+                    return (
+                      <div key={op.packagingId} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{pkg.name}</p>
+                          <p className="text-sm text-gray-500">{pkg.type} • ${Number(pkg.costPerUnit).toFixed(2)} each</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center">
+                            <label className="sr-only">Quantity</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={op.quantity}
+                              onChange={(e) => {
+                                const newQty = parseInt(e.target.value) || 1
+                                setOrderLevelPackaging(orderLevelPackaging.map(item =>
+                                  item.packagingId === op.packagingId
+                                    ? { ...item, quantity: newQty }
+                                    : item
+                                ))
+                              }}
+                              className="w-16 text-center border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setOrderLevelPackaging(orderLevelPackaging.filter(item => item.packagingId !== op.packagingId))}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <p className="text-sm text-gray-600 text-right">
+                    Est. Packaging Cost: <span className="font-medium text-pink-600">
+                      ${orderLevelPackaging.reduce((sum, op) => {
+                        const pkg = packaging?.find(p => p.id === op.packagingId)
+                        return sum + ((Number(pkg?.costPerUnit) || 0) * op.quantity)
+                      }, 0).toFixed(2)}
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              {orderLevelPackaging.length === 0 && (
+                <p className="text-gray-500 text-sm">No additional packaging added yet.</p>
+              )}
             </div>
 
             {/* Decorations Section */}
@@ -2019,6 +2272,18 @@ export default function NewQuote() {
                         <span>Labor:</span>
                         <span>${costing.totalLaborCost.toFixed(2)}</span>
                       </div>
+                      {(costing.productCost > 0 || costing.packagingCost > 0) && (
+                        <div className="flex justify-between">
+                          <span>Products:</span>
+                          <span>${costing.productCost.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {costing.packagingCost > 0 && (
+                        <div className="flex justify-between">
+                          <span>Packaging:</span>
+                          <span>${costing.packagingCost.toFixed(2)}</span>
+                        </div>
+                      )}
                       {costing.topperCost > 0 && (
                         <div className="flex justify-between">
                           <span>Topper:</span>
@@ -2039,13 +2304,6 @@ export default function NewQuote() {
                       Total Servings: <span className="font-medium">{costing.totalServings}</span>
                     </div>
                   </div>
-                  
-                  <button
-                    onClick={handleSaveQuote}
-                    className="w-full mt-6 px-4 py-2 bg-pink-600 text-white rounded-md hover:bg-pink-700 font-medium"
-                  >
-                    Save Quote
-                  </button>
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
@@ -2055,6 +2313,18 @@ export default function NewQuote() {
                   </p>
                 </div>
               )}
+
+              {/* Save Button - Always Visible */}
+              <button
+                onClick={handleSave}
+                className={`w-full mt-6 px-4 py-2 text-white rounded-md font-medium ${
+                  isOrderMode
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-pink-600 hover:bg-pink-700'
+                }`}
+              >
+                {isOrderMode ? 'Create Order' : 'Save Quote'}
+              </button>
             </div>
           </div>
         </div>
