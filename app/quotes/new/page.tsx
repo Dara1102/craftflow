@@ -375,8 +375,9 @@ export default function NewQuote() {
             products: selectedProducts.map(p => ({
               menuItemId: p.menuItemId,
               quantity: p.quantity,
-              packagingId: p.packagingId || null,
-              packagingQty: p.packagingQty || null,
+              // Use packagingSelections if available, fallback to legacy fields
+              packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
+              packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
               notes: p.notes || null
             })),
             isDelivery,
@@ -667,8 +668,9 @@ export default function NewQuote() {
           products: selectedProducts.map(p => ({
             menuItemId: p.menuItemId,
             quantity: p.quantity,
-            packagingId: p.packagingId || null,
-            packagingQty: p.packagingQty || null,
+            // Use packagingSelections if available, fallback to legacy fields
+            packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
+            packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
             notes: p.notes || null
           })),
           status: 'DRAFT'

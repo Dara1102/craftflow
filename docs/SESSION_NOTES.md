@@ -5,6 +5,63 @@ Major quote system improvements: added products to Edit Quote page, fixed quote 
 
 ---
 
+## Latest Fixes (Session 3)
+
+### 1. Product Packaging Fix
+**Issue:** Cupcake liners (default packaging) were not being saved when adding products in quotes.
+
+**Root Cause:** ProductSelector uses `packagingSelections` array, but save code was looking at legacy `packagingId` field.
+
+**Fixes Applied:**
+- `app/quotes/[id]/edit/page.tsx` - Updated save to use `packagingSelections[0]` if available
+- `app/quotes/new/page.tsx` - Same fix for new quotes
+
+### 2. Quotes List Page Enhanced
+**New Features:**
+- Quote amount displayed (from locked costing)
+- Status timestamp (Created/Sent/Accepted dates)
+- Action buttons: View, Edit, Revise, Delete
+- Version number shown in status badge
+
+**Files Changed:**
+- `app/quotes/page.tsx` - Converted to client component with SWR
+- `app/api/quotes/[id]/route.ts` - Added DELETE endpoint
+
+### 3. Unsaved Changes Warning
+**Added:** Warning when leaving Edit Quote with unsaved changes
+- Yellow "Unsaved changes" badge appears
+- Browser beforeunload warning
+- Confirmation dialog on back button
+
+**Files Changed:**
+- `app/quotes/[id]/edit/page.tsx` - Added state tracking and warnings
+
+---
+
+## Session 2 Fixes
+
+### Product Regression Fix
+**Issue:** When creating a new quote version (v2), products were not being copied, causing the quote to revert to an incorrect price (e.g., $970.50 instead of $1,175.93).
+
+**Root Cause:** Two API routes were missing QuoteItem handling:
+1. `app/api/quotes/[id]/revise/route.ts` - didn't include or copy QuoteItem
+2. `app/api/quotes/[id]/convert/route.ts` - didn't include or copy QuoteItem to OrderItem
+
+**Fixes Applied:**
+
+1. **Revise Route** (`app/api/quotes/[id]/revise/route.ts`):
+   - Added `QuoteItem: true` to the Prisma include
+   - Added loop to copy all QuoteItem records to the new revision
+   - Added missing fields: `depositType`, `depositAmount`, `priceAdjustment`, `budgetMin`, `budgetMax`
+
+2. **Convert Route** (`app/api/quotes/[id]/convert/route.ts`):
+   - Added `QuoteItem: true` to the Prisma include
+   - Added loop to create OrderItem from QuoteItem (products)
+
+**Result:** Quote revisions and order conversions now properly include all products.
+
+---
+
 ## What We Fixed/Added
 
 ### 1. Products in Edit Quote
@@ -107,6 +164,7 @@ npm run build
 ---
 
 ## Next Steps
-- Test full quote-to-order conversion with products
-- Verify products appear on converted orders
+- ~~Test full quote-to-order conversion with products~~ ✓ Fixed
+- ~~Verify products appear on converted orders~~ ✓ Fixed
 - Test print/PDF with products breakdown
+- Test creating a new quote version (v2, v3) - products should now copy correctly

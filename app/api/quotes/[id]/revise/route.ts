@@ -19,7 +19,8 @@ export async function POST(
       where: { id: quoteId },
       include: {
         QuoteTier: true,
-        QuoteDecoration: true
+        QuoteDecoration: true,
+        QuoteItem: true
       }
     })
 
@@ -84,6 +85,11 @@ export async function POST(
           customTopperFee: originalQuote.customTopperFee,
           markupPercent: originalQuote.markupPercent,
           depositPercent: originalQuote.depositPercent,
+          depositType: originalQuote.depositType,
+          depositAmount: originalQuote.depositAmount,
+          priceAdjustment: originalQuote.priceAdjustment,
+          budgetMin: originalQuote.budgetMin,
+          budgetMax: originalQuote.budgetMax,
           discountType: originalQuote.discountType,
           discountValue: originalQuote.discountValue,
           discountReason: originalQuote.discountReason,
@@ -125,6 +131,21 @@ export async function POST(
             unitOverride: dec.unitOverride,
             tierIndices: dec.tierIndices,
             notes: dec.notes
+          }
+        })
+      }
+
+      // Copy all quote items (products like cupcakes, cake pops, etc.)
+      for (const item of originalQuote.QuoteItem) {
+        await tx.quoteItem.create({
+          data: {
+            quoteId: newQuote.id,
+            itemType: item.itemType,
+            menuItemId: item.menuItemId,
+            quantity: item.quantity,
+            packagingId: item.packagingId,
+            packagingQty: item.packagingQty,
+            notes: item.notes
           }
         })
       }

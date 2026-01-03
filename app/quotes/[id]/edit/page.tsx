@@ -120,6 +120,8 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
   // Loading state
   const [isLoading, setIsLoading] = useState(true)
   const [quoteNumber, setQuoteNumber] = useState('')
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false)
 
   // Customer state
   const [customerId, setCustomerId] = useState<number | null>(null)
@@ -186,6 +188,7 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
   // Topper
   const [topperType, setTopperType] = useState('')
   const [topperText, setTopperText] = useState('')
+  const [customTopperFee, setCustomTopperFee] = useState('')
 
   // Discount
   const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED' | ''>('')
@@ -197,6 +200,9 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
 
   // Price Adjustment (round up/down)
   const [priceAdjustment, setPriceAdjustment] = useState<string>('')
+
+  // Notes
+  const [notes, setNotes] = useState('')
 
   // Costing
   const [costing, setCosting] = useState<CostingResult | null>(null)
@@ -322,6 +328,7 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
         // Set topper
         setTopperType(quote.topperType || '')
         setTopperText(quote.topperText || '')
+        setCustomTopperFee(quote.customTopperFee?.toString() || '')
 
         // Set discount
         if (quote.discountType) {
@@ -329,7 +336,13 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
           setDiscountValue(quote.discountValue?.toString() || '')
         }
 
+        // Set notes and price adjustment
+        setNotes(quote.notes || '')
+        setPriceAdjustment(quote.priceAdjustment?.toString() || '')
+
         setIsLoading(false)
+        // Mark initial load as complete after a short delay to avoid false positives
+        setTimeout(() => setInitialLoadComplete(true), 100)
       } catch (error) {
         console.error('Error fetching quote:', error)
         router.push('/quotes')
@@ -338,6 +351,33 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
 
     fetchQuote()
   }, [quoteId, router])
+
+  // Track changes after initial load
+  useEffect(() => {
+    if (initialLoadComplete) {
+      setHasUnsavedChanges(true)
+    }
+  }, [
+    customerName, eventDate, tiers, selectedDecorations, selectedProducts,
+    isDelivery, deliveryZoneId, deliveryDistance, deliveryAddress,
+    topperType, topperText, customTopperFee, discountType, discountValue,
+    depositType, depositValue, priceAdjustment, notes, occasion, theme,
+    colors, accentColors, budgetMin, budgetMax, desiredServings
+  ])
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault()
+        e.returnValue = ''
+        return ''
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedChanges])
 
   // Filter decorations
   const filteredDecorations = allDecorations?.filter(dec => {
@@ -486,8 +526,9 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
             products: selectedProducts.map(p => ({
               menuItemId: p.menuItemId,
               quantity: p.quantity || 1,
-              packagingId: p.packagingId || null,
-              packagingQty: p.packagingQty || null,
+              // Use packagingSelections if available, fallback to legacy fields
+              packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
+              packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
               notes: p.notes || null
             })),
             isDelivery,
@@ -590,14 +631,16 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
           products: selectedProducts.map(p => ({
             menuItemId: p.menuItemId,
             quantity: p.quantity || 1,
-            packagingId: p.packagingId || null,
-            packagingQty: p.packagingQty || null,
+            // Use packagingSelections if available, fallback to legacy fields
+            packagingId: p.packagingSelections?.[0]?.packagingId || p.packagingId || null,
+            packagingQty: p.packagingSelections?.[0]?.quantity || p.packagingQty || null,
             notes: p.notes || null
           }))
         })
       })
 
       if (response.ok) {
+        setHasUnsavedChanges(false)
         router.push(`/quotes/${quoteId}`)
       } else {
         const errorData = await response.json()
@@ -755,10 +798,26 @@ export default function EditQuote({ params }: { params: Promise<{ id: string }> 
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Edit Quote {quoteNumber}</h1>
             <p className="text-gray-600 mt-1">Update quote details</p>
+            {hasUnsavedChanges && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 mt-1">
+                Unsaved changes
+              </span>
+            )}
           </div>
-          <Link href={`/quotes/${quoteId}`} className="text-gray-600 hover:text-gray-900">
+          <button
+            onClick={() => {
+              if (hasUnsavedChanges) {
+                if (confirm('You have unsaved changes. Are you sure you want to leave?')) {
+                  router.push(`/quotes/${quoteId}`)
+                }
+              } else {
+                router.push(`/quotes/${quoteId}`)
+              }
+            }}
+            className="text-gray-600 hover:text-gray-900"
+          >
             &larr; Back to Quote
-          </Link>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -145,20 +145,9 @@ export async function GET(
       convertedOrder: quoteRaw.CakeOrder
     }
 
-    // If quote is ACCEPTED and has locked costing, use that instead of recalculating
-    if (quote.status === 'ACCEPTED' && quote.lockedCosting) {
-      try {
-        const lockedCosting = JSON.parse(quote.lockedCosting)
-        return NextResponse.json({
-          quote,
-          costing: lockedCosting,
-          isLocked: true
-        })
-      } catch (error) {
-        console.error('Failed to parse locked costing:', error)
-        // Fall through to recalculate
-      }
-    }
+    // Note: We always recalculate costing now because locked costing may be stale
+    // (e.g., if products weren't included when it was originally locked)
+    // The lockedCosting field is kept for historical reference but we show current calculation
     
     // Calculate current costing
     const quoteInput: QuoteInput = {
@@ -184,6 +173,12 @@ export async function GET(
         unitOverride: dec.unitOverride || undefined,
         tierIndices: dec.tierIndices && dec.tierIndices.length > 0 ? dec.tierIndices : undefined
       })),
+      products: quote.quoteItems?.map(item => ({
+        menuItemId: item.menuItemId!,
+        quantity: item.quantity,
+        packagingId: item.packagingId,
+        packagingQty: item.packagingQty
+      })) || [],
       isDelivery: quote.isDelivery,
       deliveryZoneId: quote.deliveryZoneId,
       deliveryDistance: quote.deliveryDistance ? Number(quote.deliveryDistance) : null,
@@ -482,3 +477,77 @@ export async function PUT(
   }
 }
 
+/**
+ * DELETE /api/quotes/[id]
+ * Delete a quote
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const quoteId = parseInt(id)
+
+    if (isNaN(quoteId)) {
+      return NextResponse.json(
+        { error: 'Invalid quote ID' },
+        { status: 400 }
+      )
+    }
+
+    // Check if quote exists
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId }
+    })
+
+    if (!quote) {
+      return NextResponse.json(
+        { error: 'Quote not found' },
+        { status: 404 }
+      )
+    }
+
+    // Check if quote was converted to an order
+    if (quote.convertedOrderId) {
+      return NextResponse.json(
+        { error: 'Cannot delete quote that has been converted to an order' },
+        { status: 400 }
+      )
+    }
+
+    // Delete quote and all related records in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Delete quote items
+      await tx.quoteItem.deleteMany({
+        where: { quoteId }
+      })
+
+      // Delete quote decorations
+      await tx.quoteDecoration.deleteMany({
+        where: { quoteId }
+      })
+
+      // Delete quote tiers
+      await tx.quoteTier.deleteMany({
+        where: { quoteId }
+      })
+
+      // Delete the quote
+      await tx.quote.delete({
+        where: { id: quoteId }
+      })
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: `Quote ${quote.quoteNumber} deleted`
+    })
+  } catch (error) {
+    console.error('Error deleting quote:', error)
+    return NextResponse.json(
+      { error: 'Failed to delete quote' },
+      { status: 500 }
+    )
+  }
+}

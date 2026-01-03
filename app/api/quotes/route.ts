@@ -54,30 +54,90 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Transform to expected format for frontend
-    const quotes = quotesRaw.map(quote => ({
-      ...quote,
-      customer: quote.Customer,
-      deliveryZone: quote.DeliveryZone,
-      quoteTiers: quote.QuoteTier.map(tier => ({
-        ...tier,
-        tierSize: tier.TierSize,
-        batterRecipe: tier.Recipe_QuoteTier_batterRecipeIdToRecipe,
-        fillingRecipe: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe,
-        frostingRecipe: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe
-      })),
-      quoteDecorations: quote.QuoteDecoration.map(dec => ({
-        ...dec,
-        decorationTechnique: dec.DecorationTechnique
-      })),
-      quoteItems: quote.QuoteItem.map(item => ({
-        ...item,
-        menuItem: item.MenuItem ? {
-          ...item.MenuItem,
-          productType: item.MenuItem.ProductType
-        } : null,
-        packaging: item.Packaging
-      }))
+    // Transform to expected format for frontend and calculate costs
+    const quotes = await Promise.all(quotesRaw.map(async quote => {
+      let estimatedCost = null
+
+      // Get price adjustment value (added to final price separately)
+      const adjustment = quote.priceAdjustment ? Number(quote.priceAdjustment) : 0
+
+      // Always calculate cost on the fly to ensure accuracy
+      // (locked costing may be stale if products weren't included when it was locked)
+      try {
+        const quoteInput: QuoteInput = {
+          customerId: quote.customerId,
+          customerName: quote.customerName,
+          eventDate: quote.eventDate,
+          tiers: quote.QuoteTier.map(tier => ({
+            tierSizeId: tier.tierSizeId,
+            tierIndex: tier.tierIndex,
+            batterRecipeId: tier.batterRecipeId,
+            batterMultiplier: tier.batterMultiplier ? Number(tier.batterMultiplier) : null,
+            fillingRecipeId: tier.fillingRecipeId,
+            fillingMultiplier: tier.fillingMultiplier ? Number(tier.fillingMultiplier) : null,
+            frostingRecipeId: tier.frostingRecipeId,
+            frostingMultiplier: tier.frostingMultiplier ? Number(tier.frostingMultiplier) : null,
+            flavor: tier.flavor,
+            filling: tier.filling,
+            finishType: tier.finishType
+          })),
+          decorations: quote.QuoteDecoration.map(dec => ({
+            decorationTechniqueId: dec.decorationTechniqueId,
+            quantity: dec.quantity,
+            unitOverride: dec.unitOverride as 'SINGLE' | 'CAKE' | 'TIER' | 'SET' | undefined,
+            tierIndices: dec.tierIndices as number[] | undefined
+          })),
+          products: quote.QuoteItem.map(item => ({
+            menuItemId: item.menuItemId!,
+            quantity: item.quantity,
+            packagingId: item.packagingId,
+            packagingQty: item.packagingQty
+          })),
+          isDelivery: quote.isDelivery,
+          deliveryZoneId: quote.deliveryZoneId,
+          deliveryDistance: quote.deliveryDistance ? Number(quote.deliveryDistance) : null,
+          bakerHours: quote.bakerHours ? Number(quote.bakerHours) : null,
+          assistantHours: quote.assistantHours ? Number(quote.assistantHours) : null,
+          topperType: quote.topperType,
+          topperText: quote.topperText,
+          customTopperFee: quote.customTopperFee ? Number(quote.customTopperFee) : null,
+          markupPercent: Number(quote.markupPercent),
+          discountType: quote.discountType,
+          discountValue: quote.discountValue ? Number(quote.discountValue) : null,
+          discountReason: quote.discountReason
+        }
+        const costing = await calculateQuoteCost(quoteInput)
+        // Add price adjustment to get the true customer price
+        estimatedCost = costing.finalPrice + adjustment
+      } catch (costError) {
+        console.error(`Failed to calculate cost for quote ${quote.id}:`, costError)
+      }
+
+      return {
+        ...quote,
+        estimatedCost,
+        customer: quote.Customer,
+        deliveryZone: quote.DeliveryZone,
+        quoteTiers: quote.QuoteTier.map(tier => ({
+          ...tier,
+          tierSize: tier.TierSize,
+          batterRecipe: tier.Recipe_QuoteTier_batterRecipeIdToRecipe,
+          fillingRecipe: tier.Recipe_QuoteTier_fillingRecipeIdToRecipe,
+          frostingRecipe: tier.Recipe_QuoteTier_frostingRecipeIdToRecipe
+        })),
+        quoteDecorations: quote.QuoteDecoration.map(dec => ({
+          ...dec,
+          decorationTechnique: dec.DecorationTechnique
+        })),
+        quoteItems: quote.QuoteItem.map(item => ({
+          ...item,
+          menuItem: item.MenuItem ? {
+            ...item.MenuItem,
+            productType: item.MenuItem.ProductType
+          } : null,
+          packaging: item.Packaging
+        }))
+      }
     }))
 
     return NextResponse.json(quotes)
@@ -641,4 +701,6 @@ export async function POST(request: NextRequest) {
     }
   }
 }
+
+
 

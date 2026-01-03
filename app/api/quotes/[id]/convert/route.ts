@@ -25,7 +25,8 @@ export async function POST(
             Recipe_QuoteTier_frostingRecipeIdToRecipe: true
           }
         },
-        QuoteDecoration: true
+        QuoteDecoration: true,
+        QuoteItem: true
       }
     })
 
@@ -163,6 +164,21 @@ export async function POST(
             decorationTechniqueId: dec.decorationTechniqueId,
             quantity: dec.quantity,
             notes: dec.notes
+          }
+        })
+      }
+
+      // Create OrderItems from QuoteItems (products like cupcakes, cake pops, etc.)
+      for (const item of quote.QuoteItem) {
+        await tx.orderItem.create({
+          data: {
+            cakeOrderId: newOrder.id,
+            itemType: item.itemType,
+            menuItemId: item.menuItemId,
+            quantity: item.quantity,
+            packagingId: item.packagingId,
+            packagingQty: item.packagingQty,
+            notes: item.notes
           }
         })
       }
